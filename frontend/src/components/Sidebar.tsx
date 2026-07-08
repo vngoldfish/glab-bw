@@ -1,3 +1,5 @@
+import { NavLink } from "react-router-dom";
+import { NAV_ROUTES } from "../routes";
 import type { NavPage } from "../types";
 
 interface NavItem {
@@ -18,12 +20,10 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 interface SidebarProps {
-  page: NavPage;
-  onNavigate: (page: NavPage) => void;
   extensionConnected: boolean;
 }
 
-export default function Sidebar({ page, onNavigate, extensionConnected }: SidebarProps) {
+export default function Sidebar({ extensionConnected }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -36,16 +36,23 @@ export default function Sidebar({ page, onNavigate, extensionConnected }: Sideba
 
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => (
-          <button
+          <NavLink
             key={item.id}
-            type="button"
-            className={`sidebar-link ${page === item.id ? "active" : ""} ${item.enabled === false ? "disabled" : ""}`}
-            onClick={() => onNavigate(item.id)}
+            to={NAV_ROUTES[item.id]}
+            className={({ isActive }) =>
+              [
+                "sidebar-link",
+                isActive ? "active" : "",
+                item.enabled === false ? "disabled" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")
+            }
           >
             <span className={`nav-icon nav-icon-${item.id}`}>{item.icon}</span>
             <span>{item.label}</span>
             {item.enabled === false && <span className="sidebar-soon">Soon</span>}
-          </button>
+          </NavLink>
         ))}
       </nav>
 
