@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { normalizeFileUrl, openOutputFolder, submitBatch } from "../api";
 import {
-  clearFlowImageSnapshot,
-  loadFlowImageSnapshot,
-  saveFlowImageSnapshot,
-} from "../flowImageStorage";
+  clearFlowVideoSnapshot,
+  loadFlowVideoSnapshot,
+  saveFlowVideoSnapshot,
+} from "../flowVideoStorage";
 import { NAV_ROUTES } from "../routes";
 import PromptMentionField, {
   type PromptMentionFieldHandle,
@@ -13,26 +13,32 @@ import PromptMentionField, {
 import { useReferenceLibrary } from "../referenceLibraryContext";
 import {
   buildNamedReferencesPayload,
+  parseMentions,
   validatePromptMentions,
 } from "../referenceUtils";
 import {
-  ASPECT_RATIOS,
-  IMAGE_MODELS,
+  OMNI_FLASH_DURATIONS,
   SAVE_MODES,
-  type ImageConfig,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_MODES,
+  VIDEO_MODELS,
+  VIDEO_RESOLUTIONS,
   type QueueRow,
   type RowStatus,
+  type VideoConfig,
+  type VideoMode,
 } from "../types";
 import { createId, runWithConcurrency } from "../utils";
 
-const DEFAULT_CONFIG: ImageConfig = {
-  model: "nano_banana_2_lite",
-  aspectRatio: "1:1",
+const DEFAULT_CONFIG: VideoConfig = {
+  model: "omni_flash",
+  aspectRatio: "16:9",
+  mode: "text_to_video",
   concurrency: 1,
-  imagesPerPrompt: 1,
   saveMode: "task",
-  outputFolder: "G-Labs BW/image_output",
-  upscale: [],
+  outputFolder: "G-Labs BW/video_output",
+  resolution: [],
+  duration: 8,
 };
 
 function emptyRow(): QueueRow {
@@ -62,7 +68,7 @@ function confirmRerun(targetRows: QueueRow[]): boolean {
 function statusLabel(status: RowStatus): string {
   switch (status) {
     case "running":
-      return "Đang tạo...";
+      return "Đang tạo video...";
     case "completed":
       return "Hoàn thành";
     case "failed":
@@ -72,6 +78,23 @@ function statusLabel(status: RowStatus): string {
     default:
       return "Sẵn sàng";
   }
+}
+
+function validateVideoMode(prompt: string, mode: VideoMode, library: ReturnType<typeof useReferenceLibrary>["library"]): string | null {
+  const mentionError = validatePromptMentions(prompt, library);
+  if (mentionError) return mentionError;
+
+  const mentionCount = parseMentions(prompt, library).length;
+  if (mode === "start_image" && mentionCount < 1) {
+    return "Chế độ Ảnh đầu cần ít nhất một @tên trong prompt";
+  }
+  if (mode === "start_end_image" && mentionCount < 2) {
+    return "Chế độ Ảnh đầu + cuối cần ít nhất hai @tên trong prompt";
+  }
+  if (mode === "components" && mentionCount < 1) {
+    return "Chế độ Ảnh tham chiếu cần ít nhất một @tên trong prompt";
+  }
+  return null;
 }
 
 type SortDirection = "asc" | "desc";
@@ -107,27 +130,27 @@ function getRowActionState(row: QueueRow, batchRunning: boolean) {
   };
 }
 
-interface FlowImagePageProps {
+interface FlowVideoPageProps {
   activeCount: number;
   onError: (msg: string) => void;
 }
 
-export default function FlowImagePage({ activeCount, onError }: FlowImagePageProps) {
+export default function FlowVideoPage({ activeCount, onError }: FlowVideoPageProps) {
   const navigate = useNavigate();
   const { library: referenceLibrary } = useReferenceLibrary();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
-  const [config, setConfig] = useState<ImageConfig>(() => ({
+  const [config, setConfig] = useState<VideoConfig>(() => ({
     ...DEFAULT_CONFIG,
-    ...(loadFlowImageSnapshot()?.config ?? {}),
+    ...(loadFlowVideoSnapshot()?.config ?? {}),
   }));
   const [advancedOpen, setAdvancedOpen] = useState(
-    () => loadFlowImageSnapshot()?.advancedOpen ?? false,
+    () => loadFlowVideoSnapshot()?.advancedOpen ?? false,
   );
   const [promptInput, setPromptInput] = useState(
-    () => loadFlowImageSnapshot()?.promptInput ?? "",
+    () => loadFlowVideoSnapshot()?.promptInput ?? "",
   );
   const [rows, setRows] = useState<QueueRow[]>(
-    () => loadFlowImageSnapshot()?.rows ?? [],
+    () => loadFlowVideoSnapshot()?.rows ?? [],
   );
   const [running, setRunning] = useState(false);
   const [queueSearch, setQueueSearch] = useState("");
@@ -140,12 +163,12 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      saveFlowImageSnapshot({ config, rows, promptInput, advancedOpen });
+      saveFlowVideoSnapshot({ config, rows, promptInput, advancedOpen });
     }, 400);
     return () => {
       window.clearTimeout(timer);
       // Flush immediately on unmount / dep change so tab switch never drops the latest queue
-      saveFlowImageSnapshot({ config, rows, promptInput, advancedOpen });
+      saveFlowVideoSnapshot({ config, rows, promptInput, advancedOpen });
     };
   }, [config, rows, promptInput, advancedOpen]);
 
@@ -206,9 +229,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       updateRow(row.id, { status: "running" });
       try {
         const prompt = row.prompt.trim();
-        const mentionError = validatePromptMentions(prompt, referenceLibrary);
-        if (mentionError) {
-          updateRow(row.id, { status: "failed", error: mentionError });
+        const modeError = validateVideoMode(prompt, config.mode, referenceLibrary);
+        if (modeError) {
+          updateRow(row.id, { status: "failed", error: modeError });
           return;
         }
 
@@ -216,17 +239,15 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          upscale: config.upscale,
-          count: config.imagesPerPrompt,
+          mode: config.mode,
           save_mode: config.saveMode,
           output_folder: config.outputFolder,
+          ...(config.model === "omni_flash" ? { duration: config.duration || 8 } : {}),
+          ...(config.resolution.length > 0 ? { resolution: config.resolution } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
-          ...(!namedRefs.length && row.referenceImage
-            ? { reference_images: [row.referenceImage] }
-            : {}),
         };
         const result = await submitBatch(
-          [{ prompt, provider: "image", params }],
+          [{ prompt, provider: "video", params }],
           1,
         );
         const item = result.results[0];
@@ -239,7 +260,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         } else {
           updateRow(row.id, {
             status: "failed",
-            error: item?.error || item?.error_detail || "Tạo ảnh thất bại",
+            error: item?.error || item?.error_detail || "Tạo video thất bại",
           });
         }
       } catch (err) {
@@ -352,8 +373,8 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       return;
     }
     setRows([]);
-    clearFlowImageSnapshot();
-    saveFlowImageSnapshot({
+    clearFlowVideoSnapshot();
+    saveFlowVideoSnapshot({
       config,
       rows: [],
       promptInput,
@@ -376,11 +397,14 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const selectedCount = rows.filter((r) => r.selected).length;
   const completedCount = rows.filter((r) => r.status === "completed").length;
   const runningCount = rows.filter((r) => r.status === "running" || r.status === "queued").length;
+
+  const modeNeedsRefs = config.mode !== "text_to_video";
+
   return (
-    <div className="flow-page">
+    <div className="flow-page flow-video-page">
       <header className="flow-page-top">
         <div className="flow-page-top-main">
-          <h1>Flow Image</h1>
+          <h1>Flow Video</h1>
           <span className="pill pill-purple">Batch</span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
         </div>
@@ -416,40 +440,64 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 value={config.model}
                 onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
               >
-                {IMAGE_MODELS.map((m) => (
+                {VIDEO_MODELS.map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
+              {config.model === "omni_flash" && (
+                <small className="field-hint">
+                  Omni Flash (abra): T2V / ảnh đầu / @tham chiếu · 4–10s · cần credit Flow
+                </small>
+              )}
             </label>
+            {config.model === "omni_flash" && (
+              <label>
+                Độ dài video
+                <select
+                  value={config.duration || 8}
+                  onChange={(e) =>
+                    setConfig((c) => ({ ...c, duration: Number(e.target.value) }))
+                  }
+                >
+                  {OMNI_FLASH_DURATIONS.map((d) => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
-              Tỷ lệ ảnh
+              Tỷ lệ video
               <select
                 value={config.aspectRatio}
                 onChange={(e) => setConfig((c) => ({ ...c, aspectRatio: e.target.value }))}
               >
-                {ASPECT_RATIOS.map((a) => (
+                {VIDEO_ASPECT_RATIOS.map((a) => (
                   <option key={a.value} value={a.value}>{a.label}</option>
                 ))}
               </select>
+            </label>
+            <label>
+              Chế độ tạo
+              <select
+                value={config.mode}
+                onChange={(e) => setConfig((c) => ({ ...c, mode: e.target.value as VideoMode }))}
+              >
+                {VIDEO_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              {modeNeedsRefs && (
+                <small className="field-hint">Cần gõ @tên ảnh trong prompt</small>
+              )}
             </label>
             <label>
               Số luồng chạy đồng thời
               <input
                 type="number"
                 min={1}
-                max={20}
+                max={10}
                 value={config.concurrency}
                 onChange={(e) => setConfig((c) => ({ ...c, concurrency: Number(e.target.value) }))}
-              />
-            </label>
-            <label>
-              Số lượng ảnh / prompt
-              <input
-                type="number"
-                min={1}
-                max={4}
-                value={config.imagesPerPrompt}
-                onChange={(e) => setConfig((c) => ({ ...c, imagesPerPrompt: Number(e.target.value) }))}
               />
             </label>
             <label>
@@ -468,9 +516,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               <input
                 value={config.outputFolder}
                 onChange={(e) => setConfig((c) => ({ ...c, outputFolder: e.target.value }))}
-                placeholder="G-Labs BW/image_output"
+                placeholder="G-Labs BW/video_output"
               />
-              <small className="field-hint">Lưu vào thư mục data/{config.outputFolder || "image_output"}</small>
+              <small className="field-hint">Lưu vào thư mục data/{config.outputFolder || "video_output"}</small>
             </label>
           </section>
 
@@ -483,36 +531,23 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           </button>
           {advancedOpen && (
             <section className="config-section">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={config.upscale.includes("2K")}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      upscale: e.target.checked
-                        ? [...c.upscale.filter((u) => u !== "2K"), "2K"]
-                        : c.upscale.filter((u) => u !== "2K"),
-                    }))
-                  }
-                />
-                Upscale 2K
-              </label>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={config.upscale.includes("4K")}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      upscale: e.target.checked
-                        ? [...c.upscale.filter((u) => u !== "4K"), "4K"]
-                        : c.upscale.filter((u) => u !== "4K"),
-                    }))
-                  }
-                />
-                Upscale 4K
-              </label>
+              {VIDEO_RESOLUTIONS.map((res) => (
+                <label key={res.value} className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={config.resolution.includes(res.value)}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        resolution: e.target.checked
+                          ? [...c.resolution.filter((r) => r !== res.value), res.value]
+                          : c.resolution.filter((r) => r !== res.value),
+                      }))
+                    }
+                  />
+                  {res.label}
+                </label>
+              ))}
             </section>
           )}
 
@@ -593,7 +628,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               rows={5}
               className="queue-bulk-prompt"
               menuPlacement="above"
-              placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
+              placeholder={"@hoa đi bộ trên bãi biển lúc hoàng hôn\nMột con mèo chạy qua cánh đồng lúa\nThành phố tương lai với xe bay"}
               value={promptInput}
               library={referenceLibrary}
               onChange={setPromptInput}
@@ -871,19 +906,32 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                               {row.results.map((url) => (
                                 <a
                                   key={url}
-                                  className="result-frame"
+                                  className="result-frame result-frame--video"
                                   href={url}
                                   target="_blank"
                                   rel="noreferrer"
-                                  title="Mở ảnh"
+                                  title="Mở video"
                                 >
-                                  <img src={url} alt="result" className="result-thumb" />
+                                  <video
+                                    src={url}
+                                    className="result-video"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    onMouseEnter={(e) => {
+                                      void e.currentTarget.play().catch(() => undefined);
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.pause();
+                                      e.currentTarget.currentTime = 0;
+                                    }}
+                                  />
                                 </a>
                               ))}
                             </div>
                           ) : (
                             <span className="result-empty">
-                              {row.status === "running" ? "Đang render..." : "—"}
+                              {row.status === "running" ? "Đang render video..." : "—"}
                             </span>
                           )}
                         </div>

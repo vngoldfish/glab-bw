@@ -17,7 +17,13 @@ def _parse_expires(value: str | None) -> float | None:
 
 
 class FlowSessionManager:
-    async def ensure_session(self, account: Account, client: Any) -> dict[str, str]:
+    async def ensure_session(
+        self,
+        account: Account,
+        client: Any,
+        *,
+        force_refresh: bool = False,
+    ) -> dict[str, str]:
         creds = dict(account.credentials)
         session_token = creds.get("session_token", "").strip()
         if not session_token:
@@ -28,14 +34,30 @@ class FlowSessionManager:
 
         access_token = creds.get("access_token", "").strip()
         expires_at = _parse_expires(creds.get("at_expires"))
-        if not access_token or not expires_at or expires_at < time.time() + 60:
+        needs_refresh = (
+            force_refresh
+            or not access_token
+            or not expires_at
+            or expires_at < time.time() + 60
+        )
+        if needs_refresh:
             session = await client.st_to_at(session_token)
             access_token = str(session.get("access_token", "")).strip()
             expires = str(session.get("expires", "")).strip()
             user = session.get("user") or {}
-            tier = str(user.get("paygateTier") or creds.get("user_paygate_tier") or "PAYGATE_TIER_ONE")
+            # Accept several possible field names from Flow session payload
+            tier = str(
+                user.get("paygateTier")
+                or user.get("userPaygateTier")
+                or session.get("paygateTier")
+                or creds.get("user_paygate_tier")
+                or "PAYGATE_TIER_ONE"
+            )
             if not access_token:
-                raise ProviderError("Không lấy được access token từ Google Flow", error_code=403)
+                raise ProviderError(
+                    "Không lấy được access token từ Google Flow — paste lại cookie session-token trong Settings",
+                    error_code=403,
+                )
             creds["access_token"] = access_token
             creds["at_expires"] = expires
             creds["user_paygate_tier"] = tier

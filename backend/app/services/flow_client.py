@@ -1,5 +1,8 @@
 import asyncio
 import base64
+import hashlib
+import json
+import logging
 import random
 import time
 import uuid
@@ -19,9 +22,12 @@ from app.services.flow_models import (
     UPSCALE_VIDEO,
     resolve_image_aspect,
     resolve_image_model,
+    is_omni_flash_model,
     resolve_video_aspect,
-    resolve_video_model,
+    resolve_video_model_candidates,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
@@ -37,15 +43,32 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
                     if reason:
                         reasons.append(str(reason))
 
-        if "UNSAFE_GENERATION" in " ".join(reasons) or "UNSAFE" in status:
+        joined = " ".join(reasons)
+        if "UNSAFE_GENERATION" in joined or "UNSAFE" in status:
             return "Prompt bị Google chặn (nội dung không an toàn) — hãy sửa lại prompt"
-        if status == "INTERNAL" or status_code >= 500:
+        if status == "PERMISSION_DENIED" or "does not have permission" in message.lower():
             return (
-                "Google Flow lỗi tạm thời (INTERNAL) — thử lại sau 10–30 giây, "
-                "đổi model sang Nano Banana 2 Lite, hoặc refresh cookie Flow"
+                "Google từ chối quyền tạo video (PERMISSION_DENIED). "
+                "Nếu Flow web vẫn tạo được: cookie/session trong app có thể cũ hoặc khác tab browser — "
+                "mở Settings → dán lại cookie __Secure-next-auth.session-token mới từ labs.google, "
+                "giữ tab Flow mở + extension xanh. "
+                "Cũng thử model Veo 3.1 Lite / text-to-video. "
+                f"({message or status})"
+            )
+        if status == "INTERNAL" or (status_code >= 500 and status_code != 503):
+            return (
+                "Google Flow lỗi tạm thời (INTERNAL). Thường do: "
+                "(1) server Google quá tải — đợi 30–60s rồi chạy lại, "
+                "(2) model/mode không khớp gói tài khoản — thử Veo 3.1 Lite hoặc text-to-video, "
+                "(3) cookie/session Flow cũ — mở lại labs.google/fx/tools/flow. "
+                f"Chi tiết: {message or status or status_code}".strip()
+            )
+        if status_code == 503 or status == "UNAVAILABLE":
+            return (
+                "Google Flow đang bận (503 UNAVAILABLE) — đợi 30–60 giây rồi thử lại"
             )
         if status == "INVALID_ARGUMENT":
-            return f"Tham số không hợp lệ — thử model khác hoặc tỷ lệ 1:1. {message}".strip()
+            return f"Tham số không hợp lệ — thử model khác hoặc tỷ lệ khác. {message}".strip()
         if message:
             return message
     return raw_text[:500] or f"HTTP {status_code}"
@@ -66,12 +89,20 @@ class GoogleFlowClient:
         access_token: str | None = None,
         session_token: str | None = None,
         project_id: str | None = None,
+        browser_like: bool = False,
     ) -> dict[str, str]:
+        # Browser Flow uses text/plain for aisandbox video calls (not application/json)
+        content_type = "text/plain;charset=UTF-8" if browser_like else "application/json"
+        referer = (
+            f"https://labs.google/fx/tools/flow/project/{project_id}"
+            if project_id
+            else "https://labs.google/fx/tools/flow"
+        )
         headers = {
-            "Content-Type": "application/json",
+            "Content-Type": content_type,
             "Accept": "*/*",
             "Origin": "https://labs.google",
-            "Referer": f"https://labs.google/fx/tools/flow/project/{project_id}" if project_id else "https://labs.google/",
+            "Referer": referer,
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -79,6 +110,9 @@ class GoogleFlowClient:
             "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
             "x-browser-channel": "stable",
             "x-browser-copyright": "Copyright 2026 Google LLC. All Rights Reserved.",
             "x-browser-validation": "MRCPrt/rS3JY47x2Yiz9h3ag4U8=",
@@ -98,11 +132,21 @@ class GoogleFlowClient:
         headers: dict[str, str],
         json_data: dict[str, Any] | None = None,
         timeout: float | None = None,
+        browser_like: bool = False,
     ) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
-            response = await client.request(method, url, headers=headers, json=json_data)
+            if browser_like and json_data is not None:
+                # Match browser: JSON body with Content-Type text/plain;charset=UTF-8
+                response = await client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    content=json.dumps(json_data, separators=(",", ":")),
+                )
+            else:
+                response = await client.request(method, url, headers=headers, json=json_data)
         if response.status_code >= 400:
-            raw = response.text[:500]
+            raw = response.text[:800]
             payload: Any = raw
             try:
                 payload = response.json()
@@ -110,6 +154,13 @@ class GoogleFlowClient:
                     payload = payload["error"]
             except Exception:
                 payload = raw
+            logger.warning(
+                "Flow API %s %s -> %s body=%s",
+                method,
+                url.split("?")[0],
+                response.status_code,
+                raw[:300],
+            )
             detail = _format_api_error(response.status_code, payload, raw)
             raise ProviderError(detail, error_code=response.status_code)
         if not response.content:
@@ -307,31 +358,12 @@ class GoogleFlowClient:
         mode: str = "text_to_video",
         start_media_id: str | None = None,
         end_media_id: str | None = None,
+        reference_media_ids: list[str] | None = None,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         resolution_targets: list[str] | None = None,
+        duration: int | None = None,
+        session_token: str | None = None,
     ) -> list[bytes]:
-        recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
-        session_id = self._session_id()
-        client_context = self._client_context(
-            project_id=project_id,
-            recaptcha_token=recaptcha_token,
-            session_id=session_id,
-            user_paygate_tier=user_paygate_tier,
-        )
-        model_key = resolve_video_model(model, aspect_ratio, mode=mode)
-        request_data: dict[str, Any] = {
-            "aspectRatio": resolve_video_aspect(aspect_ratio),
-            "seed": random.randint(1, 99999),
-            "textInput": {"prompt": prompt},
-            "videoModelKey": model_key,
-            "metadata": {"sceneId": str(uuid.uuid4())},
-        }
-        if mode == "start_image" and start_media_id:
-            request_data["startImage"] = {"mediaId": start_media_id}
-        if mode == "start_end_image" and start_media_id and end_media_id:
-            request_data["startImage"] = {"mediaId": start_media_id}
-            request_data["endImage"] = {"mediaId": end_media_id}
-
         if mode in {"start_image", "start_end_image", "components"}:
             endpoint = "video:batchAsyncGenerateVideoStartImage"
             if mode == "start_end_image":
@@ -341,25 +373,174 @@ class GoogleFlowClient:
         else:
             endpoint = "video:batchAsyncGenerateVideoText"
 
-        payload = {
-            "clientContext": client_context,
-            "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
-            "requests": [request_data],
-            "useV2ModelConfig": True,
-        }
-        submit = await self._request(
-            "POST",
-            self._api_url(endpoint),
-            headers=self._headers(access_token=access_token, project_id=project_id),
-            json_data=payload,
-            timeout=60.0,
+        omni = is_omni_flash_model(model)
+        model_keys = resolve_video_model_candidates(
+            model,
+            aspect_ratio,
+            mode=mode,
+            user_paygate_tier=user_paygate_tier,
+            duration=duration,
         )
-        operations = submit.get("operations", [])
-        if not operations:
-            raise ProviderError("Video submit không trả về operation", error_code=500)
+        # If Omni hits PERMISSION, automatically try Veo keys too
+        if omni:
+            for veo_model in ("veo_31_lite", "veo_31_fast"):
+                for key in resolve_video_model_candidates(
+                    veo_model,
+                    aspect_ratio,
+                    mode=mode,
+                    user_paygate_tier=user_paygate_tier,
+                ):
+                    if key not in model_keys:
+                        model_keys.append(key)
 
-        media_name = await self._poll_video(access_token, operations)
-        base_video = await self._download_video(access_token, media_name)
+        last_error: ProviderError | None = None
+        submit: dict[str, Any] | None = None
+        used_key = model_keys[0]
+
+        # Try primary + fallback model keys; re-solve captcha each attempt
+        for key_index, model_key in enumerate(model_keys):
+            use_omni_payload = model_key.startswith("abra_")
+            for attempt in range(2):
+                try:
+                    recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
+                    session_id = self._session_id()
+                    client_context = self._client_context(
+                        project_id=project_id,
+                        recaptcha_token=recaptcha_token,
+                        session_id=session_id,
+                        user_paygate_tier=user_paygate_tier or "PAYGATE_TIER_ONE",
+                    )
+                    # Omni production payloads use structuredPrompt (same for I2V/R2V)
+                    if use_omni_payload:
+                        text_input: dict[str, Any] = {
+                            "structuredPrompt": {"parts": [{"text": prompt}]},
+                        }
+                        metadata: dict[str, Any] = {}
+                    else:
+                        text_input = {"prompt": prompt}
+                        metadata = {"sceneId": str(uuid.uuid4())}
+
+                    request_data: dict[str, Any] = {
+                        "aspectRatio": resolve_video_aspect(aspect_ratio),
+                        "seed": random.randint(1, 9999 if use_omni_payload else 99999),
+                        "textInput": text_input,
+                        "videoModelKey": model_key,
+                        "metadata": metadata,
+                    }
+                    if mode == "start_image" and start_media_id:
+                        request_data["startImage"] = {"mediaId": start_media_id}
+                    if mode == "start_end_image" and start_media_id and end_media_id:
+                        request_data["startImage"] = {"mediaId": start_media_id}
+                        request_data["endImage"] = {"mediaId": end_media_id}
+                    if mode == "components" and reference_media_ids:
+                        if use_omni_payload:
+                            request_data["referenceImages"] = [
+                                {
+                                    "mediaId": media_id,
+                                    "imageUsageType": "IMAGE_USAGE_TYPE_ASSET",
+                                }
+                                for media_id in reference_media_ids
+                            ]
+                        else:
+                            request_data["referenceImages"] = [
+                                {"mediaId": media_id} for media_id in reference_media_ids
+                            ]
+
+                    payload = {
+                        "clientContext": client_context,
+                        "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
+                        "requests": [request_data],
+                        "useV2ModelConfig": True,
+                    }
+                    logger.info(
+                        "Flow video submit mode=%s model_key=%s attempt=%s project=%s",
+                        mode,
+                        model_key,
+                        attempt + 1,
+                        project_id[:8] if project_id else "?",
+                    )
+                    # Match browser request shape (text/plain + cookie + bearer)
+                    submit = await self._request(
+                        "POST",
+                        self._api_url(endpoint),
+                        headers=self._headers(
+                            access_token=access_token,
+                            session_token=session_token,
+                            project_id=project_id,
+                            browser_like=True,
+                        ),
+                        json_data=payload,
+                        timeout=60.0,
+                        browser_like=True,
+                    )
+                    used_key = model_key
+                    break
+                except ProviderError as exc:
+                    last_error = exc
+                    msg = str(exc).lower()
+                    retryable = (
+                        exc.error_code in {403, 500, 502, 503, 504}
+                        or "internal" in msg
+                        or "unavailable" in msg
+                        or "tạm thời" in msg
+                        or "permission" in msg
+                    )
+                    logger.warning(
+                        "Flow video failed mode=%s model_key=%s: %s",
+                        mode,
+                        model_key,
+                        exc,
+                    )
+                    if retryable and attempt == 0:
+                        await asyncio.sleep(1 + key_index)
+                        continue
+                    # Try next model key on INTERNAL / invalid / permission
+                    if retryable or "invalid" in msg:
+                        break
+                    raise
+            else:
+                continue
+            if submit is not None:
+                break
+
+        if submit is None:
+            raise last_error or ProviderError("Tạo video thất bại", error_code=0)
+
+        operations = submit.get("operations", [])
+        # Omni Flash sometimes returns media[] immediately instead of operations[]
+        if not operations:
+            media_list = submit.get("media") or []
+            operations = []
+            for item in media_list:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name") or item.get("mediaGenerationId")
+                if name:
+                    operations.append(
+                        {
+                            "operation": {"name": name},
+                            "mediaGenerationId": name,
+                            "name": name,
+                        }
+                    )
+
+        if not operations:
+            raise ProviderError(
+                f"Video submit không trả về operation (model={used_key})",
+                error_code=500,
+            )
+
+        media_name = await self._poll_video(
+            access_token,
+            operations,
+            project_id=project_id,
+            session_token=session_token,
+        )
+        base_video = await self._download_video(
+            access_token,
+            media_name,
+            session_token=session_token,
+        )
 
         if not resolution_targets:
             return [base_video]
@@ -381,7 +562,14 @@ class GoogleFlowClient:
             outputs.append(upscaled)
         return outputs
 
-    async def _poll_video(self, access_token: str, operations: list[dict[str, Any]]) -> str:
+    async def _poll_video(
+        self,
+        access_token: str,
+        operations: list[dict[str, Any]],
+        *,
+        project_id: str | None = None,
+        session_token: str | None = None,
+    ) -> str:
         media_refs = []
         for op in operations:
             name = (
@@ -390,7 +578,11 @@ class GoogleFlowClient:
                 or op.get("mediaGenerationId")
             )
             if name:
-                media_refs.append({"name": name, "mediaGenerationId": name})
+                # API only accepts name (+ optional projectId). mediaGenerationId is rejected.
+                ref: dict[str, Any] = {"name": name}
+                if project_id:
+                    ref["projectId"] = project_id
+                media_refs.append(ref)
 
         if not media_refs:
             raise ProviderError("Không có media ref để poll video", error_code=0)
@@ -400,14 +592,31 @@ class GoogleFlowClient:
             result = await self._request(
                 "POST",
                 self._api_url("video:batchCheckAsyncVideoGenerationStatus"),
-                headers=self._headers(access_token=access_token),
+                headers=self._headers(
+                    access_token=access_token,
+                    session_token=session_token,
+                    project_id=project_id,
+                    browser_like=True,
+                ),
                 json_data={"media": media_refs},
                 timeout=60.0,
+                browser_like=True,
             )
             media_items = result.get("media") or result.get("operations") or []
             for item in media_items:
-                status = str(item.get("status") or item.get("state") or "").upper()
-                if "FAILED" in status or "ERROR" in status:
+                # Nested status under mediaMetadata.mediaStatus (Omni) or top-level
+                nested = (
+                    item.get("mediaMetadata", {}).get("mediaStatus", {})
+                    if isinstance(item.get("mediaMetadata"), dict)
+                    else {}
+                )
+                status = str(
+                    nested.get("mediaGenerationStatus")
+                    or item.get("status")
+                    or item.get("state")
+                    or ""
+                ).upper()
+                if "FAILED" in status or "ERROR" in status or "BLOCKED" in status:
                     raise ProviderError(f"Video generation failed: {status}", error_code=500)
                 if "SUCCESS" in status or "COMPLETE" in status or "DONE" in status:
                     media_name = self._extract_media_name(item)
@@ -456,12 +665,23 @@ class GoogleFlowClient:
         media_name = await self._poll_video(access_token, submit.get("operations", []))
         return await self._download_video(access_token, media_name)
 
-    async def _download_video(self, access_token: str, media_name: str) -> bytes:
+    async def _download_video(
+        self,
+        access_token: str,
+        media_name: str,
+        *,
+        session_token: str | None = None,
+    ) -> bytes:
         result = await self._request(
             "GET",
             self._api_url(f"media/{media_name}"),
-            headers=self._headers(access_token=access_token),
+            headers=self._headers(
+                access_token=access_token,
+                session_token=session_token,
+                browser_like=True,
+            ),
             timeout=180.0,
+            browser_like=True,
         )
         video = result.get("video", {})
         generated = video.get("generatedVideo", video)
@@ -505,20 +725,24 @@ class GoogleFlowClient:
         project_id: str,
         image_bytes: bytes,
         mime_type: str = "image/png",
+        hidden: bool = True,
     ) -> str:
         extension = "png"
         if mime_type == "image/jpeg":
             extension = "jpg"
         elif mime_type == "image/webp":
             extension = "webp"
+        # Stable name from content so Flow project is easier to read / dedupe mentally
+        digest = hashlib.sha256(image_bytes).hexdigest()[:12]
         payload = {
             "clientContext": {
                 "projectId": project_id,
                 "tool": "PINHOLE",
             },
-            "fileName": f"glabs_{int(time.time() * 1000)}.{extension}",
+            "fileName": f"glabs_ref_{digest}.{extension}",
             "imageBytes": base64.b64encode(image_bytes).decode("utf-8"),
-            "isHidden": False,
+            # Keep visible by default — hidden media can cause PERMISSION_DENIED on video gen
+            "isHidden": bool(hidden),
             "isUserUploaded": True,
             "mimeType": mime_type,
         }

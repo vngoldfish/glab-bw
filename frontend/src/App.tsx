@@ -9,6 +9,7 @@ import {
   type ExtensionStatus,
 } from "./api";
 import FlowImagePage from "./components/FlowImagePage";
+import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import ExtensionPage from "./pages/ExtensionPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
@@ -88,35 +89,48 @@ export default function App() {
             </div>
           )}
           <div className="page-content">
+            {/*
+              Keep Flow pages mounted (hidden, not unmounted) so queue + in-flight
+              jobs survive tab switches. Must use page-panel--inactive / [hidden]
+              with display:none !important so they never stack in the layout.
+            */}
+            <div
+              className={
+                location.pathname === NAV_ROUTES["flow-image"]
+                  ? "page-panel"
+                  : "page-panel page-panel--inactive"
+              }
+              hidden={location.pathname !== NAV_ROUTES["flow-image"]}
+              aria-hidden={location.pathname !== NAV_ROUTES["flow-image"]}
+            >
+              <FlowImagePage
+                activeCount={Math.max(activeCount, extension?.connected ? 1 : 0)}
+                onError={setError}
+              />
+            </div>
+            <div
+              className={
+                location.pathname === NAV_ROUTES["flow-video"]
+                  ? "page-panel"
+                  : "page-panel page-panel--inactive"
+              }
+              hidden={location.pathname !== NAV_ROUTES["flow-video"]}
+              aria-hidden={location.pathname !== NAV_ROUTES["flow-video"]}
+            >
+              <FlowVideoPage
+                activeCount={Math.max(activeCount, extension?.connected ? 1 : 0)}
+                onError={setError}
+              />
+            </div>
             <Routes>
               <Route path="/" element={<Navigate to={DEFAULT_ROUTE} replace />} />
-              <Route
-                path={NAV_ROUTES["flow-image"]}
-                element={
-                  <div className="page-panel">
-                    <FlowImagePage
-                      activeCount={Math.max(activeCount, extension?.connected ? 1 : 0)}
-                      onError={setError}
-                    />
-                  </div>
-                }
-              />
+              <Route path={NAV_ROUTES["flow-image"]} element={null} />
+              <Route path={NAV_ROUTES["flow-video"]} element={null} />
               <Route
                 path={NAV_ROUTES.references}
                 element={
                   <div className="page-panel">
                     <ReferenceLibraryPage onError={setError} />
-                  </div>
-                }
-              />
-              <Route
-                path={NAV_ROUTES["flow-video"]}
-                element={
-                  <div className="page-panel">
-                    <PlaceholderPage
-                      title="Flow Video"
-                      subtitle="Tạo video Veo 3.1 hàng loạt — tính năng đang được phát triển."
-                    />
                   </div>
                 }
               />

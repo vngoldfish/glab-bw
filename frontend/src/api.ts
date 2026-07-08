@@ -25,9 +25,11 @@ export interface NamedReferencePayload {
 export interface BatchItemParams {
   model?: string;
   aspect_ratio?: string;
+  mode?: string;
   reference_images?: string[];
   named_references?: NamedReferencePayload[];
   upscale?: string[];
+  resolution?: string[];
   count?: number;
   save_mode?: string;
   output_folder?: string;

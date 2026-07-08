@@ -1,9 +1,9 @@
-import type { ImageConfig, QueueRow } from "./types";
+import type { QueueRow, VideoConfig } from "./types";
 
-const STORAGE_KEY = "g-labs-bw:flow-image:v1";
+const STORAGE_KEY = "g-labs-bw:flow-video:v1";
 
-export interface FlowImageSnapshot {
-  config: ImageConfig;
+export interface FlowVideoSnapshot {
+  config: VideoConfig;
   rows: QueueRow[];
   promptInput: string;
   advancedOpen: boolean;
@@ -41,24 +41,29 @@ function stripReferenceImages(rows: QueueRow[]): QueueRow[] {
   }));
 }
 
-function migrateConfig(config: Partial<ImageConfig> | undefined): ImageConfig {
+function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
   const source = config ?? {};
+  const mode = source.mode ?? "text_to_video";
+  const validModes = new Set(["text_to_video", "start_image", "start_end_image", "components"]);
+  const durationRaw = Number(source.duration ?? 8);
+  const duration = [4, 6, 8, 10].includes(durationRaw) ? durationRaw : 8;
   return {
-    model: String(source.model ?? "nano_banana_2_lite"),
-    aspectRatio: String(source.aspectRatio ?? "1:1"),
+    model: String(source.model ?? "veo_31_fast"),
+    aspectRatio: String(source.aspectRatio ?? "16:9"),
+    mode: validModes.has(mode) ? (mode as VideoConfig["mode"]) : "text_to_video",
     concurrency: Number(source.concurrency ?? 1),
-    imagesPerPrompt: Number(source.imagesPerPrompt ?? 1),
     saveMode: String(source.saveMode ?? "task"),
-    outputFolder: String(source.outputFolder ?? "G-Labs BW/image_output"),
-    upscale: Array.isArray(source.upscale) ? source.upscale : [],
+    outputFolder: String(source.outputFolder ?? "G-Labs BW/video_output"),
+    resolution: Array.isArray(source.resolution) ? source.resolution : [],
+    duration,
   };
 }
 
-export function loadFlowImageSnapshot(): FlowImageSnapshot | null {
+export function loadFlowVideoSnapshot(): FlowVideoSnapshot | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw) as FlowImageSnapshot;
+    const data = JSON.parse(raw) as FlowVideoSnapshot;
     if (!Array.isArray(data.rows) || data.rows.length === 0) return null;
     return {
       config: migrateConfig(data.config ?? {}),
@@ -71,8 +76,8 @@ export function loadFlowImageSnapshot(): FlowImageSnapshot | null {
   }
 }
 
-export function saveFlowImageSnapshot(snapshot: FlowImageSnapshot): void {
-  const payload: FlowImageSnapshot = {
+export function saveFlowVideoSnapshot(snapshot: FlowVideoSnapshot): void {
+  const payload: FlowVideoSnapshot = {
     config: snapshot.config,
     rows: snapshot.rows.map(prepareRowForSave),
     promptInput: snapshot.promptInput,
@@ -92,11 +97,11 @@ export function saveFlowImageSnapshot(snapshot: FlowImageSnapshot): void {
         }),
       );
     } catch {
-      // Bỏ qua nếu vượt quota — app vẫn chạy bình thường
+      // Bỏ qua nếu vượt quota
     }
   }
 }
 
-export function clearFlowImageSnapshot(): void {
+export function clearFlowVideoSnapshot(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
