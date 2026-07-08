@@ -49,8 +49,15 @@ def _ordered_mentions(prompt: str, ref_by_name: dict[str, dict[str, Any]]) -> li
 def resolve_prompt_references(
     prompt: str,
     named_refs: list[dict[str, Any]],
+    *,
+    rewrite_markers: bool = True,
 ) -> tuple[str, list[Any]]:
-    """Map custom @names to Google Flow @reference_N markers and ordered upload items."""
+    """Map custom @names to ordered upload items.
+
+    When rewrite_markers=True (Veo ingredients), replace @name with @reference_N.
+    When False (Omni Flash assets), keep original @names in the prompt and only
+    return ordered image items for referenceImages[].
+    """
     prompt = _normalize_prompt(prompt)
     ref_by_name: dict[str, dict[str, Any]] = {}
     for item in named_refs:
@@ -67,10 +74,11 @@ def resolve_prompt_references(
         raise ProviderError("Tối đa 10 ảnh tham chiếu trong một prompt", error_code=400)
 
     rewritten_prompt = prompt
-    for index, name in enumerate(ordered_names):
-        slot = index + 1
-        pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
-        rewritten_prompt = pattern.sub(f"@reference_{slot}", rewritten_prompt)
+    if rewrite_markers:
+        for index, name in enumerate(ordered_names):
+            slot = index + 1
+            pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
+            rewritten_prompt = pattern.sub(f"@reference_{slot}", rewritten_prompt)
 
     ordered_items = [ref_by_name[name] for name in ordered_names]
     return rewritten_prompt, ordered_items

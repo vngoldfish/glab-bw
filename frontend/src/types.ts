@@ -104,10 +104,10 @@ export const VIDEO_ASPECT_RATIOS = [
 ] as const;
 
 export const VIDEO_MODES = [
-  { value: "text_to_video", label: "Văn bản → Video" },
-  { value: "start_image", label: "Ảnh đầu → Video" },
-  { value: "start_end_image", label: "Ảnh đầu + cuối → Video" },
-  { value: "components", label: "Ảnh tham chiếu (@tên)" },
+  { value: "text_to_video", label: "Văn bản → Video (không @)" },
+  { value: "start_image", label: "1 ảnh đầu → Video (I2V)" },
+  { value: "start_end_image", label: "Ảnh đầu + cuối (2 @)" },
+  { value: "components", label: "Nhiều người/ref (@tên) — Ingredients" },
 ] as const;
 
 export const VIDEO_RESOLUTIONS = [

@@ -1,16 +1,20 @@
+import logging
 import secrets
 
+from app.core.config import settings
 from app.core.task_queue import Task
 from app.providers.base import ProviderError
 from app.providers.registry import (
-    get_flow_provider,
+    get_flow_providers,
     get_grok_provider,
     get_meta_provider,
     get_openai_provider,
 )
-from app.core.config import settings
+from app.services.account_store import account_store
 from app.services.output_storage import file_url_from_path, resolve_task_output_dir
 from app.services.upscale import upscale_service
+
+logger = logging.getLogger(__name__)
 
 
 def _save_outputs(
@@ -28,21 +32,116 @@ def _save_outputs(
     return urls
 
 
+def _is_quota_or_rate_error(exc: BaseException) -> bool:
+    """Detect Google Flow quota / rate-limit style failures for account rotation."""
+    msg = str(exc).lower()
+    needles = (
+        "quota",
+        "resource_exhausted",
+        "rate limit",
+        "rate_limit",
+        "ratelimit",
+        "too many",
+        "throttl",
+        "credits",
+        "daily limit",
+        "user_quota",
+        "per_model_daily",
+        "out of credit",
+        "hết credit",
+        "het credit",
+        "429",
+    )
+    return any(n in msg for n in needles)
+
+
+async def _run_flow_with_rotation(
+    *,
+    for_video: bool,
+    prompt: str,
+    params: dict,
+) -> list[bytes]:
+    """Try each eligible Flow account; on quota, cool it down and try the next."""
+    candidates = get_flow_providers(for_video=for_video)
+    if not candidates:
+        kind = "video" if for_video else "image"
+        raise ProviderError(
+            f"Không còn tài khoản Flow khả dụng cho {kind}. "
+            "Thêm cookie account khác trong Settings, hoặc đợi cooldown / bật lại account.",
+            error_code=0,
+        )
+
+    last_error: BaseException | None = None
+    tried: list[str] = []
+
+    for account, provider in candidates:
+        tried.append(account.label or account.id)
+        try:
+            logger.info(
+                "Flow %s using account=%s (%s)",
+                "video" if for_video else "image",
+                account.label,
+                account.id[:8],
+            )
+            if for_video:
+                result = await provider.generate_video(prompt, params)
+            else:
+                result = await provider.generate_image(prompt, params)
+            account_store.mark_used(account.id)
+            return result
+        except ProviderError as exc:
+            last_error = exc
+            if _is_quota_or_rate_error(exc):
+                account_store.mark_quota_exhausted(
+                    account.id,
+                    reason=str(exc)[:300],
+                    cooldown_sec=3600,
+                )
+                logger.warning(
+                    "Account %s quota/rate-limited — cooldown 1h, try next. err=%s",
+                    account.label,
+                    exc,
+                )
+                continue
+            # Non-quota errors: still try next account (session/cookie issues)
+            soft = any(
+                x in str(exc).lower()
+                for x in ("permission", "unauthenticated", "401", "403", "session", "token")
+            )
+            if soft and len(candidates) > 1:
+                logger.warning(
+                    "Account %s failed (%s) — try next Flow account",
+                    account.label,
+                    exc,
+                )
+                continue
+            raise
+
+    detail = str(last_error) if last_error else "unknown"
+    raise ProviderError(
+        f"Tất cả tài khoản Flow đều lỗi (đã thử: {', '.join(tried)}). Cuối: {detail}",
+        error_code=getattr(last_error, "error_code", 0) or 0,
+    )
+
+
 async def handle_image_task(task: Task) -> list[str]:
     if not task.prompt.strip():
         raise ProviderError("Missing required field: prompt", error_code=0)
 
     params = task.payload
-    provider = get_flow_provider(for_video=False)
-    if provider is None:
+    try:
+        images = await _run_flow_with_rotation(
+            for_video=False,
+            prompt=task.prompt,
+            params=params,
+        )
+    except ProviderError:
         openai = get_openai_provider()
         if openai:
             images = await openai.generate_image(task.prompt, params)
             return _save_outputs(images, task, f"image_{task.task_id}")
+        raise
 
-        raise ProviderError("No active accounts available", error_code=0)
-
-    images = await provider.generate_image(task.prompt, params)
     upscale_targets = params.get("upscale", [])
     if upscale_targets:
         upscaled_all: list[bytes] = []
@@ -56,11 +155,11 @@ async def handle_video_task(task: Task) -> list[str]:
     if not task.prompt.strip():
         raise ProviderError("Missing required field: prompt", error_code=0)
 
-    provider = get_flow_provider(for_video=True)
-    if provider is None:
-        raise ProviderError("No active Veo account available", error_code=0)
-
-    videos = await provider.generate_video(task.prompt, task.payload)
+    videos = await _run_flow_with_rotation(
+        for_video=True,
+        prompt=task.prompt,
+        params=task.payload,
+    )
     return _save_outputs(videos, task, f"video_{task.task_id}", ext="mp4")
 
 

@@ -165,18 +165,40 @@ class FlowVeoProvider(BaseProvider):
         model = str(params.get("model", "veo_31_fast"))
         is_omni = model in {"omni_flash", "gemini_omni_flash", "omni"}
         named_refs = params.get("named_references", [])
-        resolved_prompt, named_items = resolve_prompt_references(prompt, named_refs)
+        # Veo ingredients need @reference_N markers; Omni works better with original @names
+        # + ordered referenceImages (IMAGE_USAGE_TYPE_ASSET).
+        resolved_prompt, named_items = resolve_prompt_references(
+            prompt,
+            named_refs,
+            rewrite_markers=not is_omni,
+        )
         if named_items:
             reference_items = named_items
             prompt = resolved_prompt
-            if mode == "text_to_video":
+            # 2+ refs must use ingredients/R2V — start_image only animates the FIRST frame
+            if len(named_items) >= 2 and mode in {
+                "text_to_video",
+                "start_image",
+                "components",
+            }:
+                mode = "components"
+            elif mode == "text_to_video":
                 mode = "components"
         else:
             reference_items = params.get("reference_images", [])
 
         # Omni Flash: no start+end frame API — use start frame only
         if is_omni and mode == "start_end_image":
-            mode = "start_image"
+            if len(reference_items) >= 2:
+                # Prefer multi-character ingredients over dropping to single I2V
+                mode = "components"
+            else:
+                mode = "start_image"
+
+        # Veo R2V supports up to 3 ingredient images; Omni up to ~7
+        max_refs = 7 if is_omni else 3
+        if mode == "components" and len(reference_items) > max_refs:
+            reference_items = reference_items[:max_refs]
 
         start_media_id = None
         end_media_id = None

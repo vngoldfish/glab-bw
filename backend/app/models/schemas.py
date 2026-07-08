@@ -79,6 +79,8 @@ class AccountUpdate(BaseModel):
     image_enabled: bool | None = None
     video_enabled: bool | None = None
     enabled: bool | None = None
+    clear_cooldown: bool | None = None
+    enabled: bool | None = None
 
 
 class TaskQueuedResponse(BaseModel):

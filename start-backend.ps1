@@ -1,25 +1,55 @@
-$backend = Join-Path $PSScriptRoot "backend"
-$env:PYTHONPATH = $backend
-Set-Location $backend
+# G-Labs BW backend watchdog — keeps API :8765 + Auth :18923 alive
+$Root = if ($PSScriptRoot) { $PSScriptRoot } else { "C:\Users\Admin\Desktop\g-labs-bw" }
+$Bat = Join-Path $Root "run-api.bat"
+$LogDir = Join-Path $Root "data\logs"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$Log = Join-Path $LogDir "backend.log"
 
-function Stop-PortListener {
-    param([int]$Port)
-    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            if ($_.OwningProcess -gt 0) {
-                Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
-            }
-        }
+function Log($m) {
+  $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  "$t $m" | Tee-Object -FilePath $Log -Append
 }
 
-Write-Host "Stopping old backend processes on ports 8765 and 18923..."
-Stop-PortListener -Port 8765
-Stop-PortListener -Port 18923
-Start-Sleep -Seconds 1
+function BackendUp {
+  try {
+    $r = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 2
+    return $r.StatusCode -eq 200
+  } catch { return $false }
+}
 
-Write-Host "Starting Auth Bridge on http://127.0.0.1:18923 (Chrome extension)..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$env:PYTHONPATH='$backend'; cd '$backend'; python -m uvicorn app.auth_bridge_main:app --host 127.0.0.1 --port 18923"
+function KillPorts {
+  foreach ($port in 8765, 18923) {
+    Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+      ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+  }
+}
 
-Start-Sleep -Seconds 1
-Write-Host "Starting Web API on http://127.0.0.1:8765 ..."
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+Write-Host "G-Labs BW Backend Watchdog"
+Write-Host "  Keep this window open."
+Write-Host "  API http://127.0.0.1:8765  Auth http://127.0.0.1:18923"
+Write-Host ""
+
+$proc = $null
+while ($true) {
+  if (-not (BackendUp)) {
+    Log "DOWN — restarting via run-api.bat"
+    if ($proc -and -not $proc.HasExited) {
+      try { $proc.Kill() } catch {}
+    }
+    KillPorts
+    Start-Sleep 1
+    $proc = Start-Process -FilePath "cmd.exe" `
+      -ArgumentList "/c `"$Bat`"" `
+      -WorkingDirectory $Root `
+      -WindowStyle Hidden `
+      -PassThru
+    $ok = $false
+    for ($i = 0; $i -lt 20; $i++) {
+      Start-Sleep 1
+      if (BackendUp) { $ok = $true; break }
+      if ($proc.HasExited) { break }
+    }
+    if ($ok) { Log "UP pid=$($proc.Id)" } else { Log "FAILED exit=$($proc.ExitCode) — retry 5s"; Start-Sleep 5; continue }
+  }
+  Start-Sleep 5
+}

@@ -1,0 +1,5 @@
+@echo off
+title G-Labs BW Backend Watchdog
+cd /d "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-backend.ps1"
+pause

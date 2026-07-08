@@ -48,14 +48,18 @@ async def create_account(body: AccountCreate) -> dict:
 
 @router.patch("/{account_id}")
 async def update_account(account_id: str, body: AccountUpdate) -> dict:
-    account = account_store.update(
-        account_id,
-        label=body.label,
-        credentials=body.credentials,
-        image_enabled=body.image_enabled,
-        video_enabled=body.video_enabled,
-        enabled=body.enabled,
-    )
+    updates: dict = {
+        "label": body.label,
+        "credentials": body.credentials,
+        "image_enabled": body.image_enabled,
+        "video_enabled": body.video_enabled,
+        "enabled": body.enabled,
+    }
+    if body.clear_cooldown:
+        updates["clear_cooldown"] = True
+    # Drop Nones so we don't wipe fields
+    updates = {k: v for k, v in updates.items() if v is not None}
+    account = account_store.update(account_id, **updates)
     if not account:
         raise HTTPException(status_code=404, detail={"error": "Account not found"})
     return {"account": account_to_dict(account)}

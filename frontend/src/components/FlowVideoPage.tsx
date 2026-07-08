@@ -80,21 +80,44 @@ function statusLabel(status: RowStatus): string {
   }
 }
 
-function validateVideoMode(prompt: string, mode: VideoMode, library: ReturnType<typeof useReferenceLibrary>["library"]): string | null {
+/**
+ * Resolve the effective video mode from UI mode + @mentions in prompt.
+ *
+ * - 0 @tên  → text_to_video
+ * - 1 @tên  → start_image (animate 1 frame) OR components if user chose Ảnh tham chiếu
+ * - 2+ @tên → always components (ingredients / multi-character R2V)
+ *   Never stay on start_image with 2+ refs — that only uses the first image.
+ */
+function resolveVideoRunMode(
+  prompt: string,
+  mode: VideoMode,
+  library: ReturnType<typeof useReferenceLibrary>["library"],
+): { mode: VideoMode; error: string | null } {
   const mentionError = validatePromptMentions(prompt, library);
-  if (mentionError) return mentionError;
+  if (mentionError) return { mode, error: mentionError };
 
   const mentionCount = parseMentions(prompt, library).length;
-  if (mode === "start_image" && mentionCount < 1) {
-    return "Chế độ Ảnh đầu cần ít nhất một @tên trong prompt";
+
+  if (mentionCount === 0) {
+    return { mode: "text_to_video", error: null };
   }
-  if (mode === "start_end_image" && mentionCount < 2) {
-    return "Chế độ Ảnh đầu + cuối cần ít nhất hai @tên trong prompt";
+
+  // 2+ people/refs → ingredients mode (multi character). Critical for multi-person consistency.
+  if (mentionCount >= 2) {
+    if (mode === "start_end_image" && mentionCount >= 2) {
+      // Explicit first+last: first two @names as frames; extra @ still ok as components better
+      // Prefer components when user wants multiple characters in one scene.
+      return { mode: "components", error: null };
+    }
+    return { mode: "components", error: null };
   }
-  if (mode === "components" && mentionCount < 1) {
-    return "Chế độ Ảnh tham chiếu cần ít nhất một @tên trong prompt";
-  }
-  return null;
+
+  // Exactly one @mention
+  if (mode === "components") return { mode: "components", error: null };
+  if (mode === "start_end_image") return { mode: "start_image", error: null };
+  if (mode === "start_image") return { mode: "start_image", error: null };
+  // text_to_video + 1 @ → ingredients with one asset (safer than silent I2V)
+  return { mode: "components", error: null };
 }
 
 type SortDirection = "asc" | "desc";
@@ -229,9 +252,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       updateRow(row.id, { status: "running" });
       try {
         const prompt = row.prompt.trim();
-        const modeError = validateVideoMode(prompt, config.mode, referenceLibrary);
-        if (modeError) {
-          updateRow(row.id, { status: "failed", error: modeError });
+        const resolved = resolveVideoRunMode(prompt, config.mode, referenceLibrary);
+        if (resolved.error) {
+          updateRow(row.id, { status: "failed", error: resolved.error });
           return;
         }
 
@@ -239,7 +262,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          mode: config.mode,
+          mode: resolved.mode,
           save_mode: config.saveMode,
           output_folder: config.outputFolder,
           ...(config.model === "omni_flash" ? { duration: config.duration || 8 } : {}),
@@ -486,8 +509,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
-              {modeNeedsRefs && (
-                <small className="field-hint">Cần gõ @tên ảnh trong prompt</small>
+              {config.mode === "start_image" && (
+                <small className="field-hint">
+                  Chỉ 1 ảnh đầu khung hình (I2V). Muốn nhiều người: chọn Ingredients + @a @b @c
+                </small>
+              )}
+              {config.mode === "components" && (
+                <small className="field-hint">
+                  Nhiều nhân vật: gõ đủ @ten1 @ten2 @ten3 trong prompt (tối đa 3 Veo / 7 Omni)
+                </small>
+              )}
+              {config.mode === "text_to_video" && (
+                <small className="field-hint">
+                  Có @tên thì tự bật Ingredients · 2+ @tên = nhiều người tham chiếu
+                </small>
               )}
             </label>
             <label>

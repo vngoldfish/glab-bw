@@ -3114,6 +3114,32 @@ textarea {
   border-color: var(--border-strong);
 }
 
+.account-card--cooldown {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: rgba(234, 179, 8, 0.06);
+}
+
+.account-card--off {
+  opacity: 0.55;
+}
+
+.account-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.account-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--yellow);
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .account-card strong {
   font-size: 14px;
 }

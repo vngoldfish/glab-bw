@@ -9,6 +9,11 @@ export interface Account {
   video_enabled: boolean;
   enabled: boolean;
   has_credentials: boolean;
+  last_used_at?: number | null;
+  cooldown_until?: number | null;
+  cooldown_left_sec?: number;
+  in_cooldown?: boolean;
+  last_error?: string | null;
 }
 
 export interface AppInfo {
@@ -154,6 +159,27 @@ export async function createAccount(payload: {
 export async function deleteAccount(id: string): Promise<void> {
   const res = await apiFetch(`/api/accounts/${id}`, { method: "DELETE" });
   await ensureOk(res, "Failed to delete account");
+}
+
+export async function updateAccount(
+  id: string,
+  payload: {
+    label?: string;
+    enabled?: boolean;
+    image_enabled?: boolean;
+    video_enabled?: boolean;
+    credentials?: Record<string, string>;
+    clear_cooldown?: boolean;
+  },
+): Promise<Account> {
+  const res = await apiFetch(`/api/accounts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Failed to update account");
+  const data = await readJson<{ account: Account }>(res);
+  return data.account;
 }
 
 export async function submitBatch(

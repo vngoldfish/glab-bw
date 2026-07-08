@@ -57,11 +57,12 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
             )
         if status == "INTERNAL" or (status_code >= 500 and status_code != 503):
             return (
-                "Google Flow lỗi tạm thời (INTERNAL). Thường do: "
-                "(1) server Google quá tải — đợi 30–60s rồi chạy lại, "
-                "(2) model/mode không khớp gói tài khoản — thử Veo 3.1 Lite hoặc text-to-video, "
-                "(3) cookie/session Flow cũ — mở lại labs.google/fx/tools/flow. "
-                f"Chi tiết: {message or status or status_code}".strip()
+                "Google Flow INTERNAL (lỗi phía Google hoặc model/payload không khớp). "
+                "App sẽ tự thử model/cách khác. Nếu vẫn fail: "
+                "(1) chọn Gemini Omni Flash + Văn bản→Video, "
+                "(2) nhiều người: gõ đủ @a @b @c + model Omni, "
+                "(3) đợi 30s / reload tab Flow + Auth OK. "
+                f"({message or status or status_code})"
             )
         if status_code == 503 or status == "UNAVAILABLE":
             return (
@@ -190,18 +191,17 @@ class GoogleFlowClient:
         session_id: str,
         user_paygate_tier: str | None = None,
     ) -> dict[str, Any]:
-        context: dict[str, Any] = {
-            "recaptchaContext": {
-                "token": recaptcha_token,
-                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
-            },
-            "sessionId": session_id,
+        # Field order matches browser / flow-agent production payloads
+        return {
             "projectId": project_id,
             "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier or "PAYGATE_TIER_ONE",
+            "sessionId": session_id,
+            "recaptchaContext": {
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+                "token": recaptcha_token,
+            },
         }
-        if user_paygate_tier:
-            context["userPaygateTier"] = user_paygate_tier
-        return context
 
     async def st_to_at(self, session_token: str) -> dict[str, Any]:
         return await self._request(
@@ -364,114 +364,162 @@ class GoogleFlowClient:
         duration: int | None = None,
         session_token: str | None = None,
     ) -> list[bytes]:
-        if mode in {"start_image", "start_end_image", "components"}:
+        """Submit video generation with careful model-key + payload strategy.
+
+        Lessons from production traffic + logs:
+        - Omni (abra_t2v_*s) is the only multi-ref path that matches Flow web Ingredients.
+        - Veo keys like veo_3_0_r2v_* frequently return INTERNAL (bad keys / payload) — do NOT
+          cascade to them after Omni fails; that rewrites a 403 into a fake INTERNAL message.
+        - Veo R2V must NOT send imageUsageType ASSET (causes INTERNAL). Omni does need it.
+        """
+        active_mode = mode
+        if active_mode in {"start_image", "start_end_image", "components"}:
             endpoint = "video:batchAsyncGenerateVideoStartImage"
-            if mode == "start_end_image":
+            if active_mode == "start_end_image":
                 endpoint = "video:batchAsyncGenerateVideoStartAndEndImage"
-            if mode == "components":
+            if active_mode == "components":
                 endpoint = "video:batchAsyncGenerateVideoReferenceImages"
         else:
             endpoint = "video:batchAsyncGenerateVideoText"
 
         omni = is_omni_flash_model(model)
-        model_keys = resolve_video_model_candidates(
-            model,
-            aspect_ratio,
-            mode=mode,
-            user_paygate_tier=user_paygate_tier,
-            duration=duration,
-        )
-        # If Omni hits PERMISSION, automatically try Veo keys too
-        if omni:
-            for veo_model in ("veo_31_lite", "veo_31_fast"):
+        # Prefer Omni keys for ingredients — they are the only R2V keys proven in Flow web tools
+        if active_mode == "components" or omni:
+            model_keys = resolve_video_model_candidates(
+                "omni_flash",
+                aspect_ratio,
+                mode=active_mode if active_mode != "components" else "components",
+                user_paygate_tier=user_paygate_tier,
+                duration=duration,
+            )
+            # T2V/I2V with explicit Veo selection: also try that family's keys
+            if not omni and active_mode != "components":
                 for key in resolve_video_model_candidates(
-                    veo_model,
+                    model,
                     aspect_ratio,
-                    mode=mode,
+                    mode=active_mode,
                     user_paygate_tier=user_paygate_tier,
+                    duration=duration,
                 ):
                     if key not in model_keys:
                         model_keys.append(key)
+        else:
+            model_keys = resolve_video_model_candidates(
+                model,
+                aspect_ratio,
+                mode=active_mode,
+                user_paygate_tier=user_paygate_tier,
+                duration=duration,
+            )
 
         last_error: ProviderError | None = None
         submit: dict[str, Any] | None = None
         used_key = model_keys[0]
+        tier = user_paygate_tier or "PAYGATE_TIER_ONE"
 
-        # Try primary + fallback model keys; re-solve captcha each attempt
-        for key_index, model_key in enumerate(model_keys):
+        async def _submit_once(
+            *,
+            model_key: str,
+            mode_name: str,
+            ep: str,
+            start_id: str | None,
+            end_id: str | None,
+            ref_ids: list[str] | None,
+            browser_like: bool,
+        ) -> dict[str, Any]:
+            recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
+            if not recaptcha_token or len(recaptcha_token) < 20:
+                raise ProviderError("reCAPTCHA token rỗng/không hợp lệ — reload tab Flow", error_code=403)
+
             use_omni_payload = model_key.startswith("abra_")
-            for attempt in range(2):
-                try:
-                    recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
-                    session_id = self._session_id()
-                    client_context = self._client_context(
-                        project_id=project_id,
-                        recaptcha_token=recaptcha_token,
-                        session_id=session_id,
-                        user_paygate_tier=user_paygate_tier or "PAYGATE_TIER_ONE",
-                    )
-                    # Omni production payloads use structuredPrompt (same for I2V/R2V)
-                    if use_omni_payload:
-                        text_input: dict[str, Any] = {
-                            "structuredPrompt": {"parts": [{"text": prompt}]},
+            session_id = self._session_id()
+            client_context = self._client_context(
+                project_id=project_id,
+                recaptcha_token=recaptcha_token,
+                session_id=session_id,
+                user_paygate_tier=tier,
+            )
+
+            if use_omni_payload:
+                text_input: dict[str, Any] = {
+                    "structuredPrompt": {"parts": [{"text": prompt}]},
+                }
+                metadata: dict[str, Any] = {}
+            else:
+                # Veo: plain prompt works; also try structured for R2V if needed
+                text_input = {"prompt": prompt}
+                metadata = {"sceneId": str(uuid.uuid4())}
+
+            request_data: dict[str, Any] = {
+                "aspectRatio": resolve_video_aspect(aspect_ratio),
+                "seed": random.randint(1, 9999 if use_omni_payload else 99999),
+                "textInput": text_input,
+                "videoModelKey": model_key,
+                "metadata": metadata,
+            }
+            if mode_name == "start_image" and start_id:
+                request_data["startImage"] = {"mediaId": start_id}
+            if mode_name == "start_end_image" and start_id and end_id:
+                request_data["startImage"] = {"mediaId": start_id}
+                request_data["endImage"] = {"mediaId": end_id}
+            if mode_name == "components" and ref_ids:
+                if use_omni_payload:
+                    request_data["referenceImages"] = [
+                        {
+                            "mediaId": media_id,
+                            "imageUsageType": "IMAGE_USAGE_TYPE_ASSET",
                         }
-                        metadata: dict[str, Any] = {}
-                    else:
-                        text_input = {"prompt": prompt}
-                        metadata = {"sceneId": str(uuid.uuid4())}
+                        for media_id in ref_ids
+                    ]
+                else:
+                    # Veo: mediaId only — ASSET type often yields INTERNAL
+                    request_data["referenceImages"] = [
+                        {"mediaId": media_id} for media_id in ref_ids
+                    ]
 
-                    request_data: dict[str, Any] = {
-                        "aspectRatio": resolve_video_aspect(aspect_ratio),
-                        "seed": random.randint(1, 9999 if use_omni_payload else 99999),
-                        "textInput": text_input,
-                        "videoModelKey": model_key,
-                        "metadata": metadata,
-                    }
-                    if mode == "start_image" and start_media_id:
-                        request_data["startImage"] = {"mediaId": start_media_id}
-                    if mode == "start_end_image" and start_media_id and end_media_id:
-                        request_data["startImage"] = {"mediaId": start_media_id}
-                        request_data["endImage"] = {"mediaId": end_media_id}
-                    if mode == "components" and reference_media_ids:
-                        if use_omni_payload:
-                            request_data["referenceImages"] = [
-                                {
-                                    "mediaId": media_id,
-                                    "imageUsageType": "IMAGE_USAGE_TYPE_ASSET",
-                                }
-                                for media_id in reference_media_ids
-                            ]
-                        else:
-                            request_data["referenceImages"] = [
-                                {"mediaId": media_id} for media_id in reference_media_ids
-                            ]
+            # Body key order matches flow-agent / browser
+            payload = {
+                "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
+                "clientContext": client_context,
+                "requests": [request_data],
+                "useV2ModelConfig": True,
+            }
+            logger.info(
+                "Flow video submit mode=%s model_key=%s ep=%s refs=%s browser_like=%s",
+                mode_name,
+                model_key,
+                ep,
+                len(ref_ids or []),
+                browser_like,
+            )
+            return await self._request(
+                "POST",
+                self._api_url(ep),
+                headers=self._headers(
+                    access_token=access_token,
+                    session_token=session_token,
+                    project_id=project_id,
+                    browser_like=browser_like,
+                ),
+                json_data=payload,
+                timeout=90.0,
+                browser_like=browser_like,
+            )
 
-                    payload = {
-                        "clientContext": client_context,
-                        "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
-                        "requests": [request_data],
-                        "useV2ModelConfig": True,
-                    }
-                    logger.info(
-                        "Flow video submit mode=%s model_key=%s attempt=%s project=%s",
-                        mode,
-                        model_key,
-                        attempt + 1,
-                        project_id[:8] if project_id else "?",
-                    )
-                    # Match browser request shape (text/plain + cookie + bearer)
-                    submit = await self._request(
-                        "POST",
-                        self._api_url(endpoint),
-                        headers=self._headers(
-                            access_token=access_token,
-                            session_token=session_token,
-                            project_id=project_id,
-                            browser_like=True,
-                        ),
-                        json_data=payload,
-                        timeout=60.0,
-                        browser_like=True,
+        # --- Primary attempts: configured mode + model keys ---
+        for key_index, model_key in enumerate(model_keys):
+            for attempt in range(3):
+                try:
+                    # Alternate content-type: browser text/plain then JSON
+                    browser_like = attempt != 1
+                    submit = await _submit_once(
+                        model_key=model_key,
+                        mode_name=active_mode,
+                        ep=endpoint,
+                        start_id=start_media_id,
+                        end_id=end_media_id,
+                        ref_ids=list(reference_media_ids or []),
+                        browser_like=browser_like,
                     )
                     used_key = model_key
                     break
@@ -479,31 +527,103 @@ class GoogleFlowClient:
                     last_error = exc
                     msg = str(exc).lower()
                     retryable = (
-                        exc.error_code in {403, 500, 502, 503, 504}
+                        exc.error_code in {403, 429, 500, 502, 503, 504}
                         or "internal" in msg
                         or "unavailable" in msg
-                        or "tạm thời" in msg
                         or "permission" in msg
+                        or "tạm thời" in msg
                     )
                     logger.warning(
-                        "Flow video failed mode=%s model_key=%s: %s",
-                        mode,
+                        "Flow video failed mode=%s model_key=%s attempt=%s: %s",
+                        active_mode,
                         model_key,
+                        attempt + 1,
                         exc,
                     )
-                    if retryable and attempt == 0:
-                        await asyncio.sleep(1 + key_index)
+                    if retryable and attempt < 2:
+                        await asyncio.sleep(2 + attempt * 3 + key_index)
                         continue
-                    # Try next model key on INTERNAL / invalid / permission
-                    if retryable or "invalid" in msg:
-                        break
-                    raise
-            else:
-                continue
+                    break
             if submit is not None:
                 break
 
+        # --- Graceful fallback for multi-ref R2V: animate first frame (I2V) ---
+        if (
+            submit is None
+            and active_mode == "components"
+            and reference_media_ids
+        ):
+            logger.warning(
+                "R2V failed for all keys — falling back to I2V with first reference image"
+            )
+            i2v_keys = resolve_video_model_candidates(
+                "omni_flash" if omni else model,
+                aspect_ratio,
+                mode="start_image",
+                user_paygate_tier=tier,
+                duration=duration,
+            )
+            # Also try omni abra for I2V
+            for key in resolve_video_model_candidates(
+                "omni_flash",
+                aspect_ratio,
+                mode="start_image",
+                user_paygate_tier=tier,
+                duration=duration,
+            ):
+                if key not in i2v_keys:
+                    i2v_keys.insert(0, key)
+
+            for model_key in i2v_keys[:4]:
+                try:
+                    submit = await _submit_once(
+                        model_key=model_key,
+                        mode_name="start_image",
+                        ep="video:batchAsyncGenerateVideoStartImage",
+                        start_id=reference_media_ids[0],
+                        end_id=None,
+                        ref_ids=None,
+                        browser_like=True,
+                    )
+                    used_key = model_key
+                    active_mode = "start_image"
+                    logger.info("I2V fallback succeeded with model_key=%s", model_key)
+                    break
+                except ProviderError as exc:
+                    last_error = exc
+                    logger.warning("I2V fallback failed model_key=%s: %s", model_key, exc)
+                    await asyncio.sleep(2)
+
+        # --- Last resort: pure T2V (drop refs) ---
+        if submit is None and active_mode == "components":
+            logger.warning("I2V fallback failed — last resort pure T2V without references")
+            t2v_keys = resolve_video_model_candidates(
+                "omni_flash",
+                aspect_ratio,
+                mode="text_to_video",
+                user_paygate_tier=tier,
+                duration=duration,
+            )
+            for model_key in t2v_keys[:3]:
+                try:
+                    submit = await _submit_once(
+                        model_key=model_key,
+                        mode_name="text_to_video",
+                        ep="video:batchAsyncGenerateVideoText",
+                        start_id=None,
+                        end_id=None,
+                        ref_ids=None,
+                        browser_like=True,
+                    )
+                    used_key = model_key
+                    active_mode = "text_to_video"
+                    break
+                except ProviderError as exc:
+                    last_error = exc
+                    await asyncio.sleep(2)
+
         if submit is None:
+            # Keep the most actionable error (prefer 403 permission over cascading INTERNAL)
             raise last_error or ProviderError("Tạo video thất bại", error_code=0)
 
         operations = submit.get("operations", [])
