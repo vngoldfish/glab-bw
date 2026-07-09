@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { normalizeFileUrl, openOutputFolder, submitBatch } from "../api";
+import { normalizeFileUrl, openOutputFolder, rewritePromptAi, rewritePromptsAi, submitBatch } from "../api";
 import {
   clearFlowImageSnapshot,
   loadFlowImageSnapshot,
@@ -344,6 +344,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [editingPromptText, setEditingPromptText] = useState("");
+  const [aiBusyId, setAiBusyId] = useState<string | null>(null);
+  const [aiBulkBusy, setAiBulkBusy] = useState(false);
+  const [aiNotice, setAiNotice] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   /** Edit prompt on the same queue row (for re-run) — do NOT jump to bulk create box. */
   function beginEditPrompt(row: QueueRow) {
@@ -373,6 +376,102 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   function cancelEditPrompt() {
     setEditingPromptId(null);
     setEditingPromptText("");
+  }
+
+  async function aiRewriteRow(
+    row: QueueRow,
+    opts?: { source?: string },
+  ) {
+    const source = (
+      opts?.source ??
+      (editingPromptId === row.id ? editingPromptText : row.prompt)
+    ).trim();
+    if (!source || row.status === "running" || row.status === "queued") return;
+    setAiBusyId(row.id);
+    setAiNotice({ type: "ok", text: "AI đang phân tích prompt…" });
+    onError("");
+    try {
+      const res = await rewritePromptAi({ prompt: source, kind: "image", locale: "vi" });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        const msg = "AI trả về prompt rỗng — kiểm tra Model/Base URL trong Cài đặt → API AI";
+        setAiNotice({ type: "err", text: msg });
+        onError(msg);
+        return;
+      }
+      updateRow(row.id, {
+        prompt: next,
+        status: "idle",
+        error: null,
+        results: [],
+        savedFolder: null,
+        selected: true,
+      });
+      setEditingPromptId(row.id);
+      setEditingPromptText(next);
+      setAiNotice({
+        type: next === source ? "err" : "ok",
+        text:
+          next === source
+            ? "AI trả về gần như giống prompt cũ — thử model khác"
+            : "Đã cập nhật prompt bằng AI — xem trong popup",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiNotice({ type: "err", text: msg });
+      onError(msg);
+    } finally {
+      setAiBusyId(null);
+    }
+  }
+
+  async function aiRewriteSelected() {
+    const targets = rows.filter(
+      (r) => r.selected && r.prompt.trim() && r.status !== "running" && r.status !== "queued",
+    );
+    if (targets.length === 0) {
+      onError("Chọn ít nhất một dòng có prompt (không đang chạy) để AI sửa");
+      return;
+    }
+    setAiBulkBusy(true);
+    setAiNotice({ type: "ok", text: `AI đang sửa ${targets.length} prompt…` });
+    onError("");
+    try {
+      const res = await rewritePromptsAi({
+        prompts: targets.map((r) => r.prompt.trim()),
+        kind: "image",
+        locale: "vi",
+      });
+      const byId = new Map(targets.map((r, i) => [r.id, res.results[i]]));
+      setRows((prev) =>
+        prev.map((row) => {
+          const item = byId.get(row.id);
+          if (!item || item.status !== "ok") return row;
+          return {
+            ...row,
+            prompt: item.prompt,
+            status: "idle" as const,
+            error: null,
+            results: [],
+            savedFolder: null,
+            selected: true,
+          };
+        }),
+      );
+      if (res.failed > 0) {
+        const msg = `AI xong ${res.ok}/${res.total}; ${res.failed} lỗi — xem Cài đặt → API AI`;
+        setAiNotice({ type: "err", text: msg });
+        onError(msg);
+      } else {
+        setAiNotice({ type: "ok", text: `Đã AI sửa ${res.ok} prompt` });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiNotice({ type: "err", text: msg });
+      onError(msg);
+    } finally {
+      setAiBulkBusy(false);
+    }
   }
 
   function clearAllSelections() {
@@ -633,6 +732,14 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           </section>
 
           <section className="flow-queue-section">
+            {aiNotice && (
+              <div className={`ai-notice ai-notice--${aiNotice.type}`} role="status">
+                <span>{aiNotice.text}</span>
+                <button type="button" onClick={() => setAiNotice(null)} aria-label="Đóng">
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="flow-queue-bar">
               <div className="flow-queue-bar-left">
                 <h3 className="flow-section-title">Hàng chờ</h3>
@@ -701,6 +808,15 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                     disabled={running || selectedCount === 0}
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void aiRewriteSelected()}
+                    disabled={running || aiBulkBusy || selectedCount === 0}
+                    title="AI làm lại prompt chuyên nghiệp cho các dòng đã chọn (cần API AI trong Cài đặt)"
+                  >
+                    {aiBulkBusy ? "…" : `✦ ${selectedCount}`}
                   </button>
                   <button
                     type="button"
@@ -810,6 +926,22 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                             </button>
                             <button
                               type="button"
+                              className="row-action-btn row-action-btn--ai"
+                              aria-label="AI sửa prompt"
+                              title="AI làm prompt chuyên nghiệp hơn (giữ @tên). Cần API AI trong Cài đặt."
+                              onClick={() => void aiRewriteRow(row)}
+                              disabled={
+                                !row.prompt.trim() ||
+                                row.status === "running" ||
+                                row.status === "queued" ||
+                                aiBusyId === row.id ||
+                                aiBulkBusy
+                              }
+                            >
+                              {aiBusyId === row.id ? "…" : "✦"}
+                            </button>
+                            <button
+                              type="button"
                               className="row-action-btn row-action-btn--retry"
                               aria-label="Chạy lại"
                               title={
@@ -858,69 +990,34 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                         </div>
                       </td>
                       <td className="col-prompt">
-                        {editingPromptId === row.id ? (
-                          <div className="queue-prompt-box queue-prompt-box--editing">
-                            <textarea
-                              className="queue-prompt-inline-input"
-                              value={editingPromptText}
-                              rows={3}
-                              autoFocus
-                              onChange={(e) => setEditingPromptText(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  cancelEditPrompt();
-                                }
-                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                  e.preventDefault();
-                                  saveEditPrompt(row.id);
-                                }
-                              }}
-                            />
-                            <div className="queue-prompt-edit-actions">
-                              <button
-                                type="button"
-                                className="btn btn-primary btn-sm"
-                                onClick={() => saveEditPrompt(row.id)}
-                              >
-                                Lưu
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-ghost btn-sm"
-                                onClick={cancelEditPrompt}
-                              >
-                                Hủy
-                              </button>
-                              <span className="queue-prompt-edit-hint">Ctrl+Enter lưu · Esc hủy</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="queue-prompt-box">
-                            <p
-                              className="queue-prompt-text"
-                              title={`${row.prompt || ""}\n\nDouble-click hoặc bấm ✎ để sửa trên dòng này`}
-                              onDoubleClick={() => beginEditPrompt(row)}
-                            >
-                              {row.prompt || "—"}
-                            </p>
+                        <div
+                          className="queue-prompt-box"
+                          title="Double-click để xem / sửa đầy đủ"
+                          onDoubleClick={() => beginEditPrompt(row)}
+                        >
+                          <p className="queue-prompt-text">{row.prompt || "—"}</p>
+                          <div className="queue-prompt-side-actions">
                             <button
                               type="button"
-                              className="queue-prompt-edit-btn"
-                              aria-label="Sửa prompt"
-                              title="Sửa prompt trên dòng này rồi chạy lại"
-                              onClick={() => beginEditPrompt(row)}
-                              disabled={row.status === "running" || row.status === "queued"}
+                              className="queue-prompt-edit-btn queue-prompt-ai-btn"
+                              aria-label="Sửa bằng AI"
+                              title="Sửa prompt bằng AI"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void aiRewriteRow(row, { source: row.prompt });
+                              }}
+                              disabled={
+                                !row.prompt.trim() ||
+                                row.status === "running" ||
+                                row.status === "queued" ||
+                                aiBusyId === row.id ||
+                                aiBulkBusy
+                              }
                             >
-                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                                <path
-                                  fill="currentColor"
-                                  d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75 1.29-1.47Z"
-                                />
-                              </svg>
+                              {aiBusyId === row.id ? "…" : "✦"}
                             </button>
                           </div>
-                        )}
+                        </div>
                       </td>
                       <td className="col-status">
                         <div className="status-cell">
@@ -997,6 +1094,76 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           </section>
         </section>
       </div>
+
+      {editingPromptId && (
+        <div
+          className="prompt-edit-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sửa prompt"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) cancelEditPrompt();
+          }}
+        >
+          <div className="prompt-edit-modal">
+            <div className="prompt-edit-modal-head">
+              <strong>Sửa prompt</strong>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={cancelEditPrompt}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              value={editingPromptText}
+              autoFocus
+              rows={6}
+              placeholder="Nhập prompt..."
+              onChange={(e) => setEditingPromptText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEditPrompt();
+                }
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  saveEditPrompt(editingPromptId);
+                }
+              }}
+            />
+            <div className="prompt-edit-modal-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => saveEditPrompt(editingPromptId)}
+              >
+                Lưu
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-ai-prompt"
+                onClick={() => {
+                  const row = rows.find((r) => r.id === editingPromptId);
+                  if (row) void aiRewriteRow(row, { source: editingPromptText });
+                }}
+                disabled={!editingPromptText.trim() || aiBusyId === editingPromptId || aiBulkBusy}
+                title="Sửa bằng AI"
+              >
+                {aiBusyId === editingPromptId ? "…" : "✦"}
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={cancelEditPrompt}>
+                Hủy
+              </button>
+              <span className="prompt-edit-modal-hint">
+                Double-click dòng để mở · Ctrl+Enter lưu · Esc đóng
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

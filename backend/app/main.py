@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, auth_bridge, batch, references, webhook
+from app.api import accounts, ai, auth_bridge, batch, references, webhook
 from app.core.config import settings
 from app.core.task_queue import task_queue
 from app.services.auth_bridge import auth_bridge as auth_bridge_state
@@ -121,6 +121,7 @@ app.include_router(webhook.router, prefix="/api")
 app.include_router(accounts.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
 app.include_router(references.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
 

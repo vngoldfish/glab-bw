@@ -99,12 +99,17 @@ async function readJson<T>(res: Response): Promise<T> {
 async function ensureOk(res: Response, fallback: string): Promise<Response> {
   if (res.ok) return res;
   try {
-    const data = await readJson<{ error?: string; detail?: { error?: string } | string }>(res);
+    const data = await readJson<{
+      error?: string;
+      detail?: { error?: string } | string | Array<{ msg?: string }>;
+    }>(res);
     const detail = data.detail;
-    const message =
-      data.error ||
-      (typeof detail === "string" ? detail : detail?.error) ||
-      fallback;
+    let message = data.error || fallback;
+    if (typeof detail === "string") message = detail;
+    else if (Array.isArray(detail) && detail[0]?.msg) message = detail[0].msg;
+    else if (detail && typeof detail === "object" && "error" in detail && detail.error) {
+      message = detail.error;
+    }
     throw new Error(message);
   } catch (err) {
     if (err instanceof Error && err.message !== fallback) {
@@ -193,6 +198,101 @@ export async function submitBatch(
   });
   await ensureOk(res, "Batch submit failed");
   return readJson<BatchResult>(res);
+}
+
+export interface AiSettings {
+  enabled: boolean;
+  provider: string;
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  api_key_masked: string;
+}
+
+const AI_API_MISSING =
+  "API AI chưa sẵn sàng (404) — restart backend (CHAY-APP / start-backend) rồi thử lại";
+
+async function ensureAiOk(res: Response, fallback: string): Promise<Response> {
+  if (res.status === 404) {
+    throw new Error(AI_API_MISSING);
+  }
+  await ensureOk(res, fallback);
+  return res;
+}
+
+export async function fetchAiSettings(): Promise<AiSettings> {
+  const res = await apiFetch("/api/ai/settings");
+  await ensureAiOk(res, "Không tải được cài đặt AI");
+  return readJson<AiSettings>(res);
+}
+
+export async function saveAiSettings(payload: {
+  enabled?: boolean;
+  provider?: string;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+}): Promise<AiSettings> {
+  const res = await apiFetch("/api/ai/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureAiOk(res, "Không lưu được cài đặt AI");
+  return readJson<AiSettings>(res);
+}
+
+export async function rewritePromptAi(payload: {
+  prompt: string;
+  kind?: "video" | "image";
+  locale?: string;
+}): Promise<{ prompt: string; original: string; changed?: boolean }> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 100_000);
+  try {
+    const res = await apiFetch("/api/ai/rewrite-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: payload.prompt,
+        kind: payload.kind ?? "video",
+        locale: payload.locale ?? "vi",
+      }),
+      signal: controller.signal,
+    });
+    await ensureAiOk(res, "AI sửa prompt thất bại");
+    return readJson(res);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("AI quá lâu / API ngoài không phản hồi — kiểm tra Base URL, Model, Key trong Cài đặt");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function rewritePromptsAi(payload: {
+  prompts: string[];
+  kind?: "video" | "image";
+  locale?: string;
+}): Promise<{
+  total: number;
+  ok: number;
+  failed: number;
+  results: { index: number; original: string; prompt: string; status: string; error?: string }[];
+}> {
+  const res = await apiFetch("/api/ai/rewrite-prompts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompts: payload.prompts,
+      kind: payload.kind ?? "video",
+      locale: payload.locale ?? "vi",
+    }),
+  });
+  await ensureAiOk(res, "AI sửa prompt hàng loạt thất bại");
+  return readJson(res);
 }
 
 export interface ReferenceRecord {

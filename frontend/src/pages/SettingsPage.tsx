@@ -1,12 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Account,
+  AiSettings,
   Provider,
   createAccount,
   deleteAccount,
+  fetchAiSettings,
+  saveAiSettings,
   updateAccount,
 } from "../api";
 import { parseFlowCookieInput } from "../cookie";
+
+const AI_PROVIDERS = [
+  { value: "openai", label: "OpenAI", base: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  {
+    value: "openai_compatible",
+    label: "API ngoài (OpenAI-compatible)",
+    base: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+  },
+  { value: "grok", label: "xAI Grok", base: "https://api.x.ai/v1", model: "grok-2-latest" },
+  {
+    value: "custom",
+    label: "Tùy chỉnh (Base URL + Key bất kỳ)",
+    base: "",
+    model: "",
+  },
+] as const;
 
 const PROVIDER_LABELS: Record<Provider, string> = {
   flow: "Google Flow / Veo",
@@ -38,8 +58,66 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [newCookie, setNewCookie] = useState("");
   const [newSessionToken, setNewSessionToken] = useState("");
 
+  const [ai, setAi] = useState<AiSettings | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiProvider, setAiProvider] = useState("openai_compatible");
+  const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
+  const [aiModel, setAiModel] = useState("gpt-4o-mini");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiMsg, setAiMsg] = useState("");
+
   const flowAccounts = accounts.filter((a) => a.provider === "flow");
   const flowReady = flowAccounts.filter((a) => a.enabled && a.has_credentials && !a.in_cooldown);
+
+  useEffect(() => {
+    fetchAiSettings()
+      .then((data) => {
+        setAi(data);
+        setAiEnabled(data.enabled);
+        setAiProvider(data.provider || "openai_compatible");
+        setAiBaseUrl(data.base_url || "https://api.openai.com/v1");
+        setAiModel(data.model || "gpt-4o-mini");
+      })
+      .catch((err) => onError(err instanceof Error ? err.message : String(err)));
+  }, [onError]);
+
+  function applyAiProviderPreset(value: string) {
+    setAiProvider(value);
+    const preset = AI_PROVIDERS.find((p) => p.value === value);
+    if (preset) {
+      setAiBaseUrl(preset.base);
+      setAiModel(preset.model);
+    }
+  }
+
+  async function handleSaveAi() {
+    setAiSaving(true);
+    setAiMsg("");
+    onError("");
+    try {
+      const data = await saveAiSettings({
+        enabled: aiEnabled,
+        provider: aiProvider,
+        base_url: aiBaseUrl,
+        model: aiModel,
+        ...(aiApiKey.trim() ? { api_key: aiApiKey.trim() } : {}),
+      });
+      setAi(data);
+      setAiApiKey("");
+      setAiMsg(
+        data.enabled && data.has_api_key
+          ? "Đã lưu API AI — dùng nút ✦ AI trên hàng chờ để sửa prompt"
+          : data.has_api_key
+            ? "Đã lưu (chưa bật) — tick Bật để dùng"
+            : "Đã lưu — nhớ dán API key",
+      );
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiSaving(false);
+    }
+  }
 
   async function handleAddAccount() {
     if (!newLabel.trim() && newProvider !== "flow") {
@@ -199,6 +277,91 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         <button type="button" className="btn btn-primary" onClick={handleAddAccount} disabled={loading}>
           Thêm tài khoản
         </button>
+      </section>
+
+      <section className="panel-card">
+        <h2>API AI — Sửa prompt chuyên nghiệp</h2>
+        <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
+          Nhập <strong>API key bất kỳ</strong> chuẩn OpenAI Chat Completions (OpenAI, OpenRouter,
+          DeepSeek, Groq, Together, Azure proxy, key nội bộ…). Dùng nút <strong>✎ Sửa</strong> /{" "}
+          <strong>✦ Sửa bằng AI</strong> trên từng prompt trong hàng chờ.
+        </p>
+        <div className="form-grid">
+          <label className="checkbox-label span-2">
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={(e) => setAiEnabled(e.target.checked)}
+            />
+            Bật AI sửa prompt
+          </label>
+          <label>
+            Nhà cung cấp / loại key
+            <select value={aiProvider} onChange={(e) => applyAiProviderPreset(e.target.value)}>
+              {AI_PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+            <small className="field-hint">
+              Chọn “API ngoài” hoặc “Tùy chỉnh” để dán key + Base URL dịch vụ bên thứ ba
+            </small>
+          </label>
+          <label>
+            Model
+            <input
+              value={aiModel}
+              onChange={(e) => setAiModel(e.target.value)}
+              placeholder="gpt-4o-mini · deepseek-chat · grok-2-latest · …"
+            />
+          </label>
+          <label className="span-2">
+            Base URL (endpoint /v1)
+            <input
+              value={aiBaseUrl}
+              onChange={(e) => setAiBaseUrl(e.target.value)}
+              placeholder="https://api.openai.com/v1  hoặc URL API ngoài của bạn"
+            />
+            <small className="field-hint">
+              OpenAI: https://api.openai.com/v1 · OpenRouter: https://openrouter.ai/api/v1 ·
+              DeepSeek: https://api.deepseek.com/v1 · xAI: https://api.x.ai/v1 ·
+              API riêng: dán base URL nhà cung cấp (kết thúc bằng /v1)
+            </small>
+          </label>
+          <label className="span-2">
+            API Key (OpenAI / key ngoài)
+            <input
+              type="password"
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              placeholder={
+                ai?.has_api_key
+                  ? `Đã lưu (${ai.api_key_masked}) — dán key mới (kể cả key ngoài) để thay`
+                  : "sk-... · key OpenRouter · key DeepSeek · key API riêng…"
+              }
+              autoComplete="off"
+            />
+            <small className="field-hint">
+              Hỗ trợ key ngoài: dán key + Base URL tương ứng, bật tính năng, Lưu. App gọi{" "}
+              <code>POST &#123;base&#125;/chat/completions</code>.
+            </small>
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleSaveAi()}
+            disabled={aiSaving}
+          >
+            {aiSaving ? "Đang lưu..." : "Lưu API AI"}
+          </button>
+          {aiMsg && <span className="muted">{aiMsg}</span>}
+          {ai && (
+            <span className={`pill ${ai.enabled && ai.has_api_key ? "pill-green" : "pill-purple"}`}>
+              {ai.enabled && ai.has_api_key ? "AI sẵn sàng" : "AI chưa sẵn sàng"}
+            </span>
+          )}
+        </div>
       </section>
 
       <section className="panel-card">

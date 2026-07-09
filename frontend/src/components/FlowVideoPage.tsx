@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { normalizeFileUrl, openOutputFolder, submitBatch } from "../api";
+import { normalizeFileUrl, openOutputFolder, rewritePromptAi, rewritePromptsAi, submitBatch } from "../api";
 import {
   clearFlowVideoSnapshot,
   loadFlowVideoSnapshot,
@@ -14,7 +14,6 @@ import QueueFramePicker from "./QueueFramePicker";
 import { useReferenceLibrary } from "../referenceLibraryContext";
 import {
   buildNamedReferencesPayload,
-  findLibraryRef,
   parseMentions,
   slugifyRefName,
   validatePromptMentions,
@@ -71,43 +70,23 @@ function isFrameMode(mode: VideoMode): boolean {
   return mode === "start_image" || mode === "start_end_image";
 }
 
-function refPayload(item: NamedReference) {
-  return {
-    name: item.name,
-    data: item.filePath || item.image,
-    label: item.label,
-  };
-}
-
+/** Frame payload from row-local data only (never reference library). */
 function framePayload(
   name: string | null,
   image: string | null,
-  library: NamedReference[],
   fallbackName: string,
 ): { name: string; data: string; label?: string } | null {
-  // Prefer row-local image (picked from folder — NOT reference library)
-  if (image) {
-    return {
-      name: name || fallbackName,
-      data: image,
-      label: name || fallbackName,
-    };
-  }
-  if (name) {
-    const lib = findLibraryRef(library, name);
-    if (lib) return refPayload(lib);
-  }
-  return null;
+  if (!image) return null;
+  return {
+    name: name || fallbackName,
+    data: image,
+    label: name || fallbackName,
+  };
 }
 
-function hasRowFrame(
-  name: string | null,
-  image: string | null,
-  library: NamedReference[],
-): boolean {
-  if (image) return true;
-  if (name && findLibraryRef(library, name)) return true;
-  return false;
+/** Ảnh đầu/cuối chỉ tính khi có data URL gắn trên dòng prompt. */
+function hasRowFrame(image: string | null | undefined): boolean {
+  return Boolean(image && image.length > 20);
 }
 
 /** Badge on each queue row for auto-detected path. */
@@ -115,8 +94,8 @@ function rowAutoModeLabel(
   row: QueueRow,
   library: NamedReference[],
 ): { label: string; kind: "t2v" | "i2v" | "fl" | "r2v" } {
-  const hasStart = hasRowFrame(row.startFrameName, row.startFrameImage, library);
-  const hasEnd = hasRowFrame(row.endFrameName, row.endFrameImage, library);
+  const hasStart = hasRowFrame(row.startFrameImage);
+  const hasEnd = hasRowFrame(row.endFrameImage);
   if (hasStart && hasEnd) return { label: "Đầu → Cuối", kind: "fl" };
   if (hasStart) return { label: "Ảnh → Video", kind: "i2v" };
   const n = parseMentions(row.prompt, library).length;
@@ -135,17 +114,18 @@ function buildVideoNamedRefs(
   row: QueueRow,
 ): { name: string; data: string; label?: string }[] {
   if (mode === "start_image") {
-    const start = framePayload(row.startFrameName, row.startFrameImage, library, "start");
+    const start = framePayload(row.startFrameName, row.startFrameImage, "start");
     return start ? [start] : [];
   }
   if (mode === "start_end_image") {
-    const start = framePayload(row.startFrameName, row.startFrameImage, library, "start");
-    const end = framePayload(row.endFrameName, row.endFrameImage, library, "end");
+    const start = framePayload(row.startFrameName, row.startFrameImage, "start");
+    const end = framePayload(row.endFrameName, row.endFrameImage, "end");
     const out: { name: string; data: string; label?: string }[] = [];
     if (start) out.push(start);
     if (end) out.push(end);
     return out;
   }
+  // Ingredients only: @mentions → thư viện tham chiếu
   return buildNamedReferencesPayload(prompt, library);
 }
 
@@ -203,10 +183,10 @@ function resolveVideoRunMode(
   library: NamedReference[],
   row: QueueRow,
 ): { mode: VideoMode; error: string | null } {
-  // Smart "Ảnh → Video": auto by frames, then @character refs
+  // Smart "Ảnh → Video": auto by per-prompt frames, then @character refs
   if (mode === "start_image" || mode === "start_end_image") {
-    const hasStart = hasRowFrame(row.startFrameName, row.startFrameImage, library);
-    const hasEnd = hasRowFrame(row.endFrameName, row.endFrameImage, library);
+    const hasStart = hasRowFrame(row.startFrameImage);
+    const hasEnd = hasRowFrame(row.endFrameImage);
 
     if (!hasStart && hasEnd) {
       return {
@@ -217,7 +197,7 @@ function resolveVideoRunMode(
     if (hasStart && hasEnd) return { mode: "start_end_image", error: null };
     if (hasStart) return { mode: "start_image", error: null };
 
-    // No frame pickers: allow @nhân vật tham chiếu → Ingredients
+    // No per-prompt frames: @nhân vật từ thư viện → Ingredients
     const mentionError = validatePromptMentions(prompt, library);
     if (mentionError) return { mode: "components", error: mentionError };
     const mentions = parseMentions(prompt, library);
@@ -258,8 +238,8 @@ function modeGuide(mode: VideoMode): {
       hint: meta?.hint ?? "",
       steps: [
         "Không ảnh / không @ → Text → Video",
-        "Gõ @tên_nhân_vật (chip tham chiếu) → Ingredients video",
-        "Ảnh đầu → I2V · Ảnh đầu+cuối → First & Last Frame (ưu tiên hơn @)",
+        "Gõ @tên (chip Nhân vật tham chiếu) → Ingredients — ảnh trong thư viện, dùng lại được",
+        "Ảnh đầu/cuối trên dòng: chọn từ máy, chỉ cho prompt đó (không vào thư viện)",
       ],
       example: "@hoa đi dạo trên bãi biển  ·  quay đầu cinematic  ·  Drone bay lúc hoàng hôn",
     };
@@ -326,10 +306,7 @@ interface FlowVideoPageProps {
 
 export default function FlowVideoPage({ activeCount, onError }: FlowVideoPageProps) {
   const navigate = useNavigate();
-  const {
-    library: referenceLibrary,
-    refresh: refreshLibrary,
-  } = useReferenceLibrary();
+  const { library: referenceLibrary } = useReferenceLibrary();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
   const [config, setConfig] = useState<VideoConfig>(() => ({
     ...DEFAULT_CONFIG,
@@ -599,6 +576,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [editingPromptText, setEditingPromptText] = useState("");
+  const [aiBusyId, setAiBusyId] = useState<string | null>(null);
+  const [aiBulkBusy, setAiBulkBusy] = useState(false);
+  const [aiNotice, setAiNotice] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   /** Edit prompt on the same queue row (for re-run) — do NOT jump to bulk create box. */
   function beginEditPrompt(row: QueueRow) {
@@ -628,6 +608,104 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   function cancelEditPrompt() {
     setEditingPromptId(null);
     setEditingPromptText("");
+  }
+
+  /**
+   * AI polish prompt — apply to row + open popup so user always sees the new text.
+   */
+  async function aiRewriteRow(
+    row: QueueRow,
+    opts?: { source?: string },
+  ) {
+    const source = (opts?.source ?? (editingPromptId === row.id ? editingPromptText : row.prompt)).trim();
+    if (!source || row.status === "running" || row.status === "queued") return;
+    setAiBusyId(row.id);
+    setAiNotice({ type: "ok", text: "AI đang phân tích prompt…" });
+    onError("");
+    try {
+      const res = await rewritePromptAi({ prompt: source, kind: "video", locale: "vi" });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        const msg = "AI trả về prompt rỗng — kiểm tra Model/Base URL trong Cài đặt → API AI";
+        setAiNotice({ type: "err", text: msg });
+        onError(msg);
+        return;
+      }
+      updateRow(row.id, {
+        prompt: next,
+        status: "idle",
+        error: null,
+        results: [],
+        savedFolder: null,
+        selected: true,
+      });
+      // Always open popup so user sees full rewritten prompt (truncated line looks similar)
+      setEditingPromptId(row.id);
+      setEditingPromptText(next);
+      if (next === source) {
+        setAiNotice({
+          type: "err",
+          text: "AI trả về gần như giống prompt cũ — thử model khác trong Cài đặt",
+        });
+      } else {
+        setAiNotice({ type: "ok", text: "Đã cập nhật prompt bằng AI — kiểm tra trong popup rồi bấm Lưu nếu muốn chỉnh thêm" });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiNotice({ type: "err", text: msg });
+      onError(msg);
+    } finally {
+      setAiBusyId(null);
+    }
+  }
+
+  async function aiRewriteSelected() {
+    const targets = rows.filter(
+      (r) => r.selected && r.prompt.trim() && r.status !== "running" && r.status !== "queued",
+    );
+    if (targets.length === 0) {
+      onError("Chọn ít nhất một dòng có prompt (không đang chạy) để AI sửa");
+      return;
+    }
+    setAiBulkBusy(true);
+    setAiNotice({ type: "ok", text: `AI đang sửa ${targets.length} prompt…` });
+    onError("");
+    try {
+      const res = await rewritePromptsAi({
+        prompts: targets.map((r) => r.prompt.trim()),
+        kind: "video",
+        locale: "vi",
+      });
+      const byId = new Map(targets.map((r, i) => [r.id, res.results[i]]));
+      setRows((prev) =>
+        prev.map((row) => {
+          const item = byId.get(row.id);
+          if (!item || item.status !== "ok") return row;
+          return {
+            ...row,
+            prompt: item.prompt,
+            status: "idle" as const,
+            error: null,
+            results: [],
+            savedFolder: null,
+            selected: true,
+          };
+        }),
+      );
+      if (res.failed > 0) {
+        const msg = `AI xong ${res.ok}/${res.total}; ${res.failed} lỗi — xem Cài đặt → API AI`;
+        setAiNotice({ type: "err", text: msg });
+        onError(msg);
+      } else {
+        setAiNotice({ type: "ok", text: `Đã AI sửa ${res.ok} prompt — double-click dòng để xem đầy đủ` });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiNotice({ type: "err", text: msg });
+      onError(msg);
+    } finally {
+      setAiBulkBusy(false);
+    }
   }
 
   function clearAllSelections() {
@@ -770,9 +848,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
             {frameMode && (
               <small className="field-hint video-mode-note">
-                Tự nhận: <strong>@nhân_vật</strong> → Ingredients · <strong>Ảnh đầu</strong> → I2V ·{" "}
-                <strong>đầu+cuối</strong> → First &amp; Last · không ảnh/@ → Text→Video. Ảnh khung
-                (cột bảng) ưu tiên hơn @ nếu cùng dòng.
+                <strong>@nhân_vật</strong> = thư viện tham chiếu (dùng lại).{" "}
+                <strong>Ảnh đầu/cuối</strong> = chỉ gắn 1 prompt (chọn từ máy, không vào thư viện).
+                Tự nhận: @ → Ingredients · đầu → I2V · đầu+cuối → First&amp;Last · không → Text→Video.
               </small>
             )}
             <label>
@@ -925,9 +1003,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     label="Ảnh đầu (tuỳ chọn)"
                     valueName={null}
                     previewUrl={null}
-                    library={referenceLibrary}
                     disabled={selectedCount === 0}
-                    onOpen={() => void refreshLibrary().catch(() => undefined)}
                     onChange={(frame) => {
                       if (frame.name || frame.image) applyFrameToSelected("start", frame);
                     }}
@@ -946,9 +1022,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     label="Ảnh cuối (tuỳ chọn)"
                     valueName={null}
                     previewUrl={null}
-                    library={referenceLibrary}
                     disabled={selectedCount === 0}
-                    onOpen={() => void refreshLibrary().catch(() => undefined)}
                     onChange={(frame) => {
                       if (frame.name || frame.image) applyFrameToSelected("end", frame);
                     }}
@@ -986,6 +1060,14 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           </section>
 
           <section className="flow-queue-section">
+            {aiNotice && (
+              <div className={`ai-notice ai-notice--${aiNotice.type}`} role="status">
+                <span>{aiNotice.text}</span>
+                <button type="button" onClick={() => setAiNotice(null)} aria-label="Đóng">
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="flow-queue-bar">
               <div className="flow-queue-bar-left">
                 <h3 className="flow-section-title">Hàng chờ</h3>
@@ -1054,6 +1136,15 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     disabled={running || selectedCount === 0}
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void aiRewriteSelected()}
+                    disabled={running || aiBulkBusy || selectedCount === 0}
+                    title="AI làm lại prompt chuyên nghiệp cho các dòng đã chọn (cần API AI trong Cài đặt)"
+                  >
+                    {aiBulkBusy ? "…" : `✦ ${selectedCount}`}
                   </button>
                   <button
                     type="button"
@@ -1179,6 +1270,22 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                             </button>
                             <button
                               type="button"
+                              className="row-action-btn row-action-btn--ai"
+                              aria-label="AI sửa prompt"
+                              title="AI làm prompt chuyên nghiệp hơn (giữ @tên). Cần API AI trong Cài đặt."
+                              onClick={() => void aiRewriteRow(row)}
+                              disabled={
+                                !row.prompt.trim() ||
+                                row.status === "running" ||
+                                row.status === "queued" ||
+                                aiBusyId === row.id ||
+                                aiBulkBusy
+                              }
+                            >
+                              {aiBusyId === row.id ? "…" : "✦"}
+                            </button>
+                            <button
+                              type="button"
                               className="row-action-btn row-action-btn--retry"
                               aria-label="Chạy lại"
                               title={
@@ -1229,17 +1336,10 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                       {frameMode && (
                         <td className="col-frame">
                           <QueueFramePicker
-                            label="Ảnh đầu (tuỳ chọn)"
+                            label="Ảnh đầu"
                             valueName={row.startFrameName}
-                            previewUrl={
-                              row.startFrameImage ||
-                              (row.startFrameName
-                                ? findLibraryRef(referenceLibrary, row.startFrameName)?.image ?? null
-                                : null)
-                            }
-                            library={referenceLibrary}
+                            previewUrl={row.startFrameImage}
                             disabled={frameDisabled}
-                            onOpen={() => void refreshLibrary().catch(() => undefined)}
                             onChange={(frame) =>
                               updateRow(row.id, {
                                 startFrameName: frame.name,
@@ -1262,17 +1362,10 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                       {frameMode && (
                         <td className="col-frame">
                           <QueueFramePicker
-                            label="Ảnh cuối (tuỳ chọn)"
+                            label="Ảnh cuối"
                             valueName={row.endFrameName}
-                            previewUrl={
-                              row.endFrameImage ||
-                              (row.endFrameName
-                                ? findLibraryRef(referenceLibrary, row.endFrameName)?.image ?? null
-                                : null)
-                            }
-                            library={referenceLibrary}
+                            previewUrl={row.endFrameImage}
                             disabled={frameDisabled}
-                            onOpen={() => void refreshLibrary().catch(() => undefined)}
                             onChange={(frame) =>
                               updateRow(row.id, {
                                 endFrameName: frame.name,
@@ -1305,69 +1398,34 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                         </td>
                       )}
                       <td className="col-prompt">
-                        {editingPromptId === row.id ? (
-                          <div className="queue-prompt-box queue-prompt-box--editing">
-                            <textarea
-                              className="queue-prompt-inline-input"
-                              value={editingPromptText}
-                              rows={3}
-                              autoFocus
-                              onChange={(e) => setEditingPromptText(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  cancelEditPrompt();
-                                }
-                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                  e.preventDefault();
-                                  saveEditPrompt(row.id);
-                                }
-                              }}
-                            />
-                            <div className="queue-prompt-edit-actions">
-                              <button
-                                type="button"
-                                className="btn btn-primary btn-sm"
-                                onClick={() => saveEditPrompt(row.id)}
-                              >
-                                Lưu
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-ghost btn-sm"
-                                onClick={cancelEditPrompt}
-                              >
-                                Hủy
-                              </button>
-                              <span className="queue-prompt-edit-hint">Ctrl+Enter lưu · Esc hủy</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="queue-prompt-box">
-                            <p
-                              className="queue-prompt-text"
-                              title={`${row.prompt || ""}\n\nDouble-click hoặc bấm ✎ để sửa trên dòng này`}
-                              onDoubleClick={() => beginEditPrompt(row)}
-                            >
-                              {row.prompt || "—"}
-                            </p>
+                        <div
+                          className="queue-prompt-box"
+                          title="Double-click để xem / sửa đầy đủ"
+                          onDoubleClick={() => beginEditPrompt(row)}
+                        >
+                          <p className="queue-prompt-text">{row.prompt || "—"}</p>
+                          <div className="queue-prompt-side-actions">
                             <button
                               type="button"
-                              className="queue-prompt-edit-btn"
-                              aria-label="Sửa prompt"
-                              title="Sửa prompt trên dòng này rồi chạy lại"
-                              onClick={() => beginEditPrompt(row)}
-                              disabled={row.status === "running" || row.status === "queued"}
+                              className="queue-prompt-edit-btn queue-prompt-ai-btn"
+                              aria-label="Sửa bằng AI"
+                              title="Sửa prompt bằng AI"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void aiRewriteRow(row, { source: row.prompt });
+                              }}
+                              disabled={
+                                !row.prompt.trim() ||
+                                row.status === "running" ||
+                                row.status === "queued" ||
+                                aiBusyId === row.id ||
+                                aiBulkBusy
+                              }
                             >
-                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                                <path
-                                  fill="currentColor"
-                                  d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75 1.29-1.47Z"
-                                />
-                              </svg>
+                              {aiBusyId === row.id ? "…" : "✦"}
                             </button>
                           </div>
-                        )}
+                        </div>
                       </td>
                       <td className="col-status">
                         <div className="status-cell">
@@ -1457,6 +1515,76 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           </section>
         </section>
       </div>
+
+      {editingPromptId && (
+        <div
+          className="prompt-edit-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sửa prompt"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) cancelEditPrompt();
+          }}
+        >
+          <div className="prompt-edit-modal">
+            <div className="prompt-edit-modal-head">
+              <strong>Sửa prompt</strong>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={cancelEditPrompt}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+            <textarea
+              value={editingPromptText}
+              autoFocus
+              rows={6}
+              placeholder="Nhập prompt..."
+              onChange={(e) => setEditingPromptText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEditPrompt();
+                }
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  saveEditPrompt(editingPromptId);
+                }
+              }}
+            />
+            <div className="prompt-edit-modal-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => saveEditPrompt(editingPromptId)}
+              >
+                Lưu
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-ai-prompt"
+                onClick={() => {
+                  const row = rows.find((r) => r.id === editingPromptId);
+                  if (row) void aiRewriteRow(row, { source: editingPromptText });
+                }}
+                disabled={!editingPromptText.trim() || aiBusyId === editingPromptId || aiBulkBusy}
+                title="Sửa bằng AI"
+              >
+                {aiBusyId === editingPromptId ? "…" : "✦"}
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={cancelEditPrompt}>
+                Hủy
+              </button>
+              <span className="prompt-edit-modal-hint">
+                Double-click dòng để mở · Ctrl+Enter lưu · Esc đóng
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
