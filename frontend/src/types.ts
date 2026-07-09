@@ -26,6 +26,14 @@ export interface QueueRow {
   prompt: string;
   referenceImage: string | null;
   referenceName: string | null;
+  /** I2V / FL: nhãn hiển thị khung đầu (không bắt buộc là @thư viện) */
+  startFrameName: string | null;
+  /** I2V / FL: data URL / URL ảnh khung đầu — gắn dòng, không vào Ảnh tham chiếu */
+  startFrameImage: string | null;
+  /** FL: nhãn khung cuối */
+  endFrameName: string | null;
+  /** FL: data URL / URL ảnh khung cuối */
+  endFrameImage: string | null;
   results: string[];
   status: RowStatus;
   error: string | null;
@@ -104,10 +112,24 @@ export const VIDEO_ASPECT_RATIOS = [
 ] as const;
 
 export const VIDEO_MODES = [
-  { value: "text_to_video", label: "Văn bản → Video (không @)" },
-  { value: "start_image", label: "1 ảnh đầu → Video (I2V)" },
-  { value: "start_end_image", label: "Ảnh đầu + cuối (2 @)" },
-  { value: "components", label: "Nhiều người/ref (@tên) — Ingredients" },
+  {
+    value: "start_image",
+    label: "Ảnh → Video (tự nhận)",
+    short: "Auto",
+    hint: "Không ảnh → Text→Video. Có ảnh đầu → Ảnh→Video. Có đầu+cuối → xuyên suốt First & Last Frame.",
+  },
+  {
+    value: "text_to_video",
+    label: "Chỉ văn bản → Video",
+    short: "T2V",
+    hint: "Chỉ prompt, ẩn cột ảnh. Có @tên sẽ tự chuyển Ingredients.",
+  },
+  {
+    value: "components",
+    label: "Ingredients (nhiều @tên)",
+    short: "R2V",
+    hint: "Dùng tab Ảnh tham chiếu + @tên trong prompt.",
+  },
 ] as const;
 
 export const VIDEO_RESOLUTIONS = [

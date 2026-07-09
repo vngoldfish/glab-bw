@@ -93,19 +93,24 @@ VIDEO_MODELS_I2V_START_ULTRA = {
     },
 }
 
-# Start + end frame → video (_fl suffix). Omni Flash does not support end frame.
+# Start + end frame → video. ONLY *_fl keys work on StartAndEnd endpoint.
+# Lite/quality without _fl cause MEDIA_GENERATION_STATUS_FAILED at poll time.
 VIDEO_MODELS_I2V_START_END = {
     "veo_31_fast": {
         "16:9": "veo_3_1_i2v_s_fast_fl",
         "9:16": "veo_3_1_i2v_s_fast_portrait_fl",
     },
     "veo_31_lite": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_fl",
     },
     "veo_31_quality": {
-        "16:9": "veo_3_1_i2v_s_landscape",
-        "9:16": "veo_3_1_i2v_s_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_fl",
+    },
+    "veo_31_lite_relaxed": {
+        "16:9": "veo_3_1_i2v_s_fast_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_fl",
     },
 }
 
@@ -115,12 +120,16 @@ VIDEO_MODELS_I2V_START_END_ULTRA = {
         "9:16": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
     },
     "veo_31_lite": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_ultra_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
     },
     "veo_31_quality": {
-        "16:9": "veo_3_1_i2v_s_landscape",
-        "9:16": "veo_3_1_i2v_s_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_ultra_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+    },
+    "veo_31_lite_relaxed": {
+        "16:9": "veo_3_1_i2v_s_fast_ultra_fl",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
     },
 }
 
@@ -253,13 +262,17 @@ def resolve_video_model_candidates(
         if key and key not in keys:
             keys.append(key)
 
-    # Gemini Omni Flash — real production keys are abra_t2v_{Ns} (same for T2V/I2V/R2V)
+    # Gemini Omni Flash — abra_t2v_{Ns} for T2V / I2V / Ingredients.
+    # Start+end (first-last) is Veo-only (_fl keys); Omni has no end-frame path.
     if is_omni_flash_model(model):
-        primary = resolve_omni_flash_model_key(duration)
-        add(primary)
-        for seconds in OMNI_FLASH_DURATIONS:
-            add(f"abra_t2v_{seconds}s")
-        return keys
+        if mode == "start_end_image":
+            model = "veo_31_fast"
+        else:
+            primary = resolve_omni_flash_model_key(duration)
+            add(primary)
+            for seconds in OMNI_FLASH_DURATIONS:
+                add(f"abra_t2v_{seconds}s")
+            return keys
 
     if mode == "components":
         primary = VIDEO_MODELS_R2V_ULTRA if ultra else VIDEO_MODELS_R2V
@@ -277,16 +290,18 @@ def resolve_video_model_candidates(
             add("veo_3_1_r2v_fast")
             add("veo_3_1_r2v_fast_ultra")
     elif mode == "start_end_image":
+        # Always emit both ultra and non-ultra FL keys — wrong tier key often
+        # submits OK then dies with MEDIA_GENERATION_STATUS_FAILED on poll.
         primary = VIDEO_MODELS_I2V_START_END_ULTRA if ultra else VIDEO_MODELS_I2V_START_END
         secondary = VIDEO_MODELS_I2V_START_END if ultra else VIDEO_MODELS_I2V_START_END_ULTRA
         add(_pick(primary, model, aspect))
         add(_pick(secondary, model, aspect))
         if aspect == "9:16":
-            add("veo_3_1_i2v_s_fast_portrait_ultra_fl")
             add("veo_3_1_i2v_s_fast_portrait_fl")
+            add("veo_3_1_i2v_s_fast_portrait_ultra_fl")
         else:
-            add("veo_3_1_i2v_s_fast_ultra_fl")
             add("veo_3_1_i2v_s_fast_fl")
+            add("veo_3_1_i2v_s_fast_ultra_fl")
     elif mode == "start_image":
         primary = VIDEO_MODELS_I2V_START_ULTRA if ultra else VIDEO_MODELS_I2V_START
         secondary = VIDEO_MODELS_I2V_START if ultra else VIDEO_MODELS_I2V_START_ULTRA

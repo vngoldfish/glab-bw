@@ -42,6 +42,10 @@ function emptyRow(): QueueRow {
     prompt: "",
     referenceImage: null,
     referenceName: null,
+    startFrameName: null,
+    startFrameImage: null,
+    endFrameName: null,
+    endFrameImage: null,
     results: [],
     status: "idle",
     error: null,
@@ -338,9 +342,37 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     bulkPromptRef.current?.insertMentionAtCursor(name);
   }
 
-  function loadPromptToBulk(prompt: string) {
-    setPromptInput((prev) => (prev.trim() ? `${prev.trim()}\n${prompt}` : prompt));
-    bulkPromptRef.current?.focus();
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [editingPromptText, setEditingPromptText] = useState("");
+
+  /** Edit prompt on the same queue row (for re-run) — do NOT jump to bulk create box. */
+  function beginEditPrompt(row: QueueRow) {
+    if (row.status === "running" || row.status === "queued") return;
+    setEditingPromptId(row.id);
+    setEditingPromptText(row.prompt);
+  }
+
+  function saveEditPrompt(rowId: string) {
+    const next = editingPromptText.trim();
+    if (!next) {
+      onError("Prompt không được để trống");
+      return;
+    }
+    updateRow(rowId, {
+      prompt: next,
+      status: "idle",
+      error: null,
+      results: [],
+      savedFolder: null,
+      selected: true,
+    });
+    setEditingPromptId(null);
+    setEditingPromptText("");
+  }
+
+  function cancelEditPrompt() {
+    setEditingPromptId(null);
+    setEditingPromptText("");
   }
 
   function clearAllSelections() {
@@ -826,26 +858,69 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                         </div>
                       </td>
                       <td className="col-prompt">
-                        <div className="queue-prompt-box">
-                          <p className="queue-prompt-text" title={row.prompt}>
-                            {row.prompt || "—"}
-                          </p>
-                          <button
-                            type="button"
-                            className="queue-prompt-edit-btn"
-                            aria-label="Sửa prompt"
-                            title="Đưa prompt lên ô nhập hàng loạt để sửa"
-                            onClick={() => loadPromptToBulk(row.prompt)}
-                            disabled={!row.prompt.trim()}
-                          >
-                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                              <path
-                                fill="currentColor"
-                                d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75 1.29-1.47Z"
-                              />
-                            </svg>
-                          </button>
-                        </div>
+                        {editingPromptId === row.id ? (
+                          <div className="queue-prompt-box queue-prompt-box--editing">
+                            <textarea
+                              className="queue-prompt-inline-input"
+                              value={editingPromptText}
+                              rows={3}
+                              autoFocus
+                              onChange={(e) => setEditingPromptText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelEditPrompt();
+                                }
+                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                  e.preventDefault();
+                                  saveEditPrompt(row.id);
+                                }
+                              }}
+                            />
+                            <div className="queue-prompt-edit-actions">
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => saveEditPrompt(row.id)}
+                              >
+                                Lưu
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={cancelEditPrompt}
+                              >
+                                Hủy
+                              </button>
+                              <span className="queue-prompt-edit-hint">Ctrl+Enter lưu · Esc hủy</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="queue-prompt-box">
+                            <p
+                              className="queue-prompt-text"
+                              title={`${row.prompt || ""}\n\nDouble-click hoặc bấm ✎ để sửa trên dòng này`}
+                              onDoubleClick={() => beginEditPrompt(row)}
+                            >
+                              {row.prompt || "—"}
+                            </p>
+                            <button
+                              type="button"
+                              className="queue-prompt-edit-btn"
+                              aria-label="Sửa prompt"
+                              title="Sửa prompt trên dòng này rồi chạy lại"
+                              onClick={() => beginEditPrompt(row)}
+                              disabled={row.status === "running" || row.status === "queued"}
+                            >
+                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                                <path
+                                  fill="currentColor"
+                                  d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.13 1.13 2.75 2.75 1.29-1.47Z"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="col-status">
                         <div className="status-cell">

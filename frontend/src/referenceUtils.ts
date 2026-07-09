@@ -21,29 +21,47 @@ export function slugifyRefName(input: string): string {
   return (ascii || "ref").slice(0, 32);
 }
 
+/**
+ * Return @mentions in order of first appearance in the prompt.
+ * Critical for I2V (first frame) and start+end (frame 0 / frame 1).
+ */
 export function parseMentions(prompt: string, library: NamedReference[] = []): string[] {
   const text = normalizePromptText(prompt);
-  const seen = new Set<string>();
-  const names: string[] = [];
+  const hits: { index: number; key: string }[] = [];
+  const occupied: [number, number][] = [];
 
+  function overlaps(start: number, end: number): boolean {
+    return occupied.some(([s, e]) => start < e && end > s);
+  }
+
+  // Longer library names first so @cat_orange wins over @cat
   for (const item of [...library].sort((a, b) => b.name.length - a.name.length)) {
-    const pattern = new RegExp(`@${escapeRegExp(item.name)}(?![a-zA-Z0-9_])`, "i");
-    if (!pattern.test(text)) continue;
-    const key = item.name.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      names.push(key);
+    const pattern = new RegExp(`@${escapeRegExp(item.name)}(?![a-zA-Z0-9_])`, "gi");
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (overlaps(start, end)) continue;
+      occupied.push([start, end]);
+      hits.push({ index: start, key: item.name.toLowerCase() });
     }
   }
 
   for (const match of text.matchAll(MENTION_PATTERN)) {
-    const key = match[1].toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      names.push(key);
-    }
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (overlaps(start, end)) continue;
+    occupied.push([start, end]);
+    hits.push({ index: start, key: match[1].toLowerCase() });
   }
 
+  hits.sort((a, b) => a.index - b.index);
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const hit of hits) {
+    if (seen.has(hit.key)) continue;
+    seen.add(hit.key);
+    names.push(hit.key);
+  }
   return names;
 }
 

@@ -19,7 +19,14 @@ function prepareRowForSave(row: QueueRow): QueueRow {
  * so the user can re-run them instead of seeing a stuck "Đang tạo".
  */
 function normalizeRowOnLoad(row: QueueRow): QueueRow {
-  let next = { ...row, savedFolder: row.savedFolder ?? null };
+  let next: QueueRow = {
+    ...row,
+    savedFolder: row.savedFolder ?? null,
+    startFrameName: row.startFrameName ?? null,
+    startFrameImage: row.startFrameImage ?? null,
+    endFrameName: row.endFrameName ?? null,
+    endFrameImage: row.endFrameImage ?? null,
+  };
   if (next.status === "running" || next.status === "queued") {
     next = { ...next, status: "idle" as const, error: null };
   }
@@ -38,19 +45,25 @@ function stripReferenceImages(rows: QueueRow[]): QueueRow[] {
     ...row,
     referenceImage: null,
     referenceName: row.referenceName,
+    // data URL frames are large — drop on quota fallback; library names kept
+    startFrameImage: row.startFrameImage?.startsWith("data:") ? null : row.startFrameImage,
+    endFrameImage: row.endFrameImage?.startsWith("data:") ? null : row.endFrameImage,
   }));
 }
 
 function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
   const source = config ?? {};
-  const mode = source.mode ?? "text_to_video";
-  const validModes = new Set(["text_to_video", "start_image", "start_end_image", "components"]);
+  let mode = source.mode ?? "text_to_video";
+  // Old separate FL mode → unified image mode (end frame optional per row)
+  if (mode === "start_end_image") mode = "start_image";
+  const validModes = new Set(["text_to_video", "start_image", "components"]);
   const durationRaw = Number(source.duration ?? 8);
   const duration = [4, 6, 8, 10].includes(durationRaw) ? durationRaw : 8;
   return {
     model: String(source.model ?? "veo_31_fast"),
     aspectRatio: String(source.aspectRatio ?? "16:9"),
-    mode: validModes.has(mode) ? (mode as VideoConfig["mode"]) : "text_to_video",
+    // Default smart mode: auto T2V / I2V / FL from row images
+    mode: validModes.has(mode) ? (mode as VideoConfig["mode"]) : "start_image",
     concurrency: Number(source.concurrency ?? 1),
     saveMode: String(source.saveMode ?? "task"),
     outputFolder: String(source.outputFolder ?? "G-Labs BW/video_output"),

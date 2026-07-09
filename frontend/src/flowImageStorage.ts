@@ -19,7 +19,14 @@ function prepareRowForSave(row: QueueRow): QueueRow {
  * so the user can re-run them instead of seeing a stuck "Đang tạo".
  */
 function normalizeRowOnLoad(row: QueueRow): QueueRow {
-  let next = { ...row, savedFolder: row.savedFolder ?? null };
+  let next: QueueRow = {
+    ...row,
+    savedFolder: row.savedFolder ?? null,
+    startFrameName: row.startFrameName ?? null,
+    startFrameImage: row.startFrameImage ?? null,
+    endFrameName: row.endFrameName ?? null,
+    endFrameImage: row.endFrameImage ?? null,
+  };
   if (next.status === "running" || next.status === "queued") {
     next = { ...next, status: "idle" as const, error: null };
   }

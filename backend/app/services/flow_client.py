@@ -46,13 +46,26 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
         joined = " ".join(reasons)
         if "UNSAFE_GENERATION" in joined or "UNSAFE" in status:
             return "Prompt bị Google chặn (nội dung không an toàn) — hãy sửa lại prompt"
+        if (
+            "recaptcha evaluation failed" in message.lower()
+            or "recaptcha" in message.lower()
+            and "fail" in message.lower()
+        ):
+            return (
+                "reCAPTCHA bị Google từ chối (evaluation failed). "
+                "Làm lần lượt: (1) Focus tab labs.google/fx/tools/flow (đang login đúng tài khoản), "
+                "(2) Auth Helper extension xanh + tab Flow = open, "
+                "(3) Settings → dán lại cookie __Secure-next-auth.session-token mới từ ĐÚNG tab đó, "
+                "(4) F5 tab Flow, đợi 5s, chạy lại 1 video. "
+                "Cookie app và tab extension phải cùng 1 tài khoản Google."
+            )
         if status == "PERMISSION_DENIED" or "does not have permission" in message.lower():
             return (
                 "Google từ chối quyền tạo video (PERMISSION_DENIED). "
                 "Nếu Flow web vẫn tạo được: cookie/session trong app có thể cũ hoặc khác tab browser — "
                 "mở Settings → dán lại cookie __Secure-next-auth.session-token mới từ labs.google, "
                 "giữ tab Flow mở + extension xanh. "
-                "Cũng thử model Veo 3.1 Lite / text-to-video. "
+                "Cũng thử model Veo 3.1 Fast + Văn bản→Video trước để kiểm tra auth. "
                 f"({message or status})"
             )
         if status == "INTERNAL" or (status_code >= 500 and status_code != 503):
@@ -177,11 +190,47 @@ class GoogleFlowClient:
                 "Auth Helper chưa kết nối — mở tab labs.google/fx/tools/flow và bật extension",
                 error_code=0,
             )
-        request = await auth_bridge_access.queue_captcha(site_key=RECAPTCHA_SITE_KEY, action=action)
-        solved = await auth_bridge_access.wait_for_captcha(request.request_id, timeout=120.0)
-        if not solved.token:
-            raise ProviderError(solved.error or "reCAPTCHA solve failed", error_code=403)
-        return solved.token
+        bridge_session = auth_bridge_access.get_primary_session()
+        if not bridge_session or bridge_session.flow_tab_status != "open":
+            raise ProviderError(
+                "Tab Flow chưa mở trong Chrome — mở https://labs.google/fx/tools/flow "
+                "(login đúng tài khoản cookie trong Settings), đợi Auth = OK / Flow: open",
+                error_code=0,
+            )
+
+        last_err: str | None = None
+        # Fresh token each try — reused/stale tokens → "reCAPTCHA evaluation failed"
+        for attempt in range(3):
+            request = await auth_bridge_access.queue_captcha(
+                site_key=RECAPTCHA_SITE_KEY,
+                action=action,
+            )
+            try:
+                solved = await auth_bridge_access.wait_for_captcha(
+                    request.request_id,
+                    timeout=90.0,
+                )
+            except TimeoutError:
+                last_err = "Hết thời gian chờ reCAPTCHA — reload tab Flow + kiểm tra extension"
+                await asyncio.sleep(1.0 + attempt)
+                continue
+            if solved.error:
+                last_err = str(solved.error)
+                await asyncio.sleep(0.8 + attempt * 0.5)
+                continue
+            token = (solved.token or "").strip()
+            if len(token) < 20:
+                last_err = "reCAPTCHA token rỗng/không hợp lệ"
+                await asyncio.sleep(0.8)
+                continue
+            # Brief pause so token is not evaluated in the same instant as execute()
+            await asyncio.sleep(0.35)
+            return token
+
+        raise ProviderError(
+            last_err or "reCAPTCHA solve failed — reload tab Flow + extension",
+            error_code=403,
+        )
 
     def _client_context(
         self,
@@ -191,7 +240,7 @@ class GoogleFlowClient:
         session_id: str,
         user_paygate_tier: str | None = None,
     ) -> dict[str, Any]:
-        # Field order matches browser / flow-agent production payloads
+        # Field order closer to Flow web / flowkit production
         return {
             "projectId": project_id,
             "tool": "PINHOLE",
@@ -383,8 +432,52 @@ class GoogleFlowClient:
             endpoint = "video:batchAsyncGenerateVideoText"
 
         omni = is_omni_flash_model(model)
-        # Prefer Omni keys for ingredients — they are the only R2V keys proven in Flow web tools
-        if active_mode == "components" or omni:
+        # First-last frames: ONLY real *_fl Veo keys + StartAndEnd endpoint.
+        # Never fall back to I2V silently — that only animates start frame ("chuyển cảnh" fake).
+        if active_mode == "start_end_image":
+            if not start_media_id or not end_media_id:
+                raise ProviderError(
+                    "First & Last Frame cần cả startImage và endImage mediaId",
+                    error_code=400,
+                )
+            if start_media_id == end_media_id:
+                raise ProviderError(
+                    "startImage và endImage trùng mediaId — chọn 2 ảnh khác nhau",
+                    error_code=400,
+                )
+            fl_model = "veo_31_fast" if omni else model
+            model_keys = resolve_video_model_candidates(
+                fl_model,
+                aspect_ratio,
+                mode="start_end_image",
+                user_paygate_tier=user_paygate_tier,
+                duration=duration,
+            )
+            for key in resolve_video_model_candidates(
+                "veo_31_fast",
+                aspect_ratio,
+                mode="start_end_image",
+                user_paygate_tier=user_paygate_tier,
+                duration=duration,
+            ):
+                if key not in model_keys:
+                    model_keys.append(key)
+            # Hard filter: only keys that encode first-last (_fl)
+            model_keys = [k for k in model_keys if "_fl" in k]
+            if not model_keys:
+                model_keys = (
+                    ["veo_3_1_i2v_s_fast_portrait_fl", "veo_3_1_i2v_s_fast_portrait_ultra_fl"]
+                    if aspect_ratio == "9:16"
+                    else ["veo_3_1_i2v_s_fast_fl", "veo_3_1_i2v_s_fast_ultra_fl"]
+                )
+            logger.info(
+                "FL true first-last keys=%s start=%s… end=%s…",
+                model_keys,
+                start_media_id[:20],
+                end_media_id[:20],
+            )
+        # Prefer Omni keys for ingredients — only R2V path matching Flow web
+        elif active_mode == "components" or omni:
             model_keys = resolve_video_model_candidates(
                 "omni_flash",
                 aspect_ratio,
@@ -426,6 +519,7 @@ class GoogleFlowClient:
             end_id: str | None,
             ref_ids: list[str] | None,
             browser_like: bool,
+            use_v2_config: bool = True,
         ) -> dict[str, Any]:
             recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
             if not recaptcha_token or len(recaptcha_token) < 20:
@@ -446,7 +540,7 @@ class GoogleFlowClient:
                 }
                 metadata: dict[str, Any] = {}
             else:
-                # Veo: plain prompt works; also try structured for R2V if needed
+                # Veo FL/I2V: plain prompt + sceneId
                 text_input = {"prompt": prompt}
                 metadata = {"sceneId": str(uuid.uuid4())}
 
@@ -477,19 +571,30 @@ class GoogleFlowClient:
                         {"mediaId": media_id} for media_id in ref_ids
                     ]
 
-            # Body key order matches flow-agent / browser
-            payload = {
-                "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
-                "clientContext": client_context,
-                "requests": [request_data],
-                "useV2ModelConfig": True,
-            }
+            # First-last: match production Flow payload (clientContext + requests only).
+            # Extra mediaGenerationContext / useV2 can make Google treat it like a weaker I2V.
+            if mode_name == "start_end_image":
+                payload = {
+                    "clientContext": client_context,
+                    "requests": [request_data],
+                }
+            else:
+                payload = {
+                    "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
+                    "clientContext": client_context,
+                    "requests": [request_data],
+                }
+                if use_v2_config:
+                    payload["useV2ModelConfig"] = True
             logger.info(
-                "Flow video submit mode=%s model_key=%s ep=%s refs=%s browser_like=%s",
+                "Flow video submit mode=%s model_key=%s ep=%s start=%s end=%s refs=%s v2=%s browser_like=%s",
                 mode_name,
                 model_key,
                 ep,
+                bool(start_id),
+                bool(end_id),
                 len(ref_ids or []),
+                use_v2_config if mode_name != "start_end_image" else False,
                 browser_like,
             )
             return await self._request(
@@ -506,13 +611,76 @@ class GoogleFlowClient:
                 browser_like=browser_like,
             )
 
-        # --- Primary attempts: configured mode + model keys ---
+        def _ops_from_submit(submit_body: dict[str, Any]) -> list[dict[str, Any]]:
+            operations = submit_body.get("operations", [])
+            if operations:
+                return operations
+            # Omni Flash sometimes returns media[] immediately instead of operations[]
+            media_list = submit_body.get("media") or []
+            ops: list[dict[str, Any]] = []
+            for item in media_list:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name") or item.get("mediaGenerationId")
+                if name:
+                    ops.append(
+                        {
+                            "operation": {"name": name},
+                            "mediaGenerationId": name,
+                            "name": name,
+                        }
+                    )
+            return ops
+
+        async def _submit_and_poll(
+            *,
+            model_key: str,
+            mode_name: str,
+            ep: str,
+            start_id: str | None,
+            end_id: str | None,
+            ref_ids: list[str] | None,
+            browser_like: bool,
+            use_v2_config: bool = True,
+        ) -> str:
+            nonlocal submit, used_key
+            submit = await _submit_once(
+                model_key=model_key,
+                mode_name=mode_name,
+                ep=ep,
+                start_id=start_id,
+                end_id=end_id,
+                ref_ids=ref_ids,
+                browser_like=browser_like,
+                use_v2_config=use_v2_config,
+            )
+            used_key = model_key
+            operations = _ops_from_submit(submit)
+            if not operations:
+                raise ProviderError(
+                    f"Video submit không trả về operation (model={model_key})",
+                    error_code=500,
+                )
+            return await self._poll_video(
+                access_token,
+                operations,
+                project_id=project_id,
+                session_token=session_token,
+            )
+
+        media_name: str | None = None
+
+        # --- Primary attempts: submit+poll per model key ---
+        # Critical for FL: wrong *_fl / tier key often submits OK then poll FAILED.
         for key_index, model_key in enumerate(model_keys):
             for attempt in range(3):
                 try:
-                    # Alternate content-type: browser text/plain then JSON
-                    browser_like = attempt != 1
-                    submit = await _submit_once(
+                    # Always browser-like for video — JSON content-type often triggers
+                    # "reCAPTCHA evaluation failed" / PERMISSION_DENIED.
+                    browser_like = True
+                    # FL attempt 2: drop useV2ModelConfig (some accounts need this)
+                    use_v2 = not (active_mode == "start_end_image" and attempt >= 1)
+                    media_name = await _submit_and_poll(
                         model_key=model_key,
                         mode_name=active_mode,
                         ep=endpoint,
@@ -520,18 +688,22 @@ class GoogleFlowClient:
                         end_id=end_media_id,
                         ref_ids=list(reference_media_ids or []),
                         browser_like=browser_like,
+                        use_v2_config=use_v2,
                     )
-                    used_key = model_key
                     break
                 except ProviderError as exc:
                     last_error = exc
                     msg = str(exc).lower()
+                    captcha_fail = "recaptcha" in msg
                     retryable = (
                         exc.error_code in {403, 429, 500, 502, 503, 504}
                         or "internal" in msg
                         or "unavailable" in msg
                         or "permission" in msg
                         or "tạm thời" in msg
+                        or "failed" in msg
+                        or "media_generation" in msg
+                        or captcha_fail
                     )
                     logger.warning(
                         "Flow video failed mode=%s model_key=%s attempt=%s: %s",
@@ -541,15 +713,18 @@ class GoogleFlowClient:
                         exc,
                     )
                     if retryable and attempt < 2:
-                        await asyncio.sleep(2 + attempt * 3 + key_index)
+                        # Fresh reCAPTCHA each _submit_once; wait longer after captcha fail
+                        await asyncio.sleep(
+                            (4 + attempt * 4) if captcha_fail else (2 + attempt * 3 + key_index)
+                        )
                         continue
                     break
-            if submit is not None:
+            if media_name is not None:
                 break
 
         # --- Graceful fallback for multi-ref R2V: animate first frame (I2V) ---
         if (
-            submit is None
+            media_name is None
             and active_mode == "components"
             and reference_media_ids
         ):
@@ -563,7 +738,6 @@ class GoogleFlowClient:
                 user_paygate_tier=tier,
                 duration=duration,
             )
-            # Also try omni abra for I2V
             for key in resolve_video_model_candidates(
                 "omni_flash",
                 aspect_ratio,
@@ -576,7 +750,7 @@ class GoogleFlowClient:
 
             for model_key in i2v_keys[:4]:
                 try:
-                    submit = await _submit_once(
+                    media_name = await _submit_and_poll(
                         model_key=model_key,
                         mode_name="start_image",
                         ep="video:batchAsyncGenerateVideoStartImage",
@@ -594,8 +768,8 @@ class GoogleFlowClient:
                     logger.warning("I2V fallback failed model_key=%s: %s", model_key, exc)
                     await asyncio.sleep(2)
 
-        # --- Last resort: pure T2V (drop refs) ---
-        if submit is None and active_mode == "components":
+        # --- Last resort for Ingredients only: pure T2V (never for true FL) ---
+        if media_name is None and active_mode == "components":
             logger.warning("I2V fallback failed — last resort pure T2V without references")
             t2v_keys = resolve_video_model_candidates(
                 "omni_flash",
@@ -606,7 +780,7 @@ class GoogleFlowClient:
             )
             for model_key in t2v_keys[:3]:
                 try:
-                    submit = await _submit_once(
+                    media_name = await _submit_and_poll(
                         model_key=model_key,
                         mode_name="text_to_video",
                         ep="video:batchAsyncGenerateVideoText",
@@ -622,40 +796,30 @@ class GoogleFlowClient:
                     last_error = exc
                     await asyncio.sleep(2)
 
-        if submit is None:
-            # Keep the most actionable error (prefer 403 permission over cascading INTERNAL)
-            raise last_error or ProviderError("Tạo video thất bại", error_code=0)
+        if media_name is None:
+            err = last_error or ProviderError("Tạo video thất bại", error_code=0)
+            if active_mode == "start_end_image":
+                raise ProviderError(
+                    "First & Last Frame thất bại — không fallback I2V (tránh video chỉ animate ảnh đầu). "
+                    "Cần: 2 ảnh khác nhau cùng tỷ lệ, model Veo 3.1 Fast, prompt mô tả chuyển động "
+                    "giữa 2 khung (không phải cắt cảnh). "
+                    f"Chi tiết: {err}",
+                    error_code=getattr(err, "error_code", 500) or 500,
+                )
+            raise err
 
-        operations = submit.get("operations", [])
-        # Omni Flash sometimes returns media[] immediately instead of operations[]
-        if not operations:
-            media_list = submit.get("media") or []
-            operations = []
-            for item in media_list:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get("name") or item.get("mediaGenerationId")
-                if name:
-                    operations.append(
-                        {
-                            "operation": {"name": name},
-                            "mediaGenerationId": name,
-                            "name": name,
-                        }
-                    )
-
-        if not operations:
+        if active_mode == "start_end_image" and "_fl" not in used_key:
             raise ProviderError(
-                f"Video submit không trả về operation (model={used_key})",
+                f"Internal: FL chạy với key không phải first-last ({used_key})",
                 error_code=500,
             )
-
-        media_name = await self._poll_video(
-            access_token,
-            operations,
-            project_id=project_id,
-            session_token=session_token,
+        logger.info(
+            "Video done mode=%s model_key=%s media=%s…",
+            active_mode,
+            used_key,
+            str(media_name)[:24],
         )
+
         base_video = await self._download_video(
             access_token,
             media_name,
@@ -737,7 +901,26 @@ class GoogleFlowClient:
                     or ""
                 ).upper()
                 if "FAILED" in status or "ERROR" in status or "BLOCKED" in status:
-                    raise ProviderError(f"Video generation failed: {status}", error_code=500)
+                    detail_bits: list[str] = [status]
+                    for key in (
+                        "publicError",
+                        "error",
+                        "statusMessage",
+                        "failureReason",
+                        "detailedStatus",
+                        "message",
+                    ):
+                        val = nested.get(key) if isinstance(nested, dict) else None
+                        if val is None:
+                            val = item.get(key)
+                        if val:
+                            detail_bits.append(str(val)[:300])
+                    # Log full item once for debugging FL failures
+                    logger.warning("Video poll failed status item=%s", item)
+                    raise ProviderError(
+                        "Video generation failed: " + " | ".join(detail_bits),
+                        error_code=500,
+                    )
                 if "SUCCESS" in status or "COMPLETE" in status or "DONE" in status:
                     media_name = self._extract_media_name(item)
                     if media_name:

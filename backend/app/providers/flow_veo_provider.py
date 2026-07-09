@@ -1,7 +1,7 @@
+import logging
 from typing import Any
 
 from app.providers.base import BaseProvider, ProviderError
-
 from app.services.account_store import Account
 from app.services.auth_bridge_access import auth_bridge_access
 from app.services.flow_client import google_flow_client
@@ -9,6 +9,8 @@ from app.services.flow_media_cache import get_media_id, invalidate_for_bytes, se
 from app.services.flow_session import flow_session_manager
 from app.services.reference_image_loader import load_reference_image
 from app.services.reference_resolver import resolve_prompt_references
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_reference_image(item: Any) -> tuple[bytes, str] | None:
@@ -161,41 +163,58 @@ class FlowVeoProvider(BaseProvider):
         # Always refresh token for video — stale AT often surfaces as PERMISSION_DENIED
         # even when Flow web (browser cookies) still works.
         session = await self._session(force_refresh=True)
-        mode = params.get("mode", "text_to_video")
+        mode = str(params.get("mode", "text_to_video"))
         model = str(params.get("model", "veo_31_fast"))
         is_omni = model in {"omni_flash", "gemini_omni_flash", "omni"}
         named_refs = params.get("named_references", [])
-        # Veo ingredients need @reference_N markers; Omni works better with original @names
-        # + ordered referenceImages (IMAGE_USAGE_TYPE_ASSET).
+
+        # I2V / first-last: frames come from UI pickers (named_references order),
+        # not from @mentions in the prompt text.
+        frame_mode = mode in {"start_image", "start_end_image"}
+        rewrite = mode == "components" and not is_omni
         resolved_prompt, named_items = resolve_prompt_references(
             prompt,
-            named_refs,
-            rewrite_markers=not is_omni,
+            named_refs if isinstance(named_refs, list) else [],
+            rewrite_markers=rewrite,
+            # Frame modes: ignore stray @foo in prompt; use picker payload order
+            strict_unknown_mentions=not frame_mode and mode != "text_to_video",
+            prefer_payload_order=frame_mode,
         )
+
         if named_items:
             reference_items = named_items
             prompt = resolved_prompt
-            # 2+ refs must use ingredients/R2V — start_image only animates the FIRST frame
-            if len(named_items) >= 2 and mode in {
-                "text_to_video",
-                "start_image",
-                "components",
-            }:
-                mode = "components"
-            elif mode == "text_to_video":
-                mode = "components"
         else:
-            reference_items = params.get("reference_images", [])
+            reference_items = list(params.get("reference_images") or [])
 
-        # Omni Flash: no start+end frame API — use start frame only
-        if is_omni and mode == "start_end_image":
-            if len(reference_items) >= 2:
-                # Prefer multi-character ingredients over dropping to single I2V
-                mode = "components"
-            else:
-                mode = "start_image"
+        # Auto-upgrade plain T2V only when user did not pick an explicit frame mode
+        if mode == "text_to_video" and named_items:
+            mode = "components" if len(named_items) >= 2 else "start_image"
 
-        # Veo R2V supports up to 3 ingredient images; Omni up to ~7
+        # Strict validation for frame modes (do NOT silently rewrite to ingredients)
+        if mode == "start_image" and not reference_items:
+            raise ProviderError(
+                "Ảnh → Video cần 1 ảnh đầu: chọn ở cột Ảnh đầu trên bảng hàng chờ",
+                error_code=400,
+            )
+        if mode == "start_end_image" and len(reference_items) < 2:
+            raise ProviderError(
+                "Video đầu→cuối cần 2 ảnh: chọn Ảnh đầu và Ảnh cuối trên bảng hàng chờ",
+                error_code=400,
+            )
+        if mode == "components" and not reference_items:
+            raise ProviderError(
+                "Ingredients cần ít nhất 1 @tên trong prompt (ảnh có trong thư viện tham chiếu)",
+                error_code=400,
+            )
+
+        # For I2V / FL only first (and second) ordered mentions are frames
+        if mode == "start_image" and len(reference_items) > 1:
+            reference_items = reference_items[:1]
+        elif mode == "start_end_image" and len(reference_items) > 2:
+            reference_items = reference_items[:2]
+
+        # Veo R2V max 3; Omni up to 7
         max_refs = 7 if is_omni else 3
         if mode == "components" and len(reference_items) > max_refs:
             reference_items = reference_items[:max_refs]
@@ -207,26 +226,39 @@ class FlowVeoProvider(BaseProvider):
         if mode == "components" and reference_items:
             image_inputs = await self._build_reference_inputs(session, reference_items)
             reference_media_ids = [item["name"] for item in image_inputs]
-        elif mode in {"start_image", "start_end_image"} and reference_items:
+        elif mode == "start_image" and reference_items:
+            # First @mention / first ref = start frame only
             first_parsed = _parse_reference_image(reference_items[0])
             if not first_parsed:
-                raise ProviderError("Ảnh tham chiếu đầu tiên không hợp lệ", error_code=400)
+                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP < 10MB)", error_code=400)
             first_raw, first_mime = first_parsed
             start_media_id = await self._ensure_flow_media_id_resilient(
                 session, first_raw, first_mime
             )
-            if mode == "start_end_image" and len(reference_items) > 1:
-                second_parsed = _parse_reference_image(reference_items[1])
-                if not second_parsed:
-                    raise ProviderError("Ảnh tham chiếu thứ hai không hợp lệ", error_code=400)
-                second_raw, second_mime = second_parsed
-                end_media_id = await self._ensure_flow_media_id_resilient(
-                    session, second_raw, second_mime
+        elif mode == "start_end_image" and len(reference_items) >= 2:
+            # Ordered: picker[0] = start, picker[1] = end.
+            # Always force fresh upload for FL — stale/hidden cache mediaIds often
+            # submit OK then poll MEDIA_GENERATION_STATUS_FAILED.
+            first_parsed = _parse_reference_image(reference_items[0])
+            second_parsed = _parse_reference_image(reference_items[1])
+            if not first_parsed:
+                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP)", error_code=400)
+            if not second_parsed:
+                raise ProviderError("Ảnh khung cuối không hợp lệ (PNG/JPG/WebP)", error_code=400)
+            first_raw, first_mime = first_parsed
+            second_raw, second_mime = second_parsed
+            if first_raw == second_raw:
+                raise ProviderError(
+                    "Ảnh đầu và ảnh cuối trùng nhau — chọn 2 ảnh khác nhau cho video đầu→cuối",
+                    error_code=400,
                 )
-        elif mode in {"start_image", "start_end_image", "components"}:
-            raise ProviderError(
-                "Chế độ này cần ít nhất một ảnh tham chiếu (@tên hoặc reference_images)",
-                error_code=400,
+            invalidate_for_bytes(first_raw)
+            invalidate_for_bytes(second_raw)
+            start_media_id = await self._ensure_flow_media_id(
+                session, first_raw, first_mime, force_reupload=True
+            )
+            end_media_id = await self._ensure_flow_media_id(
+                session, second_raw, second_mime, force_reupload=True
             )
 
         duration = params.get("duration") or params.get("video_length")
@@ -253,8 +285,19 @@ class FlowVeoProvider(BaseProvider):
         try:
             return await google_flow_client.generate_video(**video_kwargs)
         except ProviderError as exc:
-            # Cached / hidden mediaIds may fail with PERMISSION_DENIED — reupload once
             msg = str(exc).lower()
+            # reCAPTCHA evaluation failed: refresh AT + retry once with brand-new captcha tokens
+            if "recaptcha" in msg:
+                logger.warning("Video reCAPTCHA fail — force session refresh + retry once")
+                session = await self._session(force_refresh=True)
+                video_kwargs["access_token"] = session["access_token"]
+                video_kwargs["session_token"] = session["session_token"]
+                video_kwargs["project_id"] = session["project_id"]
+                video_kwargs["user_paygate_tier"] = session.get(
+                    "user_paygate_tier", "PAYGATE_TIER_ONE"
+                )
+                return await google_flow_client.generate_video(**video_kwargs)
+            # Cached / hidden mediaIds may fail with PERMISSION_DENIED — reupload once
             if "permission" not in msg or not reference_items:
                 raise
             if mode == "components":

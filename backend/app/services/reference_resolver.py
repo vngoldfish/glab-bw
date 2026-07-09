@@ -10,7 +10,12 @@ def _normalize_prompt(prompt: str) -> str:
     return prompt.replace("\uff20", "@")
 
 
-def _ordered_mentions(prompt: str, ref_by_name: dict[str, dict[str, Any]]) -> list[str]:
+def _ordered_mentions(
+    prompt: str,
+    ref_by_name: dict[str, dict[str, Any]],
+    *,
+    strict_unknown: bool = True,
+) -> list[str]:
     hits: list[tuple[int, str]] = []
 
     for name in ref_by_name:
@@ -33,15 +38,16 @@ def _ordered_mentions(prompt: str, ref_by_name: dict[str, dict[str, Any]]) -> li
         seen.add(key)
         ordered.append(key)
 
-    for match in _MENTION_PATTERN.finditer(prompt):
-        key = match.group(1).lower()
-        if key in seen:
-            continue
-        if key not in ref_by_name:
-            raise ProviderError(
-                f"Không tìm thấy ảnh tham chiếu '@{match.group(1)}' trong thư viện",
-                error_code=400,
-            )
+    if strict_unknown:
+        for match in _MENTION_PATTERN.finditer(prompt):
+            key = match.group(1).lower()
+            if key in seen:
+                continue
+            if key not in ref_by_name:
+                raise ProviderError(
+                    f"Không tìm thấy ảnh tham chiếu '@{match.group(1)}' trong thư viện",
+                    error_code=400,
+                )
 
     return ordered
 
@@ -51,23 +57,45 @@ def resolve_prompt_references(
     named_refs: list[dict[str, Any]],
     *,
     rewrite_markers: bool = True,
+    strict_unknown_mentions: bool = True,
+    prefer_payload_order: bool = False,
 ) -> tuple[str, list[Any]]:
     """Map custom @names to ordered upload items.
 
     When rewrite_markers=True (Veo ingredients), replace @name with @reference_N.
     When False (Omni Flash assets), keep original @names in the prompt and only
     return ordered image items for referenceImages[].
+
+    prefer_payload_order=True (I2V / first-last): use named_refs list order from the
+    UI frame pickers; do not require @names in the prompt text.
     """
     prompt = _normalize_prompt(prompt)
     ref_by_name: dict[str, dict[str, Any]] = {}
+    ordered_payload: list[Any] = []
     for item in named_refs:
+        if not isinstance(item, dict):
+            continue
         name = str(item.get("name") or "").strip().lower()
         if name:
             ref_by_name[name] = item
+        # Keep payload order for frame modes even without a name
+        ordered_payload.append(item)
 
-    ordered_names = _ordered_mentions(prompt, ref_by_name)
+    if prefer_payload_order and ordered_payload:
+        if len(ordered_payload) > 10:
+            raise ProviderError("Tối đa 10 ảnh tham chiếu trong một prompt", error_code=400)
+        return prompt, ordered_payload
+
+    ordered_names = _ordered_mentions(
+        prompt,
+        ref_by_name,
+        strict_unknown=strict_unknown_mentions,
+    )
 
     if not ordered_names:
+        # Fall back to payload order when prompt has no @ but client sent frames
+        if ordered_payload and not strict_unknown_mentions:
+            return prompt, ordered_payload
         return prompt, []
 
     if len(ordered_names) > 10:
