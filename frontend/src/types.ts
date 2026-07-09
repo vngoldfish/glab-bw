@@ -116,7 +116,7 @@ export const VIDEO_MODES = [
     value: "start_image",
     label: "Ảnh → Video (tự nhận)",
     short: "Auto",
-    hint: "Không ảnh → Text→Video. Có ảnh đầu → Ảnh→Video. Có đầu+cuối → xuyên suốt First & Last Frame.",
+    hint: "@nhân_vật → Ingredients · Ảnh đầu → I2V · đầu+cuối → First&Last · không ảnh → Text→Video.",
   },
   {
     value: "text_to_video",

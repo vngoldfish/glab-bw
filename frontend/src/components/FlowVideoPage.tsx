@@ -114,11 +114,13 @@ function hasRowFrame(
 function rowAutoModeLabel(
   row: QueueRow,
   library: NamedReference[],
-): { label: string; kind: "t2v" | "i2v" | "fl" } {
+): { label: string; kind: "t2v" | "i2v" | "fl" | "r2v" } {
   const hasStart = hasRowFrame(row.startFrameName, row.startFrameImage, library);
   const hasEnd = hasRowFrame(row.endFrameName, row.endFrameImage, library);
   if (hasStart && hasEnd) return { label: "Đầu → Cuối", kind: "fl" };
   if (hasStart) return { label: "Ảnh → Video", kind: "i2v" };
+  const n = parseMentions(row.prompt, library).length;
+  if (n >= 1) return { label: "Ingredients @", kind: "r2v" };
   return { label: "Text → Video", kind: "t2v" };
 }
 
@@ -185,12 +187,15 @@ function statusLabel(status: RowStatus): string {
 }
 
 /**
- * Resolve API mode from UI selection + row images.
+ * Resolve API mode from UI selection + row images + @mentions.
  *
  * Smart mode (start_image UI):
- *   - no images        → text_to_video
- *   - start only       → start_image (I2V)
- *   - start + end      → start_end_image (First & Last Frame, xuyên suốt)
+ *   - start + end frames → start_end_image (First & Last)
+ *   - start only         → start_image (I2V)
+ *   - no frames + @tên   → components (Ingredients / nhân vật tham chiếu)
+ *   - no frames, no @    → text_to_video
+ *
+ * Frame pickers win over @ when both are present.
  */
 function resolveVideoRunMode(
   prompt: string,
@@ -198,7 +203,7 @@ function resolveVideoRunMode(
   library: NamedReference[],
   row: QueueRow,
 ): { mode: VideoMode; error: string | null } {
-  // Smart "Ảnh → Video": auto by frames on the row
+  // Smart "Ảnh → Video": auto by frames, then @character refs
   if (mode === "start_image" || mode === "start_end_image") {
     const hasStart = hasRowFrame(row.startFrameName, row.startFrameImage, library);
     const hasEnd = hasRowFrame(row.endFrameName, row.endFrameImage, library);
@@ -206,12 +211,17 @@ function resolveVideoRunMode(
     if (!hasStart && hasEnd) {
       return {
         mode: "start_image",
-        error: "Có Ảnh cuối nhưng chưa có Ảnh đầu — chọn Ảnh đầu, hoặc xóa Ảnh cuối để Text→Video",
+        error: "Có Ảnh cuối nhưng chưa có Ảnh đầu — chọn Ảnh đầu, hoặc xóa Ảnh cuối",
       };
     }
     if (hasStart && hasEnd) return { mode: "start_end_image", error: null };
     if (hasStart) return { mode: "start_image", error: null };
-    // Không ảnh → text-to-video
+
+    // No frame pickers: allow @nhân vật tham chiếu → Ingredients
+    const mentionError = validatePromptMentions(prompt, library);
+    if (mentionError) return { mode: "components", error: mentionError };
+    const mentions = parseMentions(prompt, library);
+    if (mentions.length >= 1) return { mode: "components", error: null };
     return { mode: "text_to_video", error: null };
   }
 
@@ -229,9 +239,8 @@ function resolveVideoRunMode(
     return { mode: "components", error: null };
   }
 
-  // text_to_video only: plain OK; @ auto ingredients / single-ref
+  // text_to_video only: plain OK; @ auto ingredients
   if (n === 0) return { mode: "text_to_video", error: null };
-  if (n === 1) return { mode: "start_image", error: null };
   return { mode: "components", error: null };
 }
 
@@ -248,11 +257,11 @@ function modeGuide(mode: VideoMode): {
       title: "Ảnh → Video (tự nhận loại tạo)",
       hint: meta?.hint ?? "",
       steps: [
-        "Không gắn ảnh → Text → Video (chỉ prompt)",
-        "Chỉ Ảnh đầu → Ảnh → Video (animate khung đầu)",
-        "Ảnh đầu + Ảnh cuối → video xuyên suốt First & Last Frame (nội suy 2 khung)",
+        "Không ảnh / không @ → Text → Video",
+        "Gõ @tên_nhân_vật (chip tham chiếu) → Ingredients video",
+        "Ảnh đầu → I2V · Ảnh đầu+cuối → First & Last Frame (ưu tiên hơn @)",
       ],
-      example: "Drone bay trên biển lúc hoàng hôn  ·  hoặc  quay người mượt, giơ tay chào",
+      example: "@hoa đi dạo trên bãi biển  ·  quay đầu cinematic  ·  Drone bay lúc hoàng hôn",
     };
   }
   switch (mode) {
@@ -761,9 +770,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
             {frameMode && (
               <small className="field-hint video-mode-note">
-                Tự nhận theo ảnh trên từng dòng:{" "}
-                <strong>không ảnh</strong> → Text→Video · <strong>chỉ Ảnh đầu</strong> → Ảnh→Video ·{" "}
-                <strong>đầu + cuối</strong> → video xuyên suốt First &amp; Last Frame.
+                Tự nhận: <strong>@nhân_vật</strong> → Ingredients · <strong>Ảnh đầu</strong> → I2V ·{" "}
+                <strong>đầu+cuối</strong> → First &amp; Last · không ảnh/@ → Text→Video. Ảnh khung
+                (cột bảng) ưu tiên hơn @ nếu cùng dòng.
               </small>
             )}
             <label>
@@ -848,7 +857,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                 <h3 className="flow-section-title">Nhập prompt</h3>
                 <p className="flow-section-desc">
                   {frameMode
-                    ? "Mỗi dòng một prompt · ảnh đầu/cuối tuỳ chọn (có/không ảnh sẽ tự chọn loại tạo)"
+                    ? "Prompt + @nhân_vật tham chiếu · hoặc Ảnh đầu/cuối trên bảng (tự nhận loại tạo)"
                     : config.mode === "components"
                       ? "Mỗi dòng một prompt · gõ @ten_anh hoặc bấm chip ảnh tham chiếu"
                       : "Mỗi dòng một prompt · nhập TXT hoặc dán hàng loạt"}
@@ -868,43 +877,43 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
               </div>
             </div>
 
-            {/* @tham chiếu chỉ cho Ingredients — tách khỏi I2V / FL */}
-            {config.mode === "components" && (
-              <div className="flow-ref-strip">
-                <span className="flow-ref-strip-label">
-                  Ảnh tham chiếu ({referenceLibrary.length})
+            {/* Nhân vật / ảnh tham chiếu — luôn hiện để gõ @ (Ingredients) */}
+            <div className="flow-ref-strip">
+              <span className="flow-ref-strip-label">
+                Nhân vật tham chiếu ({referenceLibrary.length})
+              </span>
+              {referenceLibrary.length > 0 ? (
+                <div className="flow-ref-strip-chips">
+                  {referenceLibrary.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="ref-global-chip"
+                      title={`Chèn @${item.name} vào prompt`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        bulkPromptRef.current?.saveSelection();
+                      }}
+                      onClick={() => insertMentionFromLibrary(item.name)}
+                    >
+                      <img src={item.image} alt={item.name} />
+                      <span>@{item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="flow-ref-strip-empty">
+                  Chưa có ảnh — thêm trong tab Ảnh tham chiếu rồi gõ @tên trong prompt
                 </span>
-                {referenceLibrary.length > 0 ? (
-                  <div className="flow-ref-strip-chips">
-                    {referenceLibrary.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="ref-global-chip"
-                        title={`Chèn @${item.name}`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          bulkPromptRef.current?.saveSelection();
-                        }}
-                        onClick={() => insertMentionFromLibrary(item.name)}
-                      >
-                        <img src={item.image} alt={item.name} />
-                        <span>@{item.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="flow-ref-strip-empty">Chưa có ảnh — thêm trong tab Ảnh tham chiếu</span>
-                )}
-                <button
-                  type="button"
-                  className="flow-ref-strip-link"
-                  onClick={() => navigate(NAV_ROUTES.references)}
-                >
-                  Quản lý
-                </button>
-              </div>
-            )}
+              )}
+              <button
+                type="button"
+                className="flow-ref-strip-link"
+                onClick={() => navigate(NAV_ROUTES.references)}
+              >
+                Quản lý
+              </button>
+            </div>
 
             {frameMode && (
               <div className="flow-frame-bulk-bar">
@@ -965,13 +974,13 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
               menuPlacement="above"
               placeholder={
                 frameMode
-                  ? "quay đầu nhìn camera, cinematic\nchuyển từ đứng im sang giơ tay chào"
+                  ? "@hoa đi dạo trên bãi biển lúc hoàng hôn\n@lieu và @hoa ngồi nói chuyện trong quán cafe\nquay đầu cinematic (không @ = Text→Video; gắn ảnh đầu/cuối trên bảng nếu cần)"
                   : config.mode === "components"
                     ? "@a và @b ngồi đối diện nói chuyện trong quán cafe"
                     : "Drone bay trên bãi biển lúc hoàng hôn\nMột con mèo chạy qua cánh đồng lúa\nThành phố tương lai với xe bay"
               }
               value={promptInput}
-              library={config.mode === "components" ? referenceLibrary : []}
+              library={referenceLibrary}
               onChange={setPromptInput}
             />
           </section>
@@ -1067,81 +1076,81 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
             </div>
 
             <div className="queue-table-wrap">
-            <table className="queue-table">
-              <thead>
-                <tr>
-                  <th className="col-check" title="Chọn các dòng trên trang này">
-                    <input
-                      type="checkbox"
-                      aria-label="Chọn các dòng trên trang này"
-                      checked={allPageSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = somePageSelected && !allPageSelected;
-                      }}
-                      onChange={(e) => toggleAllPage(e.target.checked)}
-                    />
-                  </th>
-                  <th className="col-stt">
-                    <button
-                      type="button"
-                      className="queue-th-sort queue-th-sort--active"
-                      onClick={toggleSortStt}
-                      title="Bấm để đổi thứ tự STT"
-                    >
-                      STT{sortIndicator(true, sortDirection)}
-                    </button>
-                  </th>
-                  <th className="col-control">Thao tác</th>
-                  {frameMode && (
-                    <>
-                      <th className="col-frame">Ảnh đầu</th>
-                      <th className="col-frame">Ảnh cuối</th>
-                      <th className="col-auto-mode">Loại</th>
-                    </>
-                  )}
-                  <th className="col-prompt">Prompt</th>
-                  <th className="col-status">Tiến độ</th>
-                  <th className="col-result">Kết quả</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayRows.length === 0 ? (
+              <table className="queue-table">
+                <thead>
                   <tr>
-                    <td colSpan={tableColSpan} className="queue-table-empty">
-                      {rows.length === 0 ? (
-                        <div className="queue-table-empty-inner">
-                          <p>Chưa có prompt trong hàng chờ</p>
-                          <span className="queue-table-empty-hint">
-                            Nhập prompt ở ô phía trên rồi bấm <strong>Thêm vào hàng chờ</strong>
-                            {frameMode && (
-                              <>
-                                {" "}
-                                — có thể chọn <strong>Ảnh đầu</strong> /{" "}
-                                <strong>Ảnh cuối</strong> (tuỳ chọn)
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      ) : (
-                        "Không tìm thấy prompt phù hợp — thử đổi từ khóa hoặc bộ lọc"
-                      )}
-                    </td>
+                    <th className="col-check" title="Chọn các dòng trên trang này">
+                      <input
+                        type="checkbox"
+                        aria-label="Chọn các dòng trên trang này"
+                        checked={allPageSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = somePageSelected && !allPageSelected;
+                        }}
+                        onChange={(e) => toggleAllPage(e.target.checked)}
+                      />
+                    </th>
+                    <th className="col-stt">
+                      <button
+                        type="button"
+                        className="queue-th-sort queue-th-sort--active"
+                        onClick={toggleSortStt}
+                        title="Bấm để đổi thứ tự STT"
+                      >
+                        STT{sortIndicator(true, sortDirection)}
+                      </button>
+                    </th>
+                    <th className="col-control">Thao tác</th>
+                    {frameMode && (
+                      <>
+                        <th className="col-frame">Ảnh đầu</th>
+                        <th className="col-frame">Ảnh cuối</th>
+                        <th className="col-auto-mode">Loại</th>
+                      </>
+                    )}
+                    <th className="col-prompt">Prompt</th>
+                    <th className="col-status">Tiến độ</th>
+                    <th className="col-result">Kết quả</th>
                   </tr>
-                ) : (
-                  paginatedRows.map(({ row, originalIndex }, index) => {
-                    const actions = getRowActionState(row, running);
-                    const frameDisabled =
-                      running && (row.status === "running" || row.status === "queued");
-                    return (
-                    <tr
-                      key={row.id}
-                      className={[
-                        `queue-row--${row.status}`,
-                        row.selected ? "queue-row--selected" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
+                </thead>
+                <tbody>
+                  {displayRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={tableColSpan} className="queue-table-empty">
+                        {rows.length === 0 ? (
+                          <div className="queue-table-empty-inner">
+                            <p>Chưa có prompt trong hàng chờ</p>
+                            <span className="queue-table-empty-hint">
+                              Nhập prompt ở ô phía trên rồi bấm <strong>Thêm vào hàng chờ</strong>
+                              {frameMode && (
+                                <>
+                                  {" "}
+                                  — có thể chọn <strong>Ảnh đầu</strong> /{" "}
+                                  <strong>Ảnh cuối</strong> (tuỳ chọn)
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          "Không tìm thấy prompt phù hợp — thử đổi từ khóa hoặc bộ lọc"
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedRows.map(({ row, originalIndex }, index) => {
+                      const actions = getRowActionState(row, running);
+                      const frameDisabled =
+                        running && (row.status === "running" || row.status === "queued");
+                      return (
+                        <tr
+                          key={row.id}
+                          className={[
+                            `queue-row--${row.status}`,
+                            row.selected ? "queue-row--selected" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -1414,13 +1423,13 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                           )}
                         </div>
                       </td>
-                    </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             {displayRows.length > 0 && totalPages > 1 && (
               <div className="flow-queue-footer">

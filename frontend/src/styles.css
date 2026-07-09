@@ -2432,6 +2432,11 @@ textarea {
   background: var(--blue-soft);
 }
 
+.queue-frame-mode-tag.is-r2v {
+  color: #86efac;
+  background: var(--green-soft);
+}
+
 .queue-table .col-auto-mode {
   width: 108px;
   min-width: 96px;
