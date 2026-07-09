@@ -98,25 +98,29 @@ async function readJson<T>(res: Response): Promise<T> {
 
 async function ensureOk(res: Response, fallback: string): Promise<Response> {
   if (res.ok) return res;
+  // Clone so callers can still read body if needed; parse error once
+  let message = fallback;
   try {
-    const data = await readJson<{
+    const data = (await res.clone().json()) as {
       error?: string;
       detail?: { error?: string } | string | Array<{ msg?: string }>;
-    }>(res);
+    };
     const detail = data.detail;
-    let message = data.error || fallback;
+    message = data.error || fallback;
     if (typeof detail === "string") message = detail;
     else if (Array.isArray(detail) && detail[0]?.msg) message = detail[0].msg;
     else if (detail && typeof detail === "object" && "error" in detail && detail.error) {
-      message = detail.error;
+      message = String(detail.error);
     }
-    throw new Error(message);
-  } catch (err) {
-    if (err instanceof Error && err.message !== fallback) {
-      throw err;
+  } catch {
+    try {
+      const text = (await res.clone().text()).trim().slice(0, 200);
+      if (text) message = text;
+    } catch {
+      /* keep fallback */
     }
-    throw new Error(fallback);
   }
+  throw new Error(message);
 }
 
 export function normalizeFileUrl(url: string): string {
@@ -206,7 +210,20 @@ export interface AiSettings {
   base_url: string;
   model: string;
   has_api_key: boolean;
+  /** Alias of has_api_key — key đã lưu trên server */
+  api_key_set?: boolean;
   api_key_masked: string;
+  image_enabled: boolean;
+  video_enabled: boolean;
+  image_style: string;
+  video_style: string;
+  image_custom_instruction: string;
+  video_custom_instruction: string;
+}
+
+export function aiHasSavedKey(data: AiSettings | null | undefined): boolean {
+  if (!data) return false;
+  return Boolean(data.has_api_key || data.api_key_set);
 }
 
 const AI_API_MISSING =
@@ -226,12 +243,19 @@ export async function fetchAiSettings(): Promise<AiSettings> {
   return readJson<AiSettings>(res);
 }
 
+/** Full patch — prefer saveAiApiSettings / savePromptSettings for UI. */
 export async function saveAiSettings(payload: {
   enabled?: boolean;
   provider?: string;
   api_key?: string;
   base_url?: string;
   model?: string;
+  image_enabled?: boolean;
+  video_enabled?: boolean;
+  image_style?: string;
+  video_style?: string;
+  image_custom_instruction?: string;
+  video_custom_instruction?: string;
 }): Promise<AiSettings> {
   const res = await apiFetch("/api/ai/settings", {
     method: "PUT",
@@ -240,6 +264,66 @@ export async function saveAiSettings(payload: {
   });
   await ensureAiOk(res, "Không lưu được cài đặt AI");
   return readJson<AiSettings>(res);
+}
+
+/** Chỉ API: bật/tắt, provider, model, base URL, key — không đụng style prompt. */
+export async function saveAiApiSettings(payload: {
+  enabled?: boolean;
+  provider?: string;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+}): Promise<AiSettings> {
+  return saveAiSettings(payload);
+}
+
+/** Chỉ cách viết lại prompt (ảnh/video) — không đụng API key. */
+export async function savePromptSettings(payload: {
+  image_enabled?: boolean;
+  video_enabled?: boolean;
+  image_style?: string;
+  video_style?: string;
+  image_custom_instruction?: string;
+  video_custom_instruction?: string;
+}): Promise<AiSettings> {
+  return saveAiSettings(payload);
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  model?: string;
+  base_url?: string;
+  latency_ms?: number;
+  reply?: string;
+  message?: string;
+}
+
+/** Gọi thử chat/completions — có thể truyền form chưa lưu (key trống = dùng key đã lưu). */
+export async function testAiApi(payload?: {
+  provider?: string;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+}): Promise<AiTestResult> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 55_000);
+  try {
+    const res = await apiFetch("/api/ai/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+      signal: controller.signal,
+    });
+    await ensureAiOk(res, "Test API AI thất bại");
+    return readJson<AiTestResult>(res);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Test quá lâu — kiểm tra Base URL / mạng / model");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export async function rewritePromptAi(payload: {

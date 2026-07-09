@@ -7,13 +7,27 @@ from pydantic import BaseModel, Field
 
 from app.providers.base import ProviderError
 from app.services import ai_settings_store
-from app.services.prompt_ai import rewrite_prompt
+from app.services.prompt_ai import rewrite_prompt, test_connection
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 class AiSettingsUpdate(BaseModel):
     enabled: bool | None = None
+    provider: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    image_enabled: bool | None = None
+    video_enabled: bool | None = None
+    image_style: str | None = None
+    video_style: str | None = None
+    image_custom_instruction: str | None = None
+    video_custom_instruction: str | None = None
+
+
+class AiTestRequest(BaseModel):
+    """Optional overrides from the form (unsaved). Empty key → use saved key."""
     provider: str | None = None
     api_key: str | None = None
     base_url: str | None = None
@@ -32,6 +46,13 @@ class RewriteBatchRequest(BaseModel):
     locale: str = "vi"
 
 
+def _http_error(exc: ProviderError) -> HTTPException:
+    code = int(exc.error_code or 400)
+    if code < 400 or code > 599:
+        code = 400
+    return HTTPException(status_code=code, detail={"error": str(exc)})
+
+
 @router.get("/settings")
 async def get_ai_settings() -> dict:
     return ai_settings_store.public_view()
@@ -44,16 +65,27 @@ async def put_ai_settings(body: AiSettingsUpdate) -> dict:
     return ai_settings_store.public_view(raw)
 
 
+@router.post("/test")
+async def test_ai_api(body: AiTestRequest | None = None) -> dict:
+    """Ping chat/completions with form or saved credentials."""
+    body = body or AiTestRequest()
+    try:
+        return await test_connection(
+            api_key=body.api_key,
+            base_url=body.base_url,
+            model=body.model,
+            provider=body.provider,
+        )
+    except ProviderError as exc:
+        raise _http_error(exc) from exc
+
+
 @router.post("/rewrite-prompt")
 async def rewrite_one(body: RewriteRequest) -> dict:
     try:
         improved = await rewrite_prompt(body.prompt, kind=body.kind, locale=body.locale)
     except ProviderError as exc:
-        # Clamp to valid HTTP codes (ProviderError may carry upstream 500 etc.)
-        code = int(exc.error_code or 400)
-        if code < 400 or code > 599:
-            code = 400
-        raise HTTPException(status_code=code, detail={"error": str(exc)}) from exc
+        raise _http_error(exc) from exc
     return {
         "prompt": improved,
         "original": body.prompt,

@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Account,
   AiSettings,
   Provider,
+  aiHasSavedKey,
   createAccount,
   deleteAccount,
   fetchAiSettings,
-  saveAiSettings,
+  saveAiApiSettings,
+  savePromptSettings,
+  testAiApi,
   updateAccount,
 } from "../api";
 import { parseFlowCookieInput } from "../cookie";
@@ -27,6 +30,105 @@ const AI_PROVIDERS = [
     model: "",
   },
 ] as const;
+
+/**
+ * Hướng dẫn mẫu: user gõ prompt CHUNG CHUNG → AI phân tích → viết lại
+ * thành prompt CHUYÊN NGHIỆP dễ cho model tạo ảnh/video.
+ * Bấm chip → đổ vào "Hướng dẫn thêm".
+ */
+const IMAGE_PROMPT_TEMPLATES: { id: string; label: string; text: string }[] = [
+  {
+    id: "img-default-pro",
+    label: "Chung → Pro (mặc định)",
+    text:
+      "User đưa ý ngắn/chung chung. Phân tích chủ thể – bối cảnh – hành động – cảm xúc, " +
+      "rồi viết lại thành 1 prompt ảnh chuyên nghiệp: rõ người/vật, nơi chốn, pose, " +
+      "ánh sáng, composition. Giữ đúng ý gốc, không đổi câu chuyện, không thêm nhân vật lạ. " +
+      "Giữ @tên nếu user đã gõ; không bịa @.",
+  },
+  {
+    id: "img-subject-bg",
+    label: "Rõ chủ thể + nền",
+    text:
+      "Từ prompt mơ hồ, làm rõ: (1) chủ thể là ai/cái gì, (2) đang làm gì, (3) nền/bối cảnh, " +
+      "(4) khoảng cách khung (close-up / nửa người / full). Dễ cho AI tạo ảnh hiểu ngay.",
+  },
+  {
+    id: "img-light-comp",
+    label: "Ánh sáng + khung hình",
+    text:
+      "Bổ sung ánh sáng (tự nhiên / studio / hoàng hôn…) và composition (rule of thirds, " +
+      "độ sâu trường ảnh, góc máy) sao cho model gen ảnh ổn định. Không bịa cảnh mới.",
+  },
+  {
+    id: "img-keep-at",
+    label: "Giữ @ref nhân vật",
+    text:
+      "Nếu prompt có @tên (thư viện nhân vật), giữ nguyên token. " +
+      "Chỉ viết thêm phần mô tả cảnh cho chuyên nghiệp; không đổi mặt/tuổi/trang phục @ref, " +
+      "không invent @mới.",
+  },
+  {
+    id: "img-short-clear",
+    label: "Ngắn – rõ – 1–3 câu",
+    text:
+      "Viết lại ngắn gọn 1–3 câu, mỗi ý một lớp (chủ thể → cảnh → ánh sáng). " +
+      "Tránh liệt kê keyword dài, tránh essay. Ưu tiên tiếng Việt dễ hiểu cho Flow Image.",
+  },
+  {
+    id: "img-no-story",
+    label: "Không bịa thêm chuyện",
+    text:
+      "Chỉ làm rõ ý user đã viết. Cấm thêm cốt truyện, địa điểm, hay nhân vật user không nhắc. " +
+      "Nếu user chỉ viết 3–5 từ, suy ra bối cảnh tối thiểu hợp lý nhưng vẫn cùng ý.",
+  },
+];
+
+const VIDEO_PROMPT_TEMPLATES: { id: string; label: string; text: string }[] = [
+  {
+    id: "vid-default-pro",
+    label: "Chung → Pro (mặc định)",
+    text:
+      "User đưa ý ngắn/chung chung. Phân tích rồi viết prompt video chuyên nghiệp: " +
+      "chủ thể, hành động, bối cảnh, chuyển động camera, nhịp clip. " +
+      "Giữ đúng ý gốc; 1 cảnh liên tục; giữ @tên nếu có; không bịa @.",
+  },
+  {
+    id: "vid-add-motion",
+    label: "Thêm chuyển động",
+    text:
+      "Từ prompt tĩnh/chung, làm rõ motion: chủ thể làm gì, camera push-in/pan/dolly hay cố định, " +
+      "tốc độ chậm hay bình thường — để model video hiểu dễ. Không đổi chủ đề.",
+  },
+  {
+    id: "vid-one-shot",
+    label: "1 take · 1 cảnh",
+    text:
+      "Viết cho 1 take duy nhất (không cắt nhiều cảnh). Mô tả liên tục đầu→cuối clip. " +
+      "Phù hợp Veo/Flow 4–10s. Không kịch bản phim nhiều shot.",
+  },
+  {
+    id: "vid-keep-at",
+    label: "Giữ @ref nhân vật",
+    text:
+      "Có @tên thì giữ nguyên. Chỉ chuyên nghiệp hóa mô tả hành động/camera. " +
+      "Không thay nhân vật, không thêm người ngoài @ đã có.",
+  },
+  {
+    id: "vid-i2v-soft",
+    label: "I2V: motion nhẹ",
+    text:
+      "Khi ý là “làm video từ ảnh”: ưu tiên chuyển động nhẹ tự nhiên (tóc, vải, hơi thở, bước chân), " +
+      "giữ bố cục gần khung gốc. Không nhảy góc máy mạnh, không bịa @.",
+  },
+  {
+    id: "vid-no-story",
+    label: "Không bịa thêm chuyện",
+    text:
+      "Chỉ mở rộng chi tiết hình ảnh/chuyển động từ ý user. " +
+      "Cấm thêm cốt truyện, địa điểm, hay nhân vật user không nhắc tới.",
+  },
+];
 
 const PROVIDER_LABELS: Record<Provider, string> = {
   flow: "Google Flow / Veo",
@@ -64,59 +166,181 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
   const [aiModel, setAiModel] = useState("gpt-4o-mini");
   const [aiApiKey, setAiApiKey] = useState("");
+  /** User bấm "Đổi key" — chỉ khi true mới gửi api_key lên server */
+  const [aiReplaceKey, setAiReplaceKey] = useState(false);
+  const [aiImageEnabled, setAiImageEnabled] = useState(true);
+  const [aiVideoEnabled, setAiVideoEnabled] = useState(true);
+  const [aiImageStyle, setAiImageStyle] = useState("pro");
+  const [aiVideoStyle, setAiVideoStyle] = useState("pro");
+  const [aiImageCustom, setAiImageCustom] = useState("");
+  const [aiVideoCustom, setAiVideoCustom] = useState("");
   const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
   const [aiMsg, setAiMsg] = useState("");
+  const [aiTestMsg, setAiTestMsg] = useState("");
+  const [aiTestOk, setAiTestOk] = useState<boolean | null>(null);
+  const [promptMsg, setPromptMsg] = useState("");
+  const [aiLoading, setAiLoading] = useState(true);
 
   const flowAccounts = accounts.filter((a) => a.provider === "flow");
   const flowReady = flowAccounts.filter((a) => a.enabled && a.has_credentials && !a.in_cooldown);
+  const hasSavedKey = aiHasSavedKey(ai);
+
+  const applyAiSettings = useCallback((data: AiSettings) => {
+    setAi(data);
+    setAiEnabled(data.enabled);
+    setAiProvider(data.provider || "openai_compatible");
+    setAiBaseUrl(data.base_url || "https://api.openai.com/v1");
+    setAiModel(data.model || "gpt-4o-mini");
+    setAiImageEnabled(data.image_enabled !== false);
+    setAiVideoEnabled(data.video_enabled !== false);
+    setAiImageStyle(data.image_style || "pro");
+    setAiVideoStyle(data.video_style || "pro");
+    setAiImageCustom(data.image_custom_instruction || "");
+    setAiVideoCustom(data.video_custom_instruction || "");
+    // Không xóa key đã lưu trên server; form key luôn rỗng trừ khi user đổi
+    setAiApiKey("");
+    setAiReplaceKey(false);
+  }, []);
+
+  const loadAiSettings = useCallback(async () => {
+    setAiLoading(true);
+    try {
+      const data = await fetchAiSettings();
+      applyAiSettings(data);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiLoading(false);
+    }
+  }, [applyAiSettings, onError]);
 
   useEffect(() => {
-    fetchAiSettings()
-      .then((data) => {
-        setAi(data);
-        setAiEnabled(data.enabled);
-        setAiProvider(data.provider || "openai_compatible");
-        setAiBaseUrl(data.base_url || "https://api.openai.com/v1");
-        setAiModel(data.model || "gpt-4o-mini");
-      })
-      .catch((err) => onError(err instanceof Error ? err.message : String(err)));
-  }, [onError]);
+    void loadAiSettings();
+  }, [loadAiSettings]);
 
   function applyAiProviderPreset(value: string) {
     setAiProvider(value);
     const preset = AI_PROVIDERS.find((p) => p.value === value);
     if (preset) {
-      setAiBaseUrl(preset.base);
-      setAiModel(preset.model);
+      if (preset.base) setAiBaseUrl(preset.base);
+      if (preset.model) setAiModel(preset.model);
     }
   }
 
-  async function handleSaveAi() {
+  /** Chỉ lưu kết nối API AI — key trống = giữ key đã lưu trên server. */
+  async function handleSaveAiApi() {
     setAiSaving(true);
     setAiMsg("");
     onError("");
     try {
-      const data = await saveAiSettings({
+      const newKey = aiReplaceKey ? aiApiKey.trim() : "";
+      if (aiReplaceKey && !newKey && !hasSavedKey) {
+        onError("Nhập API key trước khi lưu");
+        setAiSaving(false);
+        return;
+      }
+      const data = await saveAiApiSettings({
         enabled: aiEnabled,
         provider: aiProvider,
         base_url: aiBaseUrl,
         model: aiModel,
-        ...(aiApiKey.trim() ? { api_key: aiApiKey.trim() } : {}),
+        // Chỉ gửi key khi user chủ động đổi và đã dán key mới
+        ...(newKey ? { api_key: newKey } : {}),
       });
-      setAi(data);
-      setAiApiKey("");
-      setAiMsg(
-        data.enabled && data.has_api_key
-          ? "Đã lưu API AI — dùng nút ✦ AI trên hàng chờ để sửa prompt"
-          : data.has_api_key
-            ? "Đã lưu (chưa bật) — tick Bật để dùng"
-            : "Đã lưu — nhớ dán API key",
-      );
+      applyAiSettings(data);
+      if (!aiHasSavedKey(data)) {
+        setAiMsg("Đã lưu — chưa có API key, dán key rồi bấm Đổi key / Lưu");
+      } else if (data.enabled) {
+        setAiMsg(
+          newKey
+            ? `Đã lưu key mới (${data.api_key_masked}) — sẵn sàng bấm ✦`
+            : `Đã lưu cấu hình — giữ key cũ (${data.api_key_masked})`,
+        );
+      } else {
+        setAiMsg(`Đã lưu (key ${data.api_key_masked}) — tick Bật AI để dùng`);
+      }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setAiSaving(false);
     }
+  }
+
+  /** Gọi thử API — ưu tiên key form nếu đang đổi; không thì key đã lưu. */
+  async function handleTestAiApi() {
+    setAiTesting(true);
+    setAiTestMsg("");
+    setAiTestOk(null);
+    onError("");
+    try {
+      const typed = aiReplaceKey ? aiApiKey.trim() : "";
+      if (!typed && !hasSavedKey) {
+        throw new Error("Chưa có API key — dán key rồi Lưu, hoặc bấm Đổi key");
+      }
+      const result = await testAiApi({
+        provider: aiProvider,
+        base_url: aiBaseUrl.trim(),
+        model: aiModel.trim(),
+        ...(typed ? { api_key: typed } : {}),
+      });
+      setAiTestOk(true);
+      setAiTestMsg(
+        result.message ||
+          `Kết nối OK · ${result.model || aiModel} · ${result.latency_ms ?? "?"}ms` +
+            (hasSavedKey && !typed ? " · dùng key đã lưu" : ""),
+      );
+    } catch (err) {
+      setAiTestOk(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiTestMsg(msg);
+      onError(msg);
+    } finally {
+      setAiTesting(false);
+    }
+  }
+
+  /** Chỉ lưu cách viết lại prompt — không đụng API key / model. */
+  async function handleSavePrompt() {
+    setPromptSaving(true);
+    setPromptMsg("");
+    onError("");
+    try {
+      const data = await savePromptSettings({
+        image_enabled: aiImageEnabled,
+        video_enabled: aiVideoEnabled,
+        image_style: aiImageStyle,
+        video_style: aiVideoStyle,
+        image_custom_instruction: aiImageCustom,
+        video_custom_instruction: aiVideoCustom,
+      });
+      setAi(data);
+      setPromptMsg("Đã lưu cấu hình prompt — ✦ Flow Ảnh / Video dùng style này");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromptSaving(false);
+    }
+  }
+
+  const STYLE_OPTIONS = [
+    { value: "light", label: "Nhẹ — chỉ làm rõ câu, gần như giữ nguyên" },
+    { value: "pro", label: "Pro — phân tích ý ngắn → prompt gen rõ ràng" },
+    { value: "cinematic", label: "Điện ảnh — camera / ánh sáng / atmosphere" },
+    { value: "custom", label: "Tùy chỉnh — theo hướng dẫn mẫu bên dưới" },
+  ];
+
+  function applyImageTemplate(text: string) {
+    setAiImageCustom(text);
+    setAiImageStyle("custom");
+    setPromptMsg("Đã chèn hướng dẫn ảnh → bấm Lưu cấu hình Prompt");
+  }
+
+  function applyVideoTemplate(text: string) {
+    setAiVideoCustom(text);
+    setAiVideoStyle("custom");
+    setPromptMsg("Đã chèn hướng dẫn video → bấm Lưu cấu hình Prompt");
   }
 
   async function handleAddAccount() {
@@ -279,12 +503,12 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         </button>
       </section>
 
+      {/* ——— 1) Cấu hình AI: kết nối API (không lẫn style prompt) ——— */}
       <section className="panel-card">
-        <h2>API AI — Sửa prompt chuyên nghiệp</h2>
+        <h2>1. Cấu hình AI (API)</h2>
         <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-          Nhập <strong>API key bất kỳ</strong> chuẩn OpenAI Chat Completions (OpenAI, OpenRouter,
-          DeepSeek, Groq, Together, Azure proxy, key nội bộ…). Dùng nút <strong>✎ Sửa</strong> /{" "}
-          <strong>✦ Sửa bằng AI</strong> trên từng prompt trong hàng chờ.
+          Chỉ phần <strong>kết nối</strong>: bật/tắt, nhà cung cấp, model, Base URL, API key.
+          Không quyết định nội dung prompt — phần đó ở mục <strong>2. Cấu hình Prompt</strong>.
         </p>
         <div className="form-grid">
           <label className="checkbox-label span-2">
@@ -293,7 +517,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
               checked={aiEnabled}
               onChange={(e) => setAiEnabled(e.target.checked)}
             />
-            Bật AI sửa prompt
+            Bật AI sửa prompt (cần key + URL hợp lệ)
           </label>
           <label>
             Nhà cung cấp / loại key
@@ -303,7 +527,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
               ))}
             </select>
             <small className="field-hint">
-              Chọn “API ngoài” hoặc “Tùy chỉnh” để dán key + Base URL dịch vụ bên thứ ba
+              “API ngoài” hoặc “Tùy chỉnh” để dán key + Base URL dịch vụ bên thứ ba
             </small>
           </label>
           <label>
@@ -323,44 +547,270 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             />
             <small className="field-hint">
               OpenAI: https://api.openai.com/v1 · OpenRouter: https://openrouter.ai/api/v1 ·
-              DeepSeek: https://api.deepseek.com/v1 · xAI: https://api.x.ai/v1 ·
-              API riêng: dán base URL nhà cung cấp (kết thúc bằng /v1)
+              DeepSeek: https://api.deepseek.com/v1 · xAI: https://api.x.ai/v1
             </small>
           </label>
-          <label className="span-2">
-            API Key (OpenAI / key ngoài)
-            <input
-              type="password"
-              value={aiApiKey}
-              onChange={(e) => setAiApiKey(e.target.value)}
-              placeholder={
-                ai?.has_api_key
-                  ? `Đã lưu (${ai.api_key_masked}) — dán key mới (kể cả key ngoài) để thay`
-                  : "sk-... · key OpenRouter · key DeepSeek · key API riêng…"
-              }
-              autoComplete="off"
-            />
-            <small className="field-hint">
-              Hỗ trợ key ngoài: dán key + Base URL tương ứng, bật tính năng, Lưu. App gọi{" "}
-              <code>POST &#123;base&#125;/chat/completions</code>.
-            </small>
-          </label>
+          <div className="span-2 ai-key-block">
+            <span className="ai-key-label">API Key</span>
+            {aiLoading ? (
+              <p className="muted" style={{ margin: "6px 0 0" }}>Đang tải key đã lưu…</p>
+            ) : hasSavedKey && !aiReplaceKey ? (
+              <div className="ai-key-saved">
+                <div className="ai-key-saved-row">
+                  <span className="ai-key-masked" title="Key đã lưu trên server — không hiện full">
+                    ●●●●●●●●  {ai?.api_key_masked || "••••"}
+                  </span>
+                  <span className="pill pill-green">Đã lưu</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setAiReplaceKey(true);
+                      setAiApiKey("");
+                      setAiMsg("Dán key mới bên dưới rồi Lưu — để trống + Hủy nếu giữ key cũ");
+                    }}
+                  >
+                    Đổi key
+                  </button>
+                </div>
+                <small className="field-hint">
+                  Key đã lưu được dùng khi bấm ✦ / Test. Vào lại Cài đặt <strong>không cần dán lại</strong>.
+                  Chỉ bấm <strong>Đổi key</strong> khi muốn thay key mới.
+                </small>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="password"
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
+                  placeholder={
+                    hasSavedKey
+                      ? `Dán key mới để thay (${ai?.api_key_masked})`
+                      : "sk-... · key OpenRouter · key DeepSeek · key API riêng…"
+                  }
+                  autoComplete="new-password"
+                  name="glabs-ai-api-key"
+                />
+                <div className="ai-key-actions">
+                  {hasSavedKey ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setAiReplaceKey(false);
+                        setAiApiKey("");
+                        setAiMsg("Giữ key đã lưu — không thay");
+                      }}
+                    >
+                      Hủy đổi key
+                    </button>
+                  ) : null}
+                  <small className="field-hint">
+                    App gọi <code>POST {"{base}"}/chat/completions</code>. Lưu xong key được giữ trên server.
+                  </small>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => void handleSaveAi()}
-            disabled={aiSaving}
+            onClick={() => void handleSaveAiApi()}
+            disabled={aiSaving || aiTesting || aiLoading}
           >
-            {aiSaving ? "Đang lưu..." : "Lưu API AI"}
+            {aiSaving ? "Đang lưu..." : "Lưu cấu hình AI"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => void handleTestAiApi()}
+            disabled={aiTesting || aiSaving || aiLoading}
+            title="Dùng key đã lưu (hoặc key đang dán nếu đang Đổi key)"
+          >
+            {aiTesting ? "Đang test..." : "Test API"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void loadAiSettings()}
+            disabled={aiLoading || aiSaving}
+            title="Tải lại key + cấu hình từ server"
+          >
+            {aiLoading ? "…" : "Tải lại"}
           </button>
           {aiMsg && <span className="muted">{aiMsg}</span>}
           {ai && (
-            <span className={`pill ${ai.enabled && ai.has_api_key ? "pill-green" : "pill-purple"}`}>
-              {ai.enabled && ai.has_api_key ? "AI sẵn sàng" : "AI chưa sẵn sàng"}
+            <span className={`pill ${ai.enabled && hasSavedKey ? "pill-green" : "pill-purple"}`}>
+              {ai.enabled && hasSavedKey
+                ? `API sẵn sàng · ${ai.api_key_masked}`
+                : hasSavedKey
+                  ? `Có key · chưa bật`
+                  : "Chưa có API key"}
             </span>
           )}
+        </div>
+        {aiTestMsg ? (
+          <p
+            className={`ai-test-result ${aiTestOk === true ? "ai-test-result--ok" : aiTestOk === false ? "ai-test-result--fail" : ""}`}
+            style={{ marginTop: 12, marginBottom: 0 }}
+          >
+            {aiTestOk === true ? "✓ " : aiTestOk === false ? "✗ " : ""}
+            {aiTestMsg}
+          </p>
+        ) : (
+          <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>
+            Key để trống khi Lưu = <strong>giữ key cũ</strong>. Test API cũng dùng key đã lưu nếu không đang đổi key.
+          </p>
+        )}
+      </section>
+
+      {/* ——— 2) Cấu hình Prompt: cách viết lại ý ngắn → pro ——— */}
+      <section className="panel-card">
+        <h2>2. Cấu hình Prompt (ảnh / video)</h2>
+        <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
+          Luồng sản phẩm: user gõ <strong>prompt chung chung</strong> → bấm <strong>✦</strong> → AI
+          phân tích và viết lại <strong>prompt chuyên nghiệp</strong> (dễ gen ảnh/video).
+          Mục này chỉ chỉnh <strong>cách viết lại</strong> — không phải API key.
+          {ai && !ai.enabled && (
+            <> Cần bật API ở mục 1 trước.</>
+          )}
+        </p>
+
+        <div className="ai-mode-grid">
+          <div className="ai-mode-card">
+            <h3>Prompt → Ảnh (Flow Ảnh)</h3>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Khi bấm ✦ trên <strong>Flow Ảnh</strong>: ý ngắn → prompt gen ảnh rõ.
+            </p>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={aiImageEnabled}
+                onChange={(e) => setAiImageEnabled(e.target.checked)}
+              />
+              Bật viết lại prompt ảnh
+            </label>
+            <label>
+              Mức độ viết lại
+              <select value={aiImageStyle} onChange={(e) => setAiImageStyle(e.target.value)}>
+                {STYLE_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Hướng dẫn thêm (tùy chọn)
+              <textarea
+                rows={3}
+                value={aiImageCustom}
+                onChange={(e) => setAiImageCustom(e.target.value)}
+                placeholder="VD: từ ý ngắn, làm rõ chủ thể + nền + ánh sáng; giữ @tên; không bịa chuyện…"
+              />
+            </label>
+            <div className="ai-template-block">
+              <span className="ai-template-label">Mẫu hướng dẫn (ảnh)</span>
+              <div className="ai-template-chips">
+                {IMAGE_PROMPT_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`ai-template-chip${aiImageCustom === t.text ? " active" : ""}`}
+                    title={t.text}
+                    onClick={() => applyImageTemplate(t.text)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {aiImageCustom ? (
+                <button
+                  type="button"
+                  className="ai-template-clear"
+                  onClick={() => {
+                    setAiImageCustom("");
+                    setPromptMsg("Đã xóa hướng dẫn ảnh (chưa lưu)");
+                  }}
+                >
+                  Xóa hướng dẫn
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="ai-mode-card">
+            <h3>Prompt → Video (Flow Video)</h3>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Khi bấm ✦ trên <strong>Flow Video</strong>: ý ngắn → prompt gen video rõ.
+            </p>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={aiVideoEnabled}
+                onChange={(e) => setAiVideoEnabled(e.target.checked)}
+              />
+              Bật viết lại prompt video
+            </label>
+            <label>
+              Mức độ viết lại
+              <select value={aiVideoStyle} onChange={(e) => setAiVideoStyle(e.target.value)}>
+                {STYLE_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Hướng dẫn thêm (tùy chọn)
+              <textarea
+                rows={3}
+                value={aiVideoCustom}
+                onChange={(e) => setAiVideoCustom(e.target.value)}
+                placeholder="VD: từ ý ngắn, thêm chuyển động + camera; 1 cảnh; giữ @tên; không bịa…"
+              />
+            </label>
+            <div className="ai-template-block">
+              <span className="ai-template-label">Mẫu hướng dẫn (video)</span>
+              <div className="ai-template-chips">
+                {VIDEO_PROMPT_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`ai-template-chip${aiVideoCustom === t.text ? " active" : ""}`}
+                    title={t.text}
+                    onClick={() => applyVideoTemplate(t.text)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {aiVideoCustom ? (
+                <button
+                  type="button"
+                  className="ai-template-clear"
+                  onClick={() => {
+                    setAiVideoCustom("");
+                    setPromptMsg("Đã xóa hướng dẫn video (chưa lưu)");
+                  }}
+                >
+                  Xóa hướng dẫn
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleSavePrompt()}
+            disabled={promptSaving}
+          >
+            {promptSaving ? "Đang lưu..." : "Lưu cấu hình Prompt"}
+          </button>
+          {promptMsg && <span className="muted">{promptMsg}</span>}
         </div>
       </section>
 

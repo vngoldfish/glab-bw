@@ -16,36 +16,75 @@ logger = logging.getLogger(__name__)
 _MENTION_RE = re.compile(r"@([a-zA-Z][a-zA-Z0-9_]*)")
 
 
-def _system_prompt(kind: str, locale: str) -> str:
+_STYLE_HINTS = {
+    "light": (
+        "Style level: LIGHT — clarify wording only, keep almost the same length, "
+        "add at most one short quality phrase so the image/video model understands better."
+    ),
+    "pro": (
+        "Style level: PRO — expand a short/casual idea into a clear professional generation prompt: "
+        "subject, setting, lighting, composition (and motion for video). "
+        "Still the SAME idea — no new story."
+    ),
+    "cinematic": (
+        "Style level: CINEMATIC — expand with camera, light, atmosphere, texture. "
+        "Keep same subject/action. At most ~2–3x original length. No new characters/plot."
+    ),
+}
+
+
+def _system_prompt(
+    kind: str,
+    locale: str,
+    *,
+    style: str = "pro",
+    custom_instruction: str = "",
+) -> str:
     lang = "Vietnamese" if locale.startswith("vi") else "English"
+    # Core product job: user types a short/generic prompt → AI rewrites for image/video models
+    mission = (
+        "Your job in G-Labs BW: the user pastes a SHORT or CASUAL prompt (ý tưởng chung chung). "
+        "You ANALYZE it (who/what, where, action, mood) then REWRITE it into a PROFESSIONAL "
+        "prompt that image/video AI models understand easily and generate better from. "
+        "You are NOT chatting — only output the improved prompt.\n"
+    )
     core = (
         "CRITICAL RULES — follow strictly:\n"
         "1) KEEP the same subject, people, place, action and meaning as the original.\n"
-        "2) Do NOT replace the scene with a different story (no new plot, no new characters).\n"
-        "3) Only POLISH: clearer wording + light professional detail "
-        "(camera, motion, lighting, atmosphere) WITHOUT changing the core idea.\n"
-        "4) Keep roughly similar length: at most 1.5–2x the original words. "
-        "Do not write a long essay.\n"
-        "5) @reference tokens:\n"
+        "2) Do NOT invent a different story, new plot, or new characters.\n"
+        "3) Expand vague ideas into concrete visual language the generator can follow "
+        "(who, where, pose/action, lighting, composition"
+        + (", camera motion / pacing" if kind == "video" else "")
+        + ").\n"
+        "4) Keep length controlled — not an essay; typically 1–4 sentences.\n"
+        "5) @reference tokens (character library):\n"
         "   - If original HAS @name (e.g. @hoa), keep those EXACT tokens.\n"
-        "   - If original has NO @name at all, do NOT add any @name / character reference "
-        "tokens. Never invent @someone.\n"
-        "6) Prefer the same language style as the user (short is OK if user was short).\n"
+        "   - If original has NO @name, do NOT add any @name. Never invent @someone.\n"
+        "6) Prefer the same language as the user input when possible.\n"
     )
+    style_key = (style or "pro").lower()
+    # "custom" without instruction → treat as pro so rewrite still works
+    if style_key == "custom" and not (custom_instruction or "").strip():
+        style_key = "pro"
+    style_hint = _STYLE_HINTS.get(style_key, _STYLE_HINTS["pro"])
     if kind == "video":
         task = (
-            "You lightly improve prompts for AI video (Google Veo / Flow). "
-            + core
-            + "You may add a short phrase about camera or motion only if it fits the same action."
+            "Target: AI VIDEO generation (Google Flow / Veo, text-to-video, image-to-video). "
+            "Make motion, camera, and timing clear when it fits the same action. "
         )
     else:
         task = (
-            "You lightly improve prompts for AI image generation. "
-            + core
-            + "You may add short cues for lighting/composition only if they fit the same subject."
+            "Target: AI IMAGE generation (Google Flow still image). "
+            "Make composition, lighting, detail, and style clear — not multi-second camera moves. "
+        )
+    extra = ""
+    if custom_instruction.strip():
+        extra = (
+            "Extra user style instructions (follow if they do not break CRITICAL RULES):\n"
+            f"{custom_instruction.strip()}\n"
         )
     return (
-        f"{task} "
+        f"{mission}{task}{core}{style_hint}\n{extra}"
         f"Write the improved prompt in {lang}. "
         "Return ONLY the improved prompt text — no quotes, no markdown, no explanation."
     )
@@ -157,6 +196,125 @@ def _clean_output(text: str) -> str:
     return text.strip().strip('"').strip("'").strip()
 
 
+def _resolve_endpoint(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> tuple[str, str, str]:
+    """Merge overrides with saved credentials → (api_key, base_url, model)."""
+    raw = get_credentials()
+    key = (api_key or "").strip() or str(raw.get("api_key") or "").strip()
+    base = (base_url or "").strip() or str(raw.get("base_url") or "https://api.openai.com/v1")
+    base = base.rstrip("/")
+    mdl = (model or "").strip() or str(raw.get("model") or "gpt-4o-mini").strip()
+    prov = (provider or "").strip() or str(raw.get("provider") or "openai_compatible")
+
+    if prov == "grok" and "api.openai.com" in base:
+        base = "https://api.x.ai/v1"
+        if mdl in {"gpt-4o-mini", "gpt-4o", ""}:
+            mdl = "grok-2-latest"
+
+    if not key:
+        raise ProviderError(
+            "Chưa có API key — dán key trong Cấu hình AI (hoặc Lưu rồi Test)",
+            error_code=400,
+        )
+    if not base:
+        raise ProviderError("Thiếu Base URL trong Cấu hình AI", error_code=400)
+    if not mdl:
+        raise ProviderError("Thiếu Model trong Cấu hình AI", error_code=400)
+    return key, base, mdl
+
+
+async def test_connection(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> dict[str, Any]:
+    """Ping chat/completions to verify API key + URL + model work."""
+    import time
+
+    key, base, mdl = _resolve_endpoint(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        provider=provider,
+    )
+    url = f"{base}/chat/completions"
+    payload: dict[str, Any] = {
+        "model": mdl,
+        "temperature": 0,
+        "max_tokens": 16,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Reply with exactly one word: OK",
+            }
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    logger.info("AI test request url=%s model=%s", url, mdl)
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            res = await client.post(url, headers=headers, json=payload)
+    except httpx.TimeoutException as exc:
+        raise ProviderError(
+            "Timeout — API không phản hồi trong 45s. Kiểm tra Base URL / mạng.",
+            error_code=504,
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise ProviderError(f"Không kết nối được API AI: {exc}", error_code=502) from exc
+
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    if res.status_code >= 400:
+        detail = res.text[:400]
+        try:
+            err = res.json()
+            detail = str(
+                err.get("error", {}).get("message")
+                or err.get("message")
+                or err.get("error")
+                or detail
+            )
+        except Exception:
+            pass
+        raise ProviderError(
+            f"API lỗi HTTP {res.status_code}: {detail}",
+            error_code=res.status_code if 400 <= res.status_code <= 599 else 502,
+        )
+
+    try:
+        data = res.json()
+    except Exception as exc:
+        raise ProviderError(
+            f"API không trả JSON hợp lệ: {res.text[:200]}",
+            error_code=502,
+        ) from exc
+
+    try:
+        reply = _extract_message_text(data)
+    except ProviderError:
+        reply = ""
+
+    return {
+        "ok": True,
+        "model": mdl,
+        "base_url": base,
+        "latency_ms": elapsed_ms,
+        "reply": (reply or "")[:120],
+        "message": f"Kết nối OK · model {mdl} · {elapsed_ms}ms",
+    }
+
+
 async def rewrite_prompt(
     prompt: str,
     *,
@@ -166,40 +324,51 @@ async def rewrite_prompt(
     raw = get_credentials()
     if not raw.get("enabled"):
         raise ProviderError(
-            "AI prompt chưa bật — Cài đặt → API AI → tick Bật + Lưu",
+            "AI prompt chưa bật — Cài đặt → 1. Cấu hình AI → tick Bật + Lưu",
             error_code=400,
         )
-    api_key = str(raw.get("api_key") or "").strip()
-    if not api_key:
-        raise ProviderError("Chưa có API key AI — thêm trong Cài đặt → API AI", error_code=400)
 
-    base = str(raw.get("base_url") or "https://api.openai.com/v1").rstrip("/")
-    model = str(raw.get("model") or "gpt-4o-mini").strip()
-    provider = str(raw.get("provider") or "openai_compatible")
+    kind_key = "video" if kind == "video" else "image"
+    if kind_key == "video" and not raw.get("video_enabled", True):
+        raise ProviderError(
+            "AI sửa prompt VIDEO đang tắt — bật trong Cài đặt → 2. Cấu hình Prompt",
+            error_code=400,
+        )
+    if kind_key == "image" and not raw.get("image_enabled", True):
+        raise ProviderError(
+            "AI sửa prompt ẢNH đang tắt — bật trong Cài đặt → 2. Cấu hình Prompt",
+            error_code=400,
+        )
 
-    if provider == "grok" and "api.openai.com" in base:
-        base = "https://api.x.ai/v1"
-        if model in {"gpt-4o-mini", "gpt-4o", ""}:
-            model = "grok-2-latest"
+    style = str(raw.get(f"{kind_key}_style") or "pro")
+    custom = str(raw.get(f"{kind_key}_custom_instruction") or "")
+    api_key, base, model = _resolve_endpoint()
 
-    if not base:
-        raise ProviderError("Thiếu Base URL API AI trong Cài đặt", error_code=400)
+    system = _system_prompt(
+        kind_key,
+        locale,
+        style=style,
+        custom_instruction=custom,
+    )
+    temp = 0.25 if style == "light" else 0.35 if style == "pro" else 0.45
 
     url = f"{base}/chat/completions"
     payload: dict[str, Any] = {
         "model": model,
-        "temperature": 0.35,
+        "temperature": temp,
         "messages": [
-            {"role": "system", "content": _system_prompt(kind, locale)},
+            {"role": "system", "content": system},
             {
                 "role": "user",
                 "content": (
-                    "Polish this prompt. Keep the SAME meaning and subject. "
-                    "Only make wording more professional and add minimal useful detail. "
+                    f"The user wrote a short/casual idea. Analyze it and rewrite as a professional "
+                    f"{'VIDEO' if kind_key == 'video' else 'IMAGE'} generation prompt "
+                    "(clear for Google Flow / generation AI).\n"
+                    "Keep the SAME meaning and subject. Expand only visual detail that fits. "
                     "Do NOT invent a new scene. "
                     "If the original has no @name tokens, do NOT add any @name tokens.\n\n"
-                    f"Original prompt:\n{prompt.strip()}\n\n"
-                    "Improved prompt (same idea, slightly better):"
+                    f"Original (simple) prompt:\n{prompt.strip()}\n\n"
+                    "Professional generation prompt:"
                 ),
             },
         ],
