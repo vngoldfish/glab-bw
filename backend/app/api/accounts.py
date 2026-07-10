@@ -1,4 +1,8 @@
+import time
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.models.schemas import AccountCreate, AccountUpdate
 from app.providers.registry import account_to_dict
@@ -121,3 +125,71 @@ async def delete_account(account_id: str) -> dict:
     if not account_store.delete(account_id):
         raise HTTPException(status_code=404, detail={"error": "Account not found"})
     return {"ok": True}
+
+
+@router.get("/export/backup")
+async def export_accounts(include_secrets: bool = False) -> dict:
+    """Export accounts for backup. Secrets (cookies/keys) off by default."""
+    rows: list[dict[str, Any]] = []
+    for a in account_store.list_accounts():
+        row: dict[str, Any] = {
+            "id": a.id,
+            "provider": a.provider,
+            "label": a.label,
+            "image_enabled": a.image_enabled,
+            "video_enabled": a.video_enabled,
+            "enabled": a.enabled,
+            "created_at": a.created_at,
+            "has_credentials": bool(a.credentials),
+        }
+        if include_secrets:
+            row["credentials"] = dict(a.credentials)
+        rows.append(row)
+    return {
+        "exported_at": time.time(),
+        "include_secrets": include_secrets,
+        "count": len(rows),
+        "accounts": rows,
+    }
+
+
+class AccountImportItem(BaseModel):
+    provider: str
+    label: str = ""
+    credentials: dict[str, str] = Field(default_factory=dict)
+    image_enabled: bool = True
+    video_enabled: bool = True
+    enabled: bool = True
+
+
+class AccountImportRequest(BaseModel):
+    accounts: list[AccountImportItem]
+    skip_empty_credentials: bool = True
+
+
+@router.post("/import/backup")
+async def import_accounts(body: AccountImportRequest) -> dict:
+    """Import accounts (creates new ids). Requires credentials for usable accounts."""
+    created = 0
+    skipped = 0
+    errors: list[str] = []
+    for item in body.accounts:
+        if body.skip_empty_credentials and not item.credentials:
+            skipped += 1
+            continue
+        try:
+            label, credentials = _normalize_credentials(
+                item.provider, item.label, item.credentials
+            )
+            account_store.create(
+                provider=item.provider,  # type: ignore[arg-type]
+                label=label or item.label or item.provider,
+                credentials=credentials,
+                image_enabled=item.image_enabled,
+                video_enabled=item.video_enabled,
+                enabled=item.enabled,
+            )
+            created += 1
+        except Exception as exc:
+            errors.append(f"{item.label or item.provider}: {exc}")
+    return {"created": created, "skipped": skipped, "errors": errors}

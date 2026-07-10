@@ -468,10 +468,82 @@ export async function openOutputFolder(folder: string): Promise<void> {
   await ensureOk(res, "Không mở được thư mục");
 }
 
-export async function fetchHealth(): Promise<Record<string, unknown>> {
+export interface HealthStatus {
+  status: string;
+  uptime?: number;
+  tasks_pending?: number;
+  tasks_running?: number;
+  max_concurrent?: number;
+  extension_connected?: boolean;
+  flow_tab?: string;
+  grok_tab?: string;
+  flow_accounts?: number;
+  flow_image_ready?: number;
+  flow_video_ready?: number;
+  grok_ready?: number;
+  disk_free_gb?: number | null;
+  disk_ok?: boolean;
+  flow_session_ok?: boolean;
+  ready_to_generate?: boolean;
+  readiness_reasons?: string[];
+  session?: {
+    flow_session_ok?: boolean;
+    last_flow_error?: string | null;
+    hint?: string | null;
+  };
+  [key: string]: unknown;
+}
+
+export async function fetchHealth(): Promise<HealthStatus> {
   const res = await apiFetch("/api/health");
   await ensureOk(res, "Health check failed");
-  return readJson<Record<string, unknown>>(res);
+  return readJson<HealthStatus>(res);
+}
+
+export async function exportAccountsBackup(includeSecrets = false): Promise<unknown> {
+  const q = includeSecrets ? "?include_secrets=true" : "";
+  const res = await apiFetch(`/api/accounts/export/backup${q}`);
+  await ensureOk(res, "Export accounts failed");
+  return readJson(res);
+}
+
+export async function importAccountsBackup(payload: {
+  accounts: Array<{
+    provider: Provider;
+    label?: string;
+    credentials?: Record<string, string>;
+    image_enabled?: boolean;
+    video_enabled?: boolean;
+    enabled?: boolean;
+  }>;
+}): Promise<{ created: number; skipped: number; errors: string[] }> {
+  const res = await apiFetch("/api/accounts/import/backup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Import accounts failed");
+  return readJson(res);
+}
+
+export async function fetchDiskInfo(): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/api/maintenance/disk");
+  await ensureOk(res, "Disk info failed");
+  return readJson(res);
+}
+
+export async function cleanupOutputs(opts?: {
+  olderThanDays?: number;
+  dryRun?: boolean;
+}): Promise<Record<string, unknown>> {
+  const days = opts?.olderThanDays ?? 30;
+  const dry = opts?.dryRun ?? true;
+  const res = await apiFetch(
+    `/api/maintenance/cleanup-outputs?older_than_days=${days}&dry_run=${dry}`,
+    { method: "POST" },
+  );
+  await ensureOk(res, "Cleanup failed");
+  return readJson(res);
 }
 
 export interface ExtensionStatus {

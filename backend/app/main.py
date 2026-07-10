@@ -4,12 +4,15 @@ import socket
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.api import accounts, ai, auth_bridge, batch, references, webhook
-from app.core.config import settings
+from app.api import accounts, ai, auth_bridge, batch, maintenance, references, webhook
+from app.core.config import PROJECT_ROOT, settings
 from app.core.logging_setup import setup_logging
 from app.core.task_queue import task_queue
 from app.services.auth_bridge import auth_bridge as auth_bridge_state
@@ -147,24 +150,18 @@ app.include_router(accounts.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
 app.include_router(references.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(maintenance.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
 
-
-@app.get("/")
-async def root() -> dict:
-    return {
-        "name": settings.app_name,
-        "webhook": f"http://{settings.host}:{settings.port}/api/health",
-        "auth_bridge": f"http://127.0.0.1:{AUTH_BRIDGE_PORT}/sync/status",
-        "extension_connected": auth_bridge_state.is_connected(),
-        "api_key": settings.api_key,
-        "docs": f"http://{settings.host}:{settings.port}/docs",
-    }
+# Production UI: frontend/dist (vite build). Dev still uses Vite :5173.
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+_HAS_STATIC = (FRONTEND_DIST / "index.html").is_file()
 
 
 @app.get("/api/info")
 async def app_info() -> dict:
+    # api_key only on /api/info for local UI (Webhook page) — not on public "/"
     return {
         "name": settings.app_name,
         "webhook": f"http://{settings.host}:{settings.port}/api/health",
@@ -172,6 +169,12 @@ async def app_info() -> dict:
         "extension_connected": auth_bridge_state.is_connected(),
         "api_key": settings.api_key,
         "docs": f"http://{settings.host}:{settings.port}/docs",
+        "static_ui": _HAS_STATIC,
+        "ui_url": (
+            f"http://{settings.host}:{settings.port}/"
+            if _HAS_STATIC
+            else "http://127.0.0.1:5173/"
+        ),
     }
 
 
@@ -179,3 +182,38 @@ async def app_info() -> dict:
 async def extension_status() -> dict:
     # Read in-process state (extension talks to :18923 in the same process)
     return auth_bridge_state.status_payload()
+
+
+if _HAS_STATIC:
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/")
+    async def spa_index() -> FileResponse:
+        return FileResponse(FRONTEND_DIST / "index.html")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str) -> FileResponse:
+        # Do not swallow API / docs / sync
+        if full_path.startswith(("api/", "docs", "openapi", "redoc", "sync/")):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = FRONTEND_DIST / full_path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
+else:
+
+    @app.get("/")
+    async def root() -> dict:
+        return {
+            "name": settings.app_name,
+            "webhook": f"http://{settings.host}:{settings.port}/api/health",
+            "auth_bridge": f"http://127.0.0.1:{AUTH_BRIDGE_PORT}/sync/status",
+            "extension_connected": auth_bridge_state.is_connected(),
+            "docs": f"http://{settings.host}:{settings.port}/docs",
+            "ui": "http://127.0.0.1:5173 (dev) — run npm run build for single-process UI",
+            "static_ui": False,
+        }

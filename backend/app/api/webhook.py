@@ -53,6 +53,7 @@ async def health() -> dict:
     """Liveness + operator readiness hints (extension, accounts, disk)."""
     from app.services.account_store import account_store
     from app.services.auth_bridge import auth_bridge as auth_bridge_state
+    from app.services.session_health import session_health
 
     flow_accounts = [
         a
@@ -61,8 +62,12 @@ async def health() -> dict:
     ]
     flow_image_ready = len(account_store.list_eligible("flow", for_video=False))
     flow_video_ready = len(account_store.list_eligible("flow", for_video=True))
+    grok_ready = len(account_store.list_eligible("grok", for_video=False)) + len(
+        account_store.list_eligible("grok", for_video=True)
+    )
 
     ext = auth_bridge_state.status_payload()
+    sh = session_health.payload()
     disk_free_gb: float | None = None
     try:
         import shutil
@@ -72,9 +77,26 @@ async def health() -> dict:
     except OSError:
         pass
 
-    ready = bool(ext.get("connected")) and (
-        flow_image_ready > 0 or flow_video_ready > 0
-    )
+    ext_ok = bool(ext.get("connected"))
+    flow_tab_open = str(ext.get("flow_tab") or "") == "open"
+    has_account = flow_image_ready > 0 or flow_video_ready > 0 or grok_ready > 0
+    disk_ok = disk_free_gb is None or disk_free_gb >= 1.0
+    session_ok = bool(sh.get("flow_session_ok", True))
+
+    # Ready = auth path OK + at least one account + disk ok
+    ready = ext_ok and has_account and disk_ok and session_ok
+    reasons: list[str] = []
+    if not ext_ok:
+        reasons.append("Auth Helper chưa kết nối")
+    if ext_ok and not flow_tab_open and flow_image_ready + flow_video_ready > 0:
+        reasons.append("Tab Flow chưa mở (cần reCAPTCHA)")
+    if not has_account:
+        reasons.append("Chưa có account Flow/Grok khả dụng")
+    if not disk_ok:
+        reasons.append(f"Disk thấp ({disk_free_gb} GB)")
+    if not session_ok:
+        reasons.append(sh.get("hint") or "Session Flow có thể hết hạn")
+
     return {
         "status": "ok",
         "server": "G-Labs BW Webhook",
@@ -82,14 +104,19 @@ async def health() -> dict:
         "tasks_pending": task_queue.pending_count(),
         "tasks_running": task_queue.running_count(),
         "max_concurrent": task_queue.max_concurrent,
-        "extension_connected": bool(ext.get("connected")),
+        "extension_connected": ext_ok,
         "flow_tab": ext.get("flow_tab"),
         "grok_tab": ext.get("grok_tab"),
         "flow_accounts": len(flow_accounts),
         "flow_image_ready": flow_image_ready,
         "flow_video_ready": flow_video_ready,
+        "grok_ready": grok_ready,
         "disk_free_gb": disk_free_gb,
+        "disk_ok": disk_ok,
+        "flow_session_ok": session_ok,
+        "session": sh,
         "ready_to_generate": ready,
+        "readiness_reasons": reasons,
     }
 
 

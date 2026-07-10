@@ -7,6 +7,7 @@ import {
   fetchExtensionStatus,
   fetchHealth,
   type ExtensionStatus,
+  type HealthStatus,
 } from "./api";
 import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
@@ -18,18 +19,52 @@ import WebhookPage from "./pages/WebhookPage";
 import { ReferenceLibraryProvider } from "./referenceLibraryContext";
 import { DEFAULT_ROUTE, NAV_ROUTES } from "./routes";
 
+function readinessChip(health: HealthStatus | null): {
+  className: string;
+  label: string;
+  title: string;
+} {
+  if (!health) {
+    return { className: "warn", label: "Đang kiểm tra…", title: "Chưa có health" };
+  }
+  if (health.ready_to_generate) {
+    const img = health.flow_image_ready ?? 0;
+    const vid = health.flow_video_ready ?? 0;
+    return {
+      className: "online",
+      label: "Sẵn sàng gen",
+      title: `Flow ảnh: ${img} · video: ${vid} · disk: ${health.disk_free_gb ?? "?"} GB`,
+    };
+  }
+  const reasons = health.readiness_reasons?.length
+    ? health.readiness_reasons.join(" · ")
+    : "Chưa sẵn sàng";
+  const critical =
+    !health.extension_connected ||
+    health.flow_session_ok === false ||
+    health.disk_ok === false;
+  return {
+    className: critical ? "offline" : "warn",
+    label: critical ? "Chưa sẵn sàng" : "Thiếu điều kiện",
+    title: reasons,
+  };
+}
+
 export default function App() {
   const location = useLocation();
   const [apiKey, setApiKey] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
   const [extension, setExtension] = useState<ExtensionStatus | null>(null);
   const [error, setError] = useState("");
+  const [sessionWarn, setSessionWarn] = useState("");
 
   const activeCount = useMemo(
     () => accounts.filter((a) => a.enabled && a.has_credentials).length,
     [accounts],
   );
+
+  const readyChip = useMemo(() => readinessChip(health), [health]);
 
   const refresh = useCallback(async () => {
     const [info, accs, h, ext] = await Promise.all([
@@ -42,6 +77,15 @@ export default function App() {
     setAccounts(accs);
     setHealth(h);
     setExtension(ext);
+    if (h.flow_session_ok === false) {
+      const hint =
+        h.session?.hint ||
+        h.readiness_reasons?.find((r) => r.toLowerCase().includes("session") || r.includes("Cookie")) ||
+        "Cookie/session Flow có thể hết hạn — vào Settings dán lại session-token";
+      setSessionWarn(hint);
+    } else {
+      setSessionWarn("");
+    }
   }, []);
 
   useEffect(() => {
@@ -49,8 +93,19 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err)),
     );
     const timer = setInterval(() => {
-      fetchExtensionStatus()
-        .then(setExtension)
+      Promise.all([fetchExtensionStatus(), fetchHealth()])
+        .then(([ext, h]) => {
+          setExtension(ext);
+          setHealth(h);
+          if (h.flow_session_ok === false) {
+            setSessionWarn(
+              h.session?.hint ||
+                "Cookie/session Flow có thể hết hạn — Settings → dán lại session-token",
+            );
+          } else {
+            setSessionWarn("");
+          }
+        })
         .catch(() => undefined);
     }, 5000);
     return () => clearInterval(timer);
@@ -72,9 +127,16 @@ export default function App() {
           <div className="titlebar">
             <div className="titlebar-brand">
               <span>G-Labs BW</span>
-              <span className="titlebar-version">v0.1.0</span>
+              <span className="titlebar-version">v0.2.0</span>
             </div>
             <div className="titlebar-meta">
+              <span
+                className={`titlebar-chip ${readyChip.className}`}
+                title={readyChip.title}
+              >
+                <span className="status-dot" />
+                {readyChip.label}
+              </span>
               <span className={`titlebar-chip ${extension?.connected ? "online" : "offline"}`}>
                 <span className="status-dot" />
                 {extension?.connected ? "Auth OK" : "Auth off"}
@@ -97,9 +159,25 @@ export default function App() {
                 Grok: {extension?.grok_tab ?? "…"}
                 {extension?.has_statsig ? " · sig" : ""}
               </span>
+              {typeof health?.disk_free_gb === "number" && health.disk_free_gb < 5 && (
+                <span
+                  className={`titlebar-chip ${health.disk_free_gb < 2 ? "offline" : "warn"}`}
+                  title="Dung lượng ổ đĩa còn lại"
+                >
+                  Disk {health.disk_free_gb} GB
+                </span>
+              )}
               <span>:8765</span>
             </div>
           </div>
+          {sessionWarn && (
+            <div className="toast-warn">
+              <span>{sessionWarn}</span>
+              <button type="button" onClick={() => setSessionWarn("")}>
+                ✕
+              </button>
+            </div>
+          )}
           {error && (
             <div className="toast-error">
               <span>{error}</span>

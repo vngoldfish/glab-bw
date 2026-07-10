@@ -4,9 +4,13 @@ import {
   AiSettings,
   Provider,
   aiHasSavedKey,
+  cleanupOutputs,
   createAccount,
   deleteAccount,
+  exportAccountsBackup,
   fetchAiSettings,
+  fetchDiskInfo,
+  importAccountsBackup,
   saveAiApiSettings,
   savePromptSettings,
   testAiApi,
@@ -909,6 +913,137 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             {promptSaving ? "Đang lưu..." : "Lưu cấu hình Prompt"}
           </button>
           {promptMsg && <span className="muted">{promptMsg}</span>}
+        </div>
+      </section>
+
+      <section className="panel-card">
+        <h2>Backup tài khoản &amp; dọn disk</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Export/import account (mặc định <strong>không</strong> gồm cookie/key). Cleanup chỉ xóa file
+          output cũ — dry-run trước khi xóa thật.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={loading}
+            onClick={async () => {
+              try {
+                setLoading(true);
+                const data = await exportAccountsBackup(false);
+                const blob = new Blob([JSON.stringify(data, null, 2)], {
+                  type: "application/json",
+                });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `glab-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              } catch (e) {
+                onError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Export (không secret)
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={loading}
+            onClick={async () => {
+              if (
+                !confirm(
+                  "Export CÓ cookie/API key — chỉ lưu file local an toàn. Tiếp tục?",
+                )
+              ) {
+                return;
+              }
+              try {
+                setLoading(true);
+                const data = await exportAccountsBackup(true);
+                const blob = new Blob([JSON.stringify(data, null, 2)], {
+                  type: "application/json",
+                });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `glab-accounts-SECRETS-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              } catch (e) {
+                onError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Export + secrets
+          </button>
+          <label className="btn btn-ghost" style={{ cursor: "pointer" }}>
+            Import backup…
+            <input
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                try {
+                  setLoading(true);
+                  const text = await file.text();
+                  const parsed = JSON.parse(text) as {
+                    accounts?: Array<{
+                      provider: Provider;
+                      label?: string;
+                      credentials?: Record<string, string>;
+                      image_enabled?: boolean;
+                      video_enabled?: boolean;
+                      enabled?: boolean;
+                    }>;
+                  };
+                  if (!parsed.accounts?.length) {
+                    throw new Error("File không có mảng accounts");
+                  }
+                  const result = await importAccountsBackup({ accounts: parsed.accounts });
+                  await onRefresh();
+                  alert(
+                    `Import: +${result.created} · skip ${result.skipped}` +
+                      (result.errors?.length ? `\nLỗi: ${result.errors.join("; ")}` : ""),
+                  );
+                } catch (err) {
+                  onError(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={loading}
+            onClick={async () => {
+              try {
+                setLoading(true);
+                const disk = await fetchDiskInfo();
+                const preview = await cleanupOutputs({ olderThanDays: 30, dryRun: true });
+                const msg =
+                  `Disk free: ${disk.disk_free_gb} GB · output ~${disk.output_total_mb} MB\n` +
+                  `File >30 ngày: ${preview.matched_files}\nXóa thật?`;
+                if (!confirm(msg)) return;
+                const done = await cleanupOutputs({ olderThanDays: 30, dryRun: false });
+                alert(`Đã xóa ${done.removed_files} file · giải phóng ~${done.freed_mb} MB`);
+              } catch (err) {
+                onError(err instanceof Error ? err.message : String(err));
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            Dọn output &gt;30 ngày
+          </button>
         </div>
       </section>
 

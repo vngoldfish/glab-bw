@@ -1,0 +1,17 @@
+{
+  "name": "g-labs-bw",
+  "private": true,
+  "version": "0.2.0",
+  "description": "G-Labs BW local automation app",
+  "scripts": {
+    "start": "bash ./start.sh",
+    "start:prod": "bash ./start.sh --prod",
+    "start:watch": "bash ./start.sh --watchdog",
+    "start:prod:watch": "bash ./start.sh --prod --watchdog",
+    "stop": "bash ./stop.sh",
+    "status": "bash ./status.sh",
+    "build": "npm --prefix frontend run build",
+    "dev:frontend": "npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173",
+    "test:smoke": "backend/.venv/bin/python -m pytest backend/tests/test_smoke.py -q"
+  }
+}

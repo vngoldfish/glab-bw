@@ -1,9 +1,27 @@
 #!/usr/bin/env bash
-# G-Labs BW — start backend + frontend (macOS / Linux)
+# G-Labs BW — start backend (+ optional Vite frontend)
+# Usage:
+#   ./start.sh              # backend + vite dev (default)
+#   ./start.sh --prod       # backend only, serve frontend/dist on :8765
+#   ./start.sh --watchdog   # restart backend if health dies
+#   ./start.sh --prod --watchdog
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
+
+PROD=0
+WATCHDOG=0
+for arg in "$@"; do
+  case "$arg" in
+    --prod|-p) PROD=1 ;;
+    --watchdog|-w) WATCHDOG=1 ;;
+    --help|-h)
+      echo "Usage: ./start.sh [--prod] [--watchdog]"
+      exit 0
+      ;;
+  esac
+done
 
 LOG_DIR="$ROOT/data/logs"
 PID_DIR="$ROOT/data/run"
@@ -11,6 +29,7 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
 FRONTEND_PID_FILE="$PID_DIR/frontend.pid"
+WATCHDOG_PID_FILE="$PID_DIR/watchdog.pid"
 BACKEND_LOG="$LOG_DIR/backend.console.log"
 FRONTEND_LOG="$LOG_DIR/frontend.console.log"
 
@@ -20,11 +39,6 @@ if [[ ! -x "$VENV_PY" ]]; then
 fi
 if [[ -z "${VENV_PY}" ]]; then
   echo "ERROR: Python not found. Create backend/.venv first."
-  exit 1
-fi
-
-if ! command -v npm >/dev/null 2>&1; then
-  echo "ERROR: npm not found (need Node.js 18+)."
   exit 1
 fi
 
@@ -61,45 +75,99 @@ wait_http() {
   return 1
 }
 
+start_backend_once() {
+  (
+    cd "$ROOT"
+    export PYTHONPATH="$ROOT/backend"
+    nohup "$VENV_PY" -m uvicorn app.main:app --host 127.0.0.1 --port 8765 \
+      >>"$BACKEND_LOG" 2>&1 &
+    echo $! >"$BACKEND_PID_FILE"
+  )
+}
+
 echo ""
 echo "========================================"
 echo "  G-Labs BW — starting"
+if [[ "$PROD" -eq 1 ]]; then echo "  mode: PROD (static UI on :8765)"; fi
+if [[ "$WATCHDOG" -eq 1 ]]; then echo "  watchdog: on"; fi
 echo "========================================"
 echo ""
 
+if [[ "$PROD" -eq 1 ]]; then
+  if [[ ! -f "$ROOT/frontend/dist/index.html" ]]; then
+    echo "[build] frontend/dist missing — running npm run build..."
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "ERROR: npm required to build frontend"
+      exit 1
+    fi
+    (cd "$ROOT/frontend" && npm run build)
+  fi
+fi
+
 echo "[1/4] Free ports 8765, 18923, 5173..."
 for p in 8765 18923 5173; do kill_port "$p"; done
+# stop old watchdog if any
+if [[ -f "$WATCHDOG_PID_FILE" ]]; then
+  wp="$(cat "$WATCHDOG_PID_FILE" 2>/dev/null || true)"
+  if [[ -n "${wp:-}" ]]; then kill "$wp" 2>/dev/null || true; fi
+  rm -f "$WATCHDOG_PID_FILE"
+fi
 sleep 1
 
 echo "[2/4] Backend API :8765 + Auth :18923..."
-(
-  cd "$ROOT"
-  export PYTHONPATH="$ROOT/backend"
-  nohup "$VENV_PY" -m uvicorn app.main:app --host 127.0.0.1 --port 8765 \
-    >>"$BACKEND_LOG" 2>&1 &
-  echo $! >"$BACKEND_PID_FILE"
-)
+start_backend_once
 wait_http "http://127.0.0.1:8765/api/health" "Backend" 25
 
-echo "[3/4] Frontend :5173..."
-(
-  cd "$ROOT/frontend"
-  nohup npm run dev -- --host 127.0.0.1 --port 5173 \
-    >>"$FRONTEND_LOG" 2>&1 &
-  echo $! >"$FRONTEND_PID_FILE"
-)
-wait_http "http://127.0.0.1:5173/" "Frontend" 30
+if [[ "$WATCHDOG" -eq 1 ]]; then
+  echo "  starting backend watchdog..."
+  (
+    while true; do
+      if ! curl -fsS -m 2 "http://127.0.0.1:8765/api/health" >/dev/null 2>&1; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') watchdog: backend DOWN — restart" >>"$LOG_DIR/watchdog.log"
+        for p in 8765 18923; do
+          pid="$(lsof -nP -iTCP:$p -sTCP:LISTEN -t 2>/dev/null || true)"
+          if [[ -n "$pid" ]]; then kill $pid 2>/dev/null || true; fi
+        done
+        sleep 1
+        start_backend_once
+        sleep 3
+      fi
+      sleep 5
+    done
+  ) &
+  echo $! >"$WATCHDOG_PID_FILE"
+fi
+
+UI_URL="http://127.0.0.1:5173"
+if [[ "$PROD" -eq 1 ]]; then
+  echo "[3/4] Prod UI served by backend (skip Vite)"
+  UI_URL="http://127.0.0.1:8765"
+  wait_http "http://127.0.0.1:8765/" "Static UI" 10 || true
+else
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm not found (need Node.js 18+)."
+    exit 1
+  fi
+  echo "[3/4] Frontend Vite :5173..."
+  (
+    cd "$ROOT/frontend"
+    nohup npm run dev -- --host 127.0.0.1 --port 5173 \
+      >>"$FRONTEND_LOG" 2>&1 &
+    echo $! >"$FRONTEND_PID_FILE"
+  )
+  wait_http "http://127.0.0.1:5173/" "Frontend" 30
+fi
 
 echo "[4/4] Open browser..."
 if command -v open >/dev/null 2>&1; then
-  open "http://127.0.0.1:5173" || true
+  open "$UI_URL" || true
 elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "http://127.0.0.1:5173" || true
+  xdg-open "$UI_URL" || true
 fi
 
 echo ""
 echo "========================================"
-echo "  App:     http://127.0.0.1:5173"
+echo "  App:     $UI_URL"
 echo "  Backend: http://127.0.0.1:8765"
 echo "  Auth:    http://127.0.0.1:18923"
 echo "  Logs:    $LOG_DIR"

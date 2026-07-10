@@ -88,7 +88,11 @@ def save_raw(patch: dict[str, Any]) -> dict[str, Any]:
         if not str(current.get("api_key") or "").strip() and preserved_key:
             current["api_key"] = preserved_key
         path = _path()
-        path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Atomic write — crash mid-save must not corrupt ai_settings.json
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        data = json.dumps(current, ensure_ascii=False, indent=2)
+        tmp.write_text(data, encoding="utf-8")
+        tmp.replace(path)
         return current
 
 

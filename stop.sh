@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# G-Labs BW — stop backend + frontend
+# G-Labs BW — stop backend + frontend + watchdog
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -29,6 +29,8 @@ if [[ -d "$PID_DIR" ]]; then
     if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
       echo "  kill pid $pid ($f)"
       kill "$pid" 2>/dev/null || true
+      # watchdog may have children
+      kill -9 "$pid" 2>/dev/null || true
     fi
     rm -f "$f"
   done

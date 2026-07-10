@@ -12,102 +12,75 @@
 
 ## Cài đặt
 
-### Backend
-
 ```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+cd backend && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cd ../frontend && npm install
 ```
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-```
-
-### Cấu hình (tuỳ chọn)
-
-```bash
-cp .env.example .env
-```
+Tuỳ chọn: `cp .env.example .env`
 
 ## Chạy app
 
-### macOS / Linux (khuyên dùng)
+### macOS / Linux
 
 ```bash
 chmod +x start.sh stop.sh status.sh start-backend-watchdog.sh
-./start.sh      # backend + frontend + mở browser
-./status.sh     # kiểm tra health
-./stop.sh       # tắt hết
+
+./start.sh                 # backend + Vite dev (:5173)
+./start.sh --prod          # 1 process: UI static trên :8765
+./start.sh --watchdog      # tự restart backend nếu chết
+./start.sh --prod --watchdog
+
+./status.sh
+./stop.sh
 ```
 
-Backend tự restart khi crash:
-
-```bash
-./start-backend-watchdog.sh
-```
+Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 
 ### Windows
 
 ```powershell
 .\CHAY-APP.bat
-# hoặc
-.\start-all.ps1
-```
-
-Tắt:
-
-```powershell
 .\TAT-APP.bat
 ```
 
 ### URL
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://127.0.0.1:5173 |
-| Backend API | http://127.0.0.1:8765 |
-| Auth Bridge | http://127.0.0.1:18923 |
-| Health | http://127.0.0.1:8765/api/health |
+| Mode | UI | API | Auth |
+|------|----|-----|------|
+| Dev | http://127.0.0.1:5173 | :8765 | :18923 |
+| Prod (`--prod`) | http://127.0.0.1:8765 | :8765 | :18923 |
 
-> Dùng **127.0.0.1** (không chỉ `localhost`) để tránh lỗi bind IPv6 trên macOS.
+> Dùng **127.0.0.1** (tránh lỗi IPv6 `localhost` trên macOS).
 
-## Ổn định vận hành
+## Ổn định vận hành (v0.2)
 
-- **API key** lưu `data/api_key.txt` — không đổi mỗi lần restart (webhook/n8n ổn định)
-- **Task history** SQLite `data/tasks.db` — xem lại task sau restart
-- **accounts.json** ghi atomic (temp + replace)
-- **Log** rotate: `data/logs/backend.log`
-- **Concurrency** mặc định 5 (giảm spam Google / captcha)
-- Health trả thêm: extension, Flow tab, account sẵn sàng, disk free
+- Scripts start/stop/status + watchdog
+- API key ổn định → `data/api_key.txt`
+- Task history SQLite → `data/tasks.db`
+- Atomic write: `accounts.json`, `ai_settings.json`
+- Log rotate: `data/logs/backend.log`
+- Health chi tiết + badge **Sẵn sàng gen** trên UI
+- Session stale toast khi cookie Flow hỏng
+- Retry policy tập trung (503/network trước khi xoay account)
+- Batch async: `POST /api/batch/submit-async` + poll
+- Export/import accounts + dọn output trong Settings
+- Prod: `frontend/dist` serve trong FastAPI (1 process)
+- Smoke tests: `npm run test:smoke`
 
-## Cấu trúc dự án
+## Cấu trúc
 
 ```
 g-labs-bw/
-├── backend/          # FastAPI — API, Flow/Grok provider, auth bridge
-├── frontend/         # React + Vite — giao diện
-├── extension-grok/   # Chrome extension phụ trợ Grok
-├── data/             # Runtime (không commit secrets/output)
+├── backend/           # FastAPI
+├── frontend/          # React + Vite
+├── extension-grok/
 ├── start.sh / stop.sh / status.sh
-├── start-backend-watchdog.sh
-├── start-all.ps1     # Windows
-└── CHAY-APP.bat
+└── package.json       # npm start / build / test:smoke
 ```
-
-## Tính năng chính
-
-- **Flow Ảnh / Video** — batch, hàng chờ, multi-account rotation
-- **Grok Imagine** — cookie web + Auth Helper
-- **Ảnh tham chiếu** — thư viện `@ten_anh`
-- **Webhook API** — n8n / automation
-- **Auth Helper** — reCAPTCHA / session bridge
 
 ## Lưu ý bảo mật
 
-- Không commit `data/accounts.json`, `data/api_key.txt`, `data/ai_settings.json`, ảnh output, hoặc `.env`
-- `API_KEY` tạo tự động lần đầu và ghi `data/api_key.txt`
+- Không commit `data/accounts.json`, `data/api_key.txt`, `data/ai_settings.json`, output, `.env`
+- Export + secrets chỉ lưu local an toàn

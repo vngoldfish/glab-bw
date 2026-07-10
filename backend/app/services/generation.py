@@ -2,6 +2,7 @@ import logging
 import secrets
 
 from app.core.config import settings
+from app.core.retry import is_retryable_error, is_session_stale_error, with_retries
 from app.core.task_queue import Task
 from app.providers.base import ProviderError
 from app.providers.registry import (
@@ -12,6 +13,7 @@ from app.providers.registry import (
 )
 from app.services.account_store import account_store
 from app.services.output_storage import file_url_from_path, resolve_task_output_dir
+from app.services.session_health import session_health
 from app.services.upscale import upscale_service
 
 logger = logging.getLogger(__name__)
@@ -91,14 +93,28 @@ async def _run_flow_with_rotation(
                 account.label,
                 account.id[:8],
             )
-            if for_video:
-                result = await provider.generate_video(prompt, params)
-            else:
-                result = await provider.generate_image(prompt, params)
+
+            # Bind provider in default arg to avoid loop-closure bugs
+            async def _once(p=provider) -> list[bytes]:
+                if for_video:
+                    return await p.generate_video(prompt, params)
+                return await p.generate_image(prompt, params)
+
+            # Same-account soft retry (503 / network) before rotating
+            result = await with_retries(
+                _once,
+                attempts=2,
+                base_delay=2.0,
+                retry_if=lambda e: is_retryable_error(e) and not _is_quota_or_rate_error(e),
+                label=f"flow:{account.label or account.id[:6]}",
+            )
             account_store.mark_used(account.id)
+            session_health.mark_flow_ok()
             return result
         except ProviderError as exc:
             last_error = exc
+            if is_session_stale_error(exc):
+                session_health.mark_flow_stale(str(exc), account.id)
             if _is_quota_or_rate_error(exc):
                 # Only cool down the modality that failed (video quota must not block image)
                 account_store.mark_quota_exhausted(
@@ -140,6 +156,8 @@ async def _run_flow_with_rotation(
             raise
 
     detail = str(last_error) if last_error else "unknown"
+    if last_error and is_session_stale_error(last_error):
+        session_health.mark_flow_stale(detail)
     raise ProviderError(
         f"Tất cả tài khoản Flow đều lỗi (đã thử: {', '.join(tried)}). Cuối: {detail}",
         error_code=getattr(last_error, "error_code", 0) or 0,
@@ -200,11 +218,18 @@ async def handle_grok_task(task: Task) -> list[str]:
             error_code=0,
         )
 
-    if not for_video:
-        images = await provider.generate_image(task.prompt, task.payload)
-        return _save_outputs(images, task, f"grok_{task.task_id}")
-    videos = await provider.generate_video(task.prompt, task.payload)
-    return _save_outputs(videos, task, f"grok_{task.task_id}", ext="mp4")
+    try:
+        if not for_video:
+            images = await provider.generate_image(task.prompt, task.payload)
+            session_health.mark_grok_ok()
+            return _save_outputs(images, task, f"grok_{task.task_id}")
+        videos = await provider.generate_video(task.prompt, task.payload)
+        session_health.mark_grok_ok()
+        return _save_outputs(videos, task, f"grok_{task.task_id}", ext="mp4")
+    except ProviderError as exc:
+        if is_session_stale_error(exc):
+            session_health.mark_grok_stale(str(exc))
+        raise
 
 
 async def handle_meta_task(task: Task) -> list[str]:
