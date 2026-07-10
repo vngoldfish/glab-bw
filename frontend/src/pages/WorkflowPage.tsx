@@ -99,73 +99,44 @@ function MediaPreview({
   urls,
   onPreview,
   max = 4,
+  label,
 }: {
   urls?: string[];
   onPreview?: (url: string) => void;
   max?: number;
+  label?: string;
 }) {
   if (!urls?.length) return null;
   const list = urls.slice(0, max).map(normalizeFileUrl);
+  const single = list.length === 1;
   return (
-    <div
-      className="nodrag nopan"
-      style={{
-        display: "grid",
-        gridTemplateColumns: list.length === 1 ? "1fr" : "1fr 1fr",
-        gap: 6,
-        marginTop: 8,
-      }}
-    >
-      {list.map((u) =>
-        isVideoUrl(u) ? (
-          <video
-            key={u}
-            src={u}
-            controls
-            playsInline
-            style={{
-              width: "100%",
-              maxHeight: 140,
-              borderRadius: 8,
-              background: "#000",
-              border: "1px solid rgba(255,255,255,0.1)",
-            }}
-          />
-        ) : (
-          <button
-            key={u}
-            type="button"
-            className="nodrag"
-            onClick={() => onPreview?.(u)}
-            title="Click phóng to"
-            style={{
-              padding: 0,
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 8,
-              overflow: "hidden",
-              cursor: "zoom-in",
-              background: "#0a0a0c",
-              lineHeight: 0,
-            }}
-          >
-            <img
-              src={u}
-              alt=""
-              style={{
-                width: "100%",
-                height: list.length === 1 ? 150 : 88,
-                objectFit: "cover",
-                display: "block",
-              }}
-            />
-          </button>
-        ),
-      )}
-      {urls.length > max && (
-        <span className="muted" style={{ fontSize: 10, gridColumn: "1 / -1" }}>
-          +{urls.length - max} media
-        </span>
-      )}
+    <div className="nodrag nopan node-media-preview">
+      {label ? <div className="node-media-label">{label}</div> : null}
+      <div className={`node-media-grid${single ? " is-single" : ""}`}>
+        {list.map((u, i) =>
+          isVideoUrl(u) ? (
+            <div key={u} className="node-media-item node-media-item--video">
+              <video src={u} controls playsInline preload="metadata" />
+              <span className="node-media-badge">VIDEO{list.length > 1 ? ` ${i + 1}` : ""}</span>
+            </div>
+          ) : (
+            <button
+              key={u}
+              type="button"
+              className="node-media-item node-media-item--image"
+              onClick={() => onPreview?.(u)}
+              title="Click phóng to"
+            >
+              <img src={u} alt="" loading="lazy" />
+              <span className="node-media-shine" aria-hidden />
+              <span className="node-media-badge">IMG{list.length > 1 ? ` ${i + 1}` : ""}</span>
+            </button>
+          ),
+        )}
+      </div>
+      {urls.length > max ? (
+        <div className="node-media-more">+{urls.length - max} media khác</div>
+      ) : null}
     </div>
   );
 }
@@ -207,9 +178,9 @@ function Shell({
   return (
     <div
       style={{
-        minWidth: 240,
-        maxWidth: 300,
-        borderRadius: 12,
+        minWidth: 260,
+        maxWidth: 320,
+        borderRadius: 14,
         border: `1.5px solid ${borderColor}`,
         background: "rgba(18,20,26,0.97)",
         boxShadow:
@@ -390,7 +361,7 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
           }}
         />
       </label>
-      <MediaPreview urls={preview} onPreview={d.onPreview} max={1} />
+      <MediaPreview urls={preview} onPreview={d.onPreview} max={1} label="Ảnh tham chiếu" />
     </Shell>
   );
 }
@@ -408,38 +379,50 @@ function GenerateNode({ id, data, selected }: NodeProps) {
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
     >
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "28%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="image" style={{ top: "55%", background: "#14b8a6" }} />
+      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
+      <Handle type="target" position={Position.Left} id="image" style={{ top: "42%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="image" style={{ background: "#22c55e" }} />
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || "nano_banana_2_lite"}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
-          <option value="nano_banana_2">Nano Banana 2</option>
-          <option value="nano_banana_pro">Nano Banana Pro</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block" }}>
-        Tỷ lệ
-        <select
-          value={d.aspect_ratio || "16:9"}
-          onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="1:1">1:1</option>
-          <option value="16:9">16:9</option>
-          <option value="9:16">9:16</option>
-        </select>
-      </label>
-      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} />
-      {!d.resultUrls?.length && d.runStatus === "idle" && (
-        <div className="muted" style={{ fontSize: 10, marginTop: 8, opacity: 0.7 }}>
-          Ảnh kết quả hiện tại đây sau khi chạy
-        </div>
+      {!d.resultUrls?.length ? (
+        <>
+          <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+            Model
+            <select
+              value={d.model || "nano_banana_2_lite"}
+              onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+              style={{ ...fieldStyle(), marginTop: 2 }}
+            >
+              <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
+              <option value="nano_banana_2">Nano Banana 2</option>
+              <option value="nano_banana_pro">Nano Banana Pro</option>
+            </select>
+          </label>
+          <label className="nodrag" style={{ display: "block" }}>
+            Tỷ lệ
+            <select
+              value={d.aspect_ratio || "16:9"}
+              onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
+              style={{ ...fieldStyle(), marginTop: 2 }}
+            >
+              <option value="1:1">1:1</option>
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16</option>
+            </select>
+          </label>
+          <div className="node-media-empty">
+            {d.runStatus === "running" || d.runStatus === "pending"
+              ? "Đang tạo ảnh…"
+              : "Ảnh kết quả hiện ở đây"}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="node-config-compact nodrag">
+            <span>{d.model || "nano_banana_2_lite"}</span>
+            <span>·</span>
+            <span>{d.aspect_ratio || "16:9"}</span>
+          </div>
+          <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả" />
+        </>
       )}
     </Shell>
   );
@@ -462,31 +445,48 @@ function VideoNode({ id, data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} id="start_image" style={{ top: "48%", background: "#22c55e" }} />
       <Handle type="target" position={Position.Left} id="end_image" style={{ top: "72%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || "veo_31_fast"}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="veo_31_fast">Veo 3.1 Fast</option>
-          <option value="veo_31_quality">Veo 3.1 Quality</option>
-          <option value="omni_flash">Omni Flash</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block" }}>
-        Mode
-        <select
-          value={d.mode || "start_image"}
-          onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="text_to_video">Text→Video</option>
-          <option value="start_image">Start image</option>
-          <option value="start_end_image">Start+End</option>
-        </select>
-      </label>
-      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} />
+      {!d.resultUrls?.length ? (
+        <>
+          <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+            Model
+            <select
+              value={d.model || "veo_31_fast"}
+              onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+              style={{ ...fieldStyle(), marginTop: 2 }}
+            >
+              <option value="veo_31_fast">Veo 3.1 Fast</option>
+              <option value="veo_31_quality">Veo 3.1 Quality</option>
+              <option value="omni_flash">Omni Flash</option>
+            </select>
+          </label>
+          <label className="nodrag" style={{ display: "block" }}>
+            Mode
+            <select
+              value={d.mode || "start_image"}
+              onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
+              style={{ ...fieldStyle(), marginTop: 2 }}
+            >
+              <option value="text_to_video">Text→Video</option>
+              <option value="start_image">Start image</option>
+              <option value="start_end_image">Start+End</option>
+            </select>
+          </label>
+          <div className="node-media-empty">
+            {d.runStatus === "running" || d.runStatus === "pending"
+              ? "Đang tạo video…"
+              : "Video kết quả hiện ở đây"}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="node-config-compact nodrag">
+            <span>{d.model || "veo_31_fast"}</span>
+            <span>·</span>
+            <span>{d.mode || "start_image"}</span>
+          </div>
+          <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả" />
+        </>
+      )}
     </Shell>
   );
 }
@@ -524,7 +524,15 @@ function FrameNode({ id, data, selected }: NodeProps) {
       <small className="muted" style={{ display: "block", marginTop: 4, fontSize: 10 }}>
         Nối <strong>end_image</strong> (chấm phải dưới) → Video kế <strong>start_image</strong>
       </small>
-      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={3} />
+      {d.resultUrls?.length ? (
+        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={3} label="Frames" />
+      ) : (
+        <div className="node-media-empty">
+          {d.runStatus === "running" || d.runStatus === "pending"
+            ? "Đang tách frame…"
+            : "Frame hiện ở đây sau khi chạy"}
+        </div>
+      )}
     </Shell>
   );
 }
