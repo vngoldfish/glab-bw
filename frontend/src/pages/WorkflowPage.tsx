@@ -27,6 +27,7 @@ import {
 } from "react";
 import {
   deleteWorkflow,
+  fetchSampleVideoChain,
   fetchSampleWorkflow,
   fetchWorkflow,
   listWorkflows,
@@ -924,7 +925,28 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
               }}
             >
-              Load mẫu
+              Mẫu: Ảnh→Video
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginTop: 6, width: "100%" }}
+              title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
+              onClick={async () => {
+                try {
+                  const s = await fetchSampleVideoChain();
+                  setWorkflowId(null);
+                  setName(s.name);
+                  setNodes(attachHandlers((s.nodes as Node[]) || []));
+                  setEdges((s.edges as Edge[]) || []);
+                  setRunResult(null);
+                  requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
+                } catch (e) {
+                  onError(e instanceof Error ? e.message : String(e));
+                }
+              }}
+            >
+              Mẫu: Nối video (frame cuối)
             </button>
           </div>
         </aside>
@@ -1040,15 +1062,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             )}
           </div>
           <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-            <strong>Cách dùng nhanh</strong>
+            <strong>Nối video tiếp (frame cuối)</strong>
             <br />
-            1) Prompt → nối sang Tạo ảnh
+            Ảnh → Video1 → <em>Tách frame</em> → chấm <code>end_image</code>
             <br />
-            2) Tạo ảnh (image) → Tạo video (start_image)
+            → Video2 chấm <code>start_image</code>
             <br />
-            3) Chạy → xem ảnh ngay trên node
+            + Prompt2 → Video2. Dùng nút <em>Mẫu: Nối video</em>.
             <br />
-            Upload ảnh ở node Reference · Backspace xóa node
+            <br />
+            1) Prompt → Tạo ảnh → Video (start_image)
+            <br />
+            2) Chạy → preview trên node · Backspace xóa node
           </p>
         </aside>
       </div>

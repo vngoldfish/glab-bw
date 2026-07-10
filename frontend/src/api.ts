@@ -821,6 +821,14 @@ export async function fetchSampleWorkflow(): Promise<WorkflowDoc> {
   return data.workflow;
 }
 
+/** Ảnh → Video1 → frame cuối → Video2 */
+export async function fetchSampleVideoChain(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/video-chain");
+  await ensureOk(res, "Không tải mẫu video chain");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
 export async function saveWorkflow(
   doc: WorkflowDoc,
   id?: string | null,

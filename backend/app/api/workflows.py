@@ -26,6 +26,12 @@ async def sample_workflow() -> dict:
     return {"workflow": store.default_sample()}
 
 
+@router.get("/sample/video-chain")
+async def sample_video_chain() -> dict:
+    """Ảnh → Video → frame cuối → Video tiếp."""
+    return {"workflow": store.sample_video_chain()}
+
+
 @router.get("/runs/{run_id}")
 async def get_workflow_run(run_id: str) -> dict:
     run = get_run(run_id)

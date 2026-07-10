@@ -170,3 +170,116 @@ def default_sample() -> dict[str, Any]:
         ],
         "viewport": {"x": 0, "y": 0, "zoom": 0.9},
     }
+
+
+def sample_video_chain() -> dict[str, Any]:
+    """Ảnh → Video1 → tách khung cuối → Video2 (nối tiếp từ frame cuối)."""
+    return {
+        "name": "Mẫu: Ảnh → Video → Frame cuối → Video 2",
+        "nodes": [
+            {
+                "id": "n_prompt1",
+                "type": "prompt",
+                "position": {"x": 40, "y": 40},
+                "data": {
+                    "title": "Prompt ảnh + Video 1",
+                    "prompt": "A person standing on a cliff at sunset, cinematic, wide shot",
+                },
+            },
+            {
+                "id": "n_prompt2",
+                "type": "prompt",
+                "position": {"x": 40, "y": 320},
+                "data": {
+                    "title": "Prompt Video 2 (tiếp)",
+                    "prompt": "Camera slowly pushes in, wind in hair, golden hour continues, smooth motion",
+                },
+            },
+            {
+                "id": "n_gen",
+                "type": "generate",
+                "position": {"x": 380, "y": 40},
+                "data": {
+                    "title": "1. Tạo ảnh",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "16:9",
+                },
+            },
+            {
+                "id": "n_vid1",
+                "type": "video_generate",
+                "position": {"x": 720, "y": 40},
+                "data": {
+                    "title": "2. Video đoạn 1",
+                    "model": "veo_31_fast",
+                    "aspect_ratio": "16:9",
+                    "mode": "start_image",
+                },
+            },
+            {
+                "id": "n_frame",
+                "type": "frame_extract",
+                "position": {"x": 1060, "y": 40},
+                "data": {
+                    "title": "3. Lấy khung cuối",
+                    "positions": "end",
+                },
+            },
+            {
+                "id": "n_vid2",
+                "type": "video_generate",
+                "position": {"x": 1060, "y": 300},
+                "data": {
+                    "title": "4. Video đoạn 2 (từ frame cuối)",
+                    "model": "veo_31_fast",
+                    "aspect_ratio": "16:9",
+                    "mode": "start_image",
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "e1",
+                "source": "n_prompt1",
+                "target": "n_gen",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+            {
+                "id": "e2",
+                "source": "n_prompt1",
+                "target": "n_vid1",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+            {
+                "id": "e3",
+                "source": "n_gen",
+                "target": "n_vid1",
+                "sourceHandle": "image",
+                "targetHandle": "start_image",
+            },
+            {
+                "id": "e4",
+                "source": "n_vid1",
+                "target": "n_frame",
+                "sourceHandle": "video",
+                "targetHandle": "video",
+            },
+            {
+                "id": "e5",
+                "source": "n_frame",
+                "target": "n_vid2",
+                "sourceHandle": "end_image",
+                "targetHandle": "start_image",
+            },
+            {
+                "id": "e6",
+                "source": "n_prompt2",
+                "target": "n_vid2",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 0.75},
+    }
