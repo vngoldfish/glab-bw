@@ -43,7 +43,7 @@ foreach ($p in 8765, 18923, 5173) { Stop-Port $p }
 Start-Sleep -Seconds 1
 
 Write-Host "[2/4] Backend :8765 + Auth :18923 ..."
-$backendCmd = "`$env:PYTHONPATH='$Backend'; Set-Location '$Backend'; Write-Host 'G-Labs BW BACKEND - giu cua so nay mo' -ForegroundColor Green; python -m uvicorn app.main:app --host 127.0.0.1 --port 8765"
+$backendCmd = "`$env:PYTHONPATH='$Backend'; Set-Location '$Backend'; Write-Host 'G-Labs BW BACKEND - giu cua so nay mo' -ForegroundColor Green; python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload"
 Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",

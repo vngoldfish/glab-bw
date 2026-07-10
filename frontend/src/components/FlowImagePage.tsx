@@ -275,6 +275,8 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           status: "failed",
           error: String(err),
         });
+      } finally {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     });
 

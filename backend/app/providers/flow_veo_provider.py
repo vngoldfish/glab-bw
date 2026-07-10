@@ -147,11 +147,22 @@ class FlowVeoProvider(BaseProvider):
         aspect_ratio = params.get("aspect_ratio", "1:1")
         named_refs = params.get("named_references", [])
         resolved_prompt, named_items = resolve_prompt_references(prompt, named_refs)
+        
+        reference_items = []
         if named_items:
-            reference_items = named_items
+            reference_items.extend(named_items)
             prompt = resolved_prompt
-        else:
-            reference_items = params.get("reference_images", [])
+            
+        edge_refs = params.get("reference_images", [])
+        if edge_refs:
+            seen_urls = set()
+            for item in reference_items:
+                url = item.get("data") or item.get("image") or item.get("url")
+                if url:
+                    seen_urls.add(str(url).strip())
+            for ref in edge_refs:
+                if str(ref).strip() not in seen_urls:
+                    reference_items.append(ref)
 
         image_inputs = await self._build_reference_inputs(session, reference_items)
         count = max(1, min(int(params.get("count", 1)), 4))
@@ -191,11 +202,21 @@ class FlowVeoProvider(BaseProvider):
             prefer_payload_order=frame_mode,
         )
 
+        reference_items = []
         if named_items:
-            reference_items = named_items
+            reference_items.extend(named_items)
             prompt = resolved_prompt
-        else:
-            reference_items = list(params.get("reference_images") or [])
+
+        edge_refs = params.get("reference_images", [])
+        if edge_refs:
+            seen_urls = set()
+            for item in reference_items:
+                url = item.get("data") or item.get("image") or item.get("url")
+                if url:
+                    seen_urls.add(str(url).strip())
+            for ref in edge_refs:
+                if str(ref).strip() not in seen_urls:
+                    reference_items.append(ref)
 
         # Auto-upgrade plain T2V only when user did not pick an explicit frame mode
         if mode == "text_to_video" and named_items:

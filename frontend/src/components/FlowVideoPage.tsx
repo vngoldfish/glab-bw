@@ -477,6 +477,8 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           status: "failed",
           error: String(err),
         });
+      } finally {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     });
 

@@ -213,6 +213,11 @@ async def _execute_node(
         }
         if ref_data:
             params["reference_images"] = ref_data
+        try:
+            from app.services import reference_storage
+            params["named_references"] = reference_storage.list_references().get("references", [])
+        except Exception as e:
+            logger.exception("Failed to inject named_references: %s", e)
         out = await handle_batch_item(prompt, "image", params)
         urls = out["urls"]
         outputs[nid]["image"] = urls
@@ -269,6 +274,11 @@ async def _execute_node(
                 params["mode"] = "start_end_image"
             elif mode == "text_to_video":
                 params["mode"] = "start_image"
+        try:
+            from app.services import reference_storage
+            params["named_references"] = reference_storage.list_references().get("references", [])
+        except Exception as e:
+            logger.exception("Failed to inject named_references: %s", e)
         out = await handle_batch_item(prompt, "video", params)
         urls = out["urls"]
         outputs[nid]["video"] = urls

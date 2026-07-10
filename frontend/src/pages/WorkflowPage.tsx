@@ -74,6 +74,7 @@ type WNodeData = {
   /** frame_extract meta for continue/reuse */
   frames?: Array<{ position: string; url: string; path?: string }>;
   folder?: string;
+  refName?: string;
   runStatus?: RunStatus;
   runError?: string;
   reused?: boolean;
@@ -576,6 +577,11 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
         onPreview={d.onPreview}
         label="Gắn ảnh có sẵn"
       />
+      {d.refName && (
+        <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 4, textAlign: "center" }}>
+          Sử dụng trong prompt: <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>
+        </div>
+      )}
       {preview.length > 0 && !d.image ? (
         <MediaPreview urls={preview} onPreview={d.onPreview} max={1} label="Preview" />
       ) : null}
@@ -1483,12 +1489,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     })();
   }, [picker, pickerTab, onError]);
 
-  function applyPickedImage(url: string) {
+  function applyPickedImage(url: string, refName?: string) {
     if (!picker) return;
     const { nodeId, field } = picker;
     const patch: Partial<WNodeData> = { [field]: url };
     if (field === "image") {
       patch.resultUrls = [url];
+      if (refName) {
+        patch.title = `@${refName}`;
+        patch.refName = refName;
+      }
+    } else if (refName) {
+      patch.refName = refName;
     }
     // video mode auto when attaching start
     if (field === "start_image" || field === "end_image") {
@@ -1586,14 +1598,22 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const onNodesChangeTracked: typeof onNodesChange = useCallback(
     (changes) => {
       onNodesChange(changes);
-      setDirty(true);
+      const hasRealEdit = changes.some(
+        (c) => c.type !== "select" && c.type !== "dimensions",
+      );
+      if (hasRealEdit) {
+        setDirty(true);
+      }
     },
     [onNodesChange],
   );
   const onEdgesChangeTracked: typeof onEdgesChange = useCallback(
     (changes) => {
       onEdgesChange(changes);
-      setDirty(true);
+      const hasRealEdit = changes.some((c) => c.type !== "select");
+      if (hasRealEdit) {
+        setDirty(true);
+      }
     },
     [onEdgesChange],
   );
@@ -1933,7 +1953,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     return out;
   }
 
-  async function pollUntilDone(runId: string): Promise<WorkflowRunResult> {
+  async function pollUntilDone(runId: string, runPid: string | null): Promise<WorkflowRunResult> {
     pollStop.current = false;
     let last: WorkflowRunResult | null = null;
     for (let i = 0; i < 3600; i++) {
@@ -1941,17 +1961,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       const snap = await fetchWorkflowRun(runId);
       last = snap;
       setRunResult(snap);
-      applyRunToNodes(snap, { keepMissing: true });
-      const done = snap.progress?.done ?? 0;
-      const total = snap.progress?.total ?? 0;
-      const cur = snap.progress?.current;
-      setProgressLabel(
-        total
-          ? `${done}/${total}${cur ? ` · ${cur}` : ""}${snap.status === "running" ? " …" : ""}`
-          : snap.status,
-      );
+      if (projectIdRef.current === runPid) {
+        applyRunToNodes(snap, { keepMissing: true });
+        const done = snap.progress?.done ?? 0;
+        const total = snap.progress?.total ?? 0;
+        const cur = snap.progress?.current;
+        setProgressLabel(
+          total
+            ? `${done}/${total}${cur ? ` · ${cur}` : ""}${snap.status === "running" ? " …" : ""}`
+            : snap.status,
+        );
+      }
       if (snap.status === "completed" || snap.status === "failed") {
-        applyRunToNodes(snap);
         return snap;
       }
       await sleep(900);
@@ -2045,37 +2066,78 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       });
       setRunResult(started);
       applyRunToNodes(started, { keepMissing: true });
-      const final = await pollUntilDone(started.run_id);
+      const final = await pollUntilDone(started.run_id, pid);
       setRunResult(final);
-      // Sync ref immediately from final snapshot (setNodes is async — do not save stale state)
-      const nodesWithResults = attachHandlers(
-        mergeRunResultIntoNodes(nodesRef.current, final),
-      );
-      nodesRef.current = nodesWithResults;
-      setNodes(nodesWithResults);
-      // auto-save project graph + previews so reload still shows results
-      try {
-        const saved = await saveProject(projectPayload(nodesWithResults), pid);
-        setProjectId(saved.id);
-        setDirty(false);
-        await refreshProjects();
-        await refreshProjectAssets(saved.id);
-      } catch (e) {
-        console.warn("autosave after run failed", e);
-        onError(
-          e instanceof Error
-            ? `Chạy xong nhưng lưu project lỗi: ${e.message}`
-            : "Chạy xong nhưng lưu project lỗi",
+      if (projectIdRef.current === pid) {
+        // Sync ref immediately from final snapshot using the freshest state (setNodes is async — do not save stale state)
+        setNodes((nds) => {
+          const nodesWithResults = attachHandlers(
+            mergeRunResultIntoNodes(nds, final),
+          );
+          nodesRef.current = nodesWithResults;
+
+          // auto-save project graph + previews in the background so reload still shows results
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const saved = await saveProject(projectPayload(nodesWithResults), pid);
+                if (projectIdRef.current === pid) {
+                  setProjectId(saved.id);
+                  setDirty(false);
+                  await refreshProjects();
+                  await refreshProjectAssets(saved.id);
+                }
+              } catch (e) {
+                console.warn("autosave after run failed", e);
+                onError(
+                  e instanceof Error
+                    ? `Chạy xong nhưng lưu project lỗi: ${e.message}`
+                    : "Chạy xong nhưng lưu project lỗi",
+                );
+              }
+            })();
+          }, 0);
+
+          return nodesWithResults;
+        });
+      } else {
+        // Background path: user switched projects during run.
+        // We should still save the completed results to the old project `pid` in the database,
+        // so it has the results next time they open it.
+        void (async () => {
+          try {
+            const doc = await fetchProject(pid!);
+            const rawNodes = ((doc.nodes as Node[]) || []).map((n) => ({
+              ...n,
+              data: { ...(n.data as object) },
+            }));
+            const mergedNodes = mergeRunResultIntoNodes(rawNodes, final);
+            const g = graphPayload(mergedNodes, (doc.edges as Edge[]) || []);
+            const payload = {
+              name: doc.name || "Project",
+              description: doc.description || "",
+              nodes: g.nodes,
+              edges: g.edges,
+              viewport: doc.viewport || g.viewport,
+              node_states: buildPriorResults(mergedNodes),
+            };
+            await saveProject(payload, pid);
+            await refreshProjects();
+          } catch (e) {
+            console.warn("background save of old project failed", e);
+          }
+        })();
+      }
+      if (projectIdRef.current === pid) {
+        if (final.status !== "completed") {
+          onError(final.error || "Workflow failed");
+        }
+        setProgressLabel(
+          final.status === "completed"
+            ? `Xong ${final.progress?.done ?? ""}/${final.progress?.total ?? ""}`
+            : `Lỗi · ${final.error || final.status}`,
         );
       }
-      if (final.status !== "completed") {
-        onError(final.error || "Workflow failed");
-      }
-      setProgressLabel(
-        final.status === "completed"
-          ? `Xong ${final.progress?.done ?? ""}/${final.progress?.total ?? ""}`
-          : `Lỗi · ${final.error || final.status}`,
-      );
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
       setProgressLabel("Lỗi");
@@ -2150,20 +2212,20 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   return (
     <div className="workflow-page">
-      <header className="page-header" style={{ flexShrink: 0 }}>
-        <div className="page-title-group">
-          <h1>Workflow</h1>
-          <span className="pill pill-purple">PROJECT</span>
+      <header className="wf-header-bar">
+        <div className="page-title-group" style={{ margin: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Workflow</h1>
+          <span className="pill pill-purple" style={{ fontSize: 9 }}>PROJECT</span>
           <Link
             to={NAV_ROUTES.docs}
-            className="btn btn-ghost btn-sm"
-            style={{ fontSize: 11, marginLeft: 4 }}
+            className="wf-btn wf-btn-secondary"
+            style={{ padding: "4px 8px" }}
             title="Hướng dẫn nối node, chạy pipeline"
           >
             Document
           </Link>
-          {dirty && <span className="pill" style={{ opacity: 0.85 }}>chưa lưu</span>}
-          {running && <span className="pill pill-green">Đang chạy…</span>}
+          {dirty && <span className="wf-status-badge dirty">chưa lưu</span>}
+          {running && <span className="wf-status-badge running">Đang chạy…</span>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input
@@ -2172,133 +2234,131 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               setName(e.target.value);
               setDirty(true);
             }}
+            className="wf-input"
             style={{ minWidth: 160 }}
             placeholder="Tên project"
           />
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void handleSaveProject(false)}
-            title="Lưu project (nodes + preview + trạng thái)"
-          >
-            💾 Lưu{saveHint ? ` · ${saveHint}` : ""}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void handleSaveProject(true)}
-            title="Lưu thành project mới"
-          >
-            Lưu như…
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleNewProject()}>
-            + Project
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={clearPreviews}
-            disabled={running}
-            title="Xóa preview trên node (không xóa file đã gen)"
-          >
-            Xóa preview
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => rf.current?.fitView({ padding: 0.2 })}
-          >
-            Fit view
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={nodes.length === 0}
-            title="Sắp xếp node trái → phải theo luồng nối (pipeline)"
-            onClick={() => handleLayout("pipeline")}
-          >
-            ⊡ Sắp xếp
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={nodes.length === 0}
-            title="Gom node theo loại (Prompt / Ảnh / Video…) thành cột"
-            onClick={() => handleLayout("grid")}
-          >
-            ▦ Theo loại
-          </button>
+          <div className="wf-btn-group">
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleSaveProject(false)}
+              title="Lưu project (nodes + preview + trạng thái)"
+            >
+              💾 Lưu{saveHint ? ` · ${saveHint}` : ""}
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleSaveProject(true)}
+              title="Lưu thành project mới"
+            >
+              Lưu như…
+            </button>
+            <button type="button" className="wf-btn" onClick={() => void handleNewProject()}>
+              + Project
+            </button>
+          </div>
+
+          <div className="wf-btn-group">
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={clearPreviews}
+              disabled={running}
+              title="Xóa preview trên node (không xóa file đã gen)"
+            >
+              Xóa preview
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => rf.current?.fitView({ padding: 0.2 })}
+            >
+              Fit view
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              disabled={nodes.length === 0}
+              title="Sắp xếp node trái → phải theo luồng nối (pipeline)"
+              onClick={() => handleLayout("pipeline")}
+            >
+              ⊡ Sắp xếp
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              disabled={nodes.length === 0}
+              title="Gom node theo loại (Prompt / Ảnh / Video…) thành cột"
+              onClick={() => handleLayout("grid")}
+            >
+              ▦ Theo loại
+            </button>
+          </div>
           {progressLabel ? (
-            <span className="muted" style={{ fontSize: 12, maxWidth: 200 }}>
+            <span className="muted" style={{ fontSize: 11, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {progressLabel}
             </span>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={running || nodes.length === 0}
-            onClick={() => void handleRun()}
-            title="Chạy lại toàn bộ từ đầu"
-          >
-            {running ? "Đang chạy…" : "▶ Chạy hết"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={running || nodes.length === 0}
-            onClick={() => void handleContinue()}
-            title="Giữ node đã OK — chỉ chạy node mới / chưa xong / lỗi"
-          >
-            ⏭ Tiếp tục
-          </button>
+          <div className="wf-btn-group" style={{ background: "transparent", border: "none", padding: 0 }}>
+            <button
+              type="button"
+              className="wf-btn wf-btn-primary"
+              disabled={running || nodes.length === 0}
+              onClick={() => void handleRun()}
+            >
+              {running ? "Đang chạy…" : "▶ Chạy hết"}
+            </button>
+            <button
+              type="button"
+              className="wf-btn wf-btn-secondary"
+              disabled={running || nodes.length === 0}
+              onClick={() => void handleContinue()}
+              title="Giữ node đã OK — chỉ chạy node mới / chưa xong / lỗi"
+            >
+              ⏭ Tiếp tục
+            </button>
+          </div>
         </div>
       </header>
 
       <div className="workflow-body">
-        <aside
-          style={{
-            width: 200,
-            flexShrink: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            overflow: "auto",
-            minHeight: 0,
-          }}
-        >
-          <div className="panel-card" style={{ padding: 12, margin: 0 }}>
-            <strong style={{ fontSize: 13 }}>Thêm node</strong>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+        <aside className="wf-sidebar-panel" style={{ height: "100%" }}>
+          <div className="wf-panel-card">
+            <h3>Thêm node</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {(
                 [
-                  ["prompt", "Prompt"],
-                  ["reference", "Ảnh có sẵn"],
-                  ["generate", "Tạo ảnh"],
-                  ["video_generate", "Tạo video"],
-                  ["frame_extract", "Tách frame"],
+                  ["prompt", "Prompt", "+"],
+                  ["reference", "Ảnh có sẵn", "🖼"],
+                  ["generate", "Tạo ảnh", "🎨"],
+                  ["video_generate", "Tạo video", "🎬"],
+                  ["frame_extract", "Tách frame", "🎞"],
                 ] as const
-              ).map(([t, label]) => (
-                <button key={t} type="button" className="btn btn-ghost btn-sm" onClick={() => addNode(t)}>
-                  + {label}
+              ).map(([t, label, icon]) => (
+                <button key={t} type="button" className="wf-node-add-btn" onClick={() => addNode(t)}>
+                  <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
                 </button>
               ))}
             </div>
           </div>
-          <div className="panel-card" style={{ padding: 12, margin: 0, flex: 1 }}>
-            <strong style={{ fontSize: 13 }}>Projects</strong>
+          <div className="wf-panel-card" style={{ flex: 1, minHeight: 0 }}>
+            <h3>Projects</h3>
             <input
               placeholder="Tìm project…"
               value={projectFilter}
               onChange={(e) => setProjectFilter(e.target.value)}
-              style={{ width: "100%", marginTop: 8, marginBottom: 6, fontSize: 11 }}
+              className="wf-input"
+              style={{ width: "100%", marginBottom: 8 }}
             />
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflow: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, overflowY: "auto", paddingRight: 4 }}>
               {projects.filter((p) =>
                 !projectFilter.trim()
                   ? true
                   : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
               ).length === 0 && (
-                <span className="muted" style={{ fontSize: 12 }}>
+                <span className="muted" style={{ fontSize: 11, textAlign: "center", display: "block", padding: 12 }}>
                   Chưa có project — bấm 💾 Lưu
                 </span>
               )}
@@ -2309,21 +2369,15 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
                 )
                 .map((p) => (
-                  <div key={p.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <div key={p.id} className={`wf-project-item ${projectId === p.id ? "active" : ""}`}>
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
-                      style={{
-                        flex: 1,
-                        textAlign: "left",
-                        fontSize: 11,
-                        borderColor: projectId === p.id ? "rgba(99,102,241,0.5)" : undefined,
-                      }}
+                      className="wf-project-info-btn"
                       onClick={() => void handleOpenProject(p.id)}
                       title={p.description || p.name}
                     >
-                      {p.name}
-                      <span className="muted" style={{ display: "block", fontSize: 10 }}>
+                      <span className="wf-project-title">{p.name}</span>
+                      <span className="wf-project-meta">
                         {p.node_count ?? 0} node
                         {p.updated_at
                           ? ` · ${new Date(p.updated_at * 1000).toLocaleDateString()}`
@@ -2332,8 +2386,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     </button>
                     <button
                       type="button"
-                      className="btn btn-ghost danger btn-sm"
-                      style={{ fontSize: 11, padding: "2px 6px" }}
+                      className="wf-project-del-btn"
                       onClick={async () => {
                         if (!confirm(`Xóa project “${p.name}”?`)) return;
                         await deleteProject(p.id);
@@ -2354,14 +2407,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             </div>
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ marginTop: 8, width: "100%" }}
+              className="wf-btn wf-btn-secondary"
+              style={{ marginTop: 10, width: "100%", justifyContent: "center" }}
               disabled={!projectId}
               onClick={() => void handleDuplicateProject()}
             >
               Nhân bản project
             </button>
-            <label className="muted" style={{ display: "block", marginTop: 10, fontSize: 11 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
               Mô tả
               <textarea
                 value={description}
@@ -2370,16 +2423,15 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   setDirty(true);
                 }}
                 rows={2}
-                placeholder="Ghi chú project…"
-                style={{ width: "100%", marginTop: 4, fontSize: 11 }}
+                placeholder="Ghi chú mô tả project…"
+                className="wf-textarea"
               />
             </label>
-            <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
-              <span className="muted" style={{ fontSize: 11 }}>Mẫu graph</span>
+            <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mẫu graph</span>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                style={{ marginTop: 6, width: "100%" }}
+                className="wf-preset-btn"
                 onClick={async () => {
                   if (dirty && !confirm("Thay graph hiện tại bằng mẫu?")) return;
                   const s = await fetchSampleWorkflow();
@@ -2395,8 +2447,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               </button>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                style={{ marginTop: 6, width: "100%" }}
+                className="wf-preset-btn"
                 title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
                 onClick={async () => {
                   try {
@@ -2584,7 +2635,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     key={ref.id}
                     type="button"
                     className="node-picker-item"
-                    onClick={() => applyPickedImage(ref.image)}
+                    onClick={() => applyPickedImage(ref.image, ref.name)}
                     title={ref.name}
                   >
                     <img src={ref.image} alt={ref.name} />
