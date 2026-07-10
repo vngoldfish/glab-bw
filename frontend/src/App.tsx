@@ -14,6 +14,7 @@ import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
 import ExtensionPage from "./pages/ExtensionPage";
+import ProjectsPage from "./pages/ProjectsPage";
 import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -248,6 +249,14 @@ export default function App() {
                 element={
                   <div className="page-panel" style={{ height: "100%" }}>
                     <WorkflowPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES.projects}
+                element={
+                  <div className="page-panel">
+                    <ProjectsPage onError={setError} />
                   </div>
                 }
               />

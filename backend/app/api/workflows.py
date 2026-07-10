@@ -26,6 +26,7 @@ class WorkflowRunRequest(BaseModel):
     skip_completed: bool = False
     only_node_ids: list[str] | None = None
     prior_results: dict[str, Any] | None = None
+    project_id: str | None = None
 
 
 @router.get("")
@@ -71,12 +72,14 @@ async def run_inline_workflow(body: WorkflowRunRequest) -> dict:
             prior_results=body.prior_results,
             skip_completed=body.skip_completed,
             only_node_ids=body.only_node_ids,
+            project_id=body.project_id,
         )
     return await run_workflow(
         doc,
         prior_results=body.prior_results,
         skip_completed=body.skip_completed,
         only_node_ids=body.only_node_ids,
+        project_id=body.project_id,
     )
 
 
@@ -125,10 +128,12 @@ async def run_saved_workflow(workflow_id: str, body: WorkflowRunRequest | None =
             prior_results=req.prior_results,
             skip_completed=req.skip_completed,
             only_node_ids=req.only_node_ids,
+            project_id=req.project_id,
         )
     return await run_workflow(
         graph,
         prior_results=req.prior_results,
         skip_completed=req.skip_completed,
         only_node_ids=req.only_node_ids,
+        project_id=req.project_id,
     )

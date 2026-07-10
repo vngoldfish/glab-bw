@@ -1,9 +1,19 @@
+import subprocess
+import sys
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.services import project_store as store
+from app.services.project_outputs import (
+    asset_stats,
+    clear_outputs,
+    delete_asset,
+    list_assets,
+    open_project_folder,
+    project_root,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -24,9 +34,13 @@ class ProjectMetaUpdate(BaseModel):
     tags: list[str] | None = None
 
 
+class DeleteAssetBody(BaseModel):
+    path: str
+
+
 @router.get("")
 async def list_projects() -> dict:
-    return {"projects": store.list_projects()}
+    return {"projects": store.list_projects(with_assets=True)}
 
 
 @router.get("/{project_id}")
@@ -34,12 +48,15 @@ async def get_project(project_id: str) -> dict:
     doc = store.get_project(project_id)
     if not doc:
         raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    stats = asset_stats(project_id)
+    doc = {**doc, "asset_stats": stats, "output_folder": f"G-Labs BW/projects/{project_id}"}
     return {"project": doc}
 
 
 @router.post("", status_code=201)
 async def create_project(body: ProjectSave) -> dict:
     doc = store.save_project(body.model_dump())
+    project_root(doc["id"])
     return {"project": doc}
 
 
@@ -70,9 +87,20 @@ async def patch_project_meta(project_id: str, body: ProjectMetaUpdate) -> dict:
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str) -> dict:
+async def delete_project(
+    project_id: str,
+    delete_files: bool = Query(default=False, description="Also delete project media folder"),
+) -> dict:
     store.delete_project(project_id)
-    return {"ok": True}
+    removed_media = False
+    if delete_files:
+        import shutil
+
+        root = open_project_folder(project_id)
+        if root.is_dir():
+            shutil.rmtree(root, ignore_errors=True)
+            removed_media = True
+    return {"ok": True, "media_deleted": removed_media}
 
 
 @router.post("/{project_id}/duplicate", status_code=201)
@@ -80,4 +108,60 @@ async def duplicate_project(project_id: str) -> dict:
     doc = store.duplicate_project(project_id)
     if not doc:
         raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    project_root(doc["id"])
     return {"project": doc}
+
+
+@router.get("/{project_id}/assets")
+async def project_assets(
+    project_id: str,
+    kind: str | None = Query(default=None, description="image|video|all"),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    assets = list_assets(project_id, kind=kind, limit=limit)
+    return {
+        "project_id": project_id,
+        "assets": assets,
+        "stats": asset_stats(project_id),
+        "output_folder": f"G-Labs BW/projects/{project_id}",
+    }
+
+
+@router.delete("/{project_id}/assets")
+async def project_delete_asset(project_id: str, body: DeleteAssetBody) -> dict:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    ok = delete_asset(project_id, body.path)
+    if not ok:
+        raise HTTPException(status_code=404, detail={"error": "Asset not found in project"})
+    return {"ok": True, "stats": asset_stats(project_id)}
+
+
+@router.post("/{project_id}/assets/clear")
+async def project_clear_assets(
+    project_id: str,
+    kind: str = Query(default="all", description="image|video|all"),
+) -> dict:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    result = clear_outputs(project_id, kind=kind)
+    return {"ok": True, **result, "stats": asset_stats(project_id)}
+
+
+@router.post("/{project_id}/open-folder")
+async def project_open_folder(project_id: str) -> dict:
+    if not store.get_project(project_id):
+        raise HTTPException(status_code=404, detail={"error": "Project not found"})
+    path = open_project_folder(project_id)
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)}) from exc
+    return {"ok": True, "path": str(path)}

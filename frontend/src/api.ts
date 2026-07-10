@@ -807,6 +807,7 @@ export interface WorkflowRunOptions {
   skip_completed?: boolean;
   only_node_ids?: string[];
   prior_results?: Record<string, unknown>;
+  project_id?: string | null;
 }
 
 export async function listWorkflows(): Promise<WorkflowMeta[]> {
@@ -877,6 +878,7 @@ export async function runWorkflowGraph(
       skip_completed: Boolean(opts.skip_completed),
       only_node_ids: opts.only_node_ids ?? null,
       prior_results: opts.prior_results ?? null,
+      project_id: opts.project_id ?? null,
     }),
   });
   await ensureOk(res, "Chạy workflow thất bại");
@@ -901,6 +903,8 @@ export interface ProjectMeta {
   edge_count?: number;
   thumbnail?: string | null;
   tags?: string[];
+  asset_stats?: ProjectAssetStats;
+  output_folder?: string;
 }
 
 export interface ProjectDoc {
@@ -962,6 +966,67 @@ export async function duplicateProject(id: string): Promise<ProjectDoc> {
   await ensureOk(res, "Không nhân bản project");
   const data = await readJson<{ project: ProjectDoc }>(res);
   return data.project;
+}
+
+export interface ProjectAsset {
+  path: string;
+  name: string;
+  kind: "image" | "video" | string;
+  url: string;
+  bytes?: number;
+  mb?: number;
+  mtime?: number;
+  folder?: string;
+}
+
+export interface ProjectAssetStats {
+  images: number;
+  videos: number;
+  total: number;
+  total_mb: number;
+  thumbnails?: string[];
+  latest?: ProjectAsset | null;
+}
+
+export async function fetchProjectAssets(
+  id: string,
+  kind?: "image" | "video" | "all",
+): Promise<{ assets: ProjectAsset[]; stats: ProjectAssetStats; output_folder: string }> {
+  const q = kind && kind !== "all" ? `?kind=${kind}` : "";
+  const res = await apiFetch(`/api/projects/${id}/assets${q}`);
+  await ensureOk(res, "Không tải media project");
+  return readJson(res);
+}
+
+export async function deleteProjectAsset(id: string, path: string): Promise<void> {
+  const res = await apiFetch(`/api/projects/${id}/assets`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  await ensureOk(res, "Không xóa file");
+}
+
+export async function clearProjectAssets(
+  id: string,
+  kind: "image" | "video" | "all" = "all",
+): Promise<{ removed: number; freed_mb: number }> {
+  const res = await apiFetch(`/api/projects/${id}/assets/clear?kind=${kind}`, {
+    method: "POST",
+  });
+  await ensureOk(res, "Không dọn media");
+  return readJson(res);
+}
+
+export async function openProjectFolder(id: string): Promise<void> {
+  const res = await apiFetch(`/api/projects/${id}/open-folder`, { method: "POST" });
+  await ensureOk(res, "Không mở thư mục project");
+}
+
+export async function deleteProjectFull(id: string, deleteFiles = false): Promise<void> {
+  const q = deleteFiles ? "?delete_files=true" : "";
+  const res = await apiFetch(`/api/projects/${id}${q}`, { method: "DELETE" });
+  await ensureOk(res, "Không xóa project");
 }
 
 export async function runSavedWorkflow(

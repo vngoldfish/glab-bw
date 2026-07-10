@@ -29,16 +29,20 @@ import {
   deleteProject,
   duplicateProject,
   fetchProject,
+  fetchProjectAssets,
   fetchSampleVideoChain,
   fetchSampleWorkflow,
   fetchWorkflowRun,
   listProjects,
   normalizeFileUrl,
+  openProjectFolder,
   runWorkflowGraph,
   saveProject,
+  type ProjectAsset,
   type ProjectMeta,
   type WorkflowRunResult,
 } from "../api";
+import { useSearchParams } from "react-router-dom";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
@@ -564,6 +568,7 @@ function sleep(ms: number) {
 }
 
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
+  const [searchParams] = useSearchParams();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [name, setName] = useState("Project mới");
@@ -577,9 +582,28 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
   const rf = useRef<ReactFlowInstance | null>(null);
   const nodesRef = useRef<Node[]>([]);
   const pollStop = useRef(false);
+  const projectIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
+
+  const refreshProjectAssets = useCallback(async (id: string | null) => {
+    if (!id) {
+      setProjectAssets([]);
+      return;
+    }
+    try {
+      const data = await fetchProjectAssets(id);
+      setProjectAssets(data.assets.slice(0, 24));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -639,17 +663,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     void (async () => {
       try {
         await refreshProjects();
-        // Prefer last project if any; else sample
+        const qid = searchParams.get("project");
         const list = await listProjects();
-        if (list.length > 0) {
-          const last = list[0];
-          const doc = await fetchProject(last.id);
+        const openId = qid && list.find((p) => p.id === qid) ? qid : list[0]?.id;
+        if (openId) {
+          const doc = await fetchProject(openId);
           setProjectId(doc.id);
           setName(doc.name || "Project");
           setDescription(doc.description || "");
           setNodes(attachHandlers((doc.nodes as Node[]) || []));
           setEdges((doc.edges as Edge[]) || []);
           setDirty(false);
+          await refreshProjectAssets(doc.id);
         } else {
           const sample = await fetchSampleWorkflow();
           setProjectId(null);
@@ -658,13 +683,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           setNodes(attachHandlers((sample.nodes as Node[]) || []));
           setEdges((sample.edges as Edge[]) || []);
           setDirty(true);
+          setProjectAssets([]);
         }
         requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [attachHandlers, onError, refreshProjects, setEdges, setNodes]);
+  }, [attachHandlers, onError, refreshProjectAssets, refreshProjects, searchParams, setEdges, setNodes]);
 
   // mark dirty when graph edits
   const onNodesChangeTracked: typeof onNodesChange = useCallback(
@@ -835,6 +861,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       setRunResult(null);
       setProgressLabel("");
       setDirty(false);
+      await refreshProjectAssets(doc.id);
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -1029,17 +1056,38 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         );
       }
 
+      // Ensure project exists so outputs go into project folder
+      let pid = projectIdRef.current;
+      if (!pid) {
+        const created = await saveProject(projectPayload(), null);
+        pid = created.id;
+        setProjectId(created.id);
+        projectIdRef.current = created.id;
+        await refreshProjects();
+      }
+
       const prior = buildPriorResults(nodesRef.current);
       const started = await runWorkflowGraph(graphPayload(), {
         async_mode: true,
         skip_completed: Boolean(opts.skipCompleted),
         only_node_ids: opts.onlyNodeIds,
         prior_results: Object.keys(prior).length ? prior : undefined,
+        project_id: pid,
       });
       setRunResult(started);
       applyRunToNodes(started, { keepMissing: true });
       const final = await pollUntilDone(started.run_id);
       setRunResult(final);
+      // auto-save project graph + previews after run
+      try {
+        const saved = await saveProject(projectPayload(), pid);
+        setProjectId(saved.id);
+        setDirty(false);
+        await refreshProjects();
+        await refreshProjectAssets(saved.id);
+      } catch {
+        /* ignore autosave errors */
+      }
       if (final.status !== "completed") {
         onError(final.error || "Workflow failed");
       }
@@ -1404,6 +1452,83 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         </div>
 
         <aside style={{ width: 260, flexShrink: 0, overflow: "auto" }}>
+          <div className="panel-card" style={{ padding: 12, margin: 0, marginBottom: 10 }}>
+            <strong style={{ fontSize: 13 }}>Media project</strong>
+            {!projectId ? (
+              <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+                Lưu project hoặc chạy workflow — output vào folder project.
+              </p>
+            ) : (
+              <>
+                <p className="muted" style={{ fontSize: 10, margin: "6px 0" }}>
+                  <code>projects/{projectId.slice(0, 8)}…</code>
+                </p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 10 }}
+                    onClick={() => void openProjectFolder(projectId).catch((e) => onError(String(e)))}
+                  >
+                    Mở folder
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 10 }}
+                    onClick={() => void refreshProjectAssets(projectId)}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 6,
+                    maxHeight: 200,
+                    overflow: "auto",
+                  }}
+                >
+                  {projectAssets.length === 0 && (
+                    <span className="muted" style={{ fontSize: 11, gridColumn: "1/-1" }}>
+                      Chưa có file — chạy workflow
+                    </span>
+                  )}
+                  {projectAssets.slice(0, 12).map((a) => (
+                    <button
+                      key={a.path}
+                      type="button"
+                      onClick={() => setLightbox(normalizeFileUrl(a.url))}
+                      style={{
+                        padding: 0,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 6,
+                        overflow: "hidden",
+                        background: "#000",
+                        cursor: "zoom-in",
+                      }}
+                      title={a.name}
+                    >
+                      {a.kind === "video" ? (
+                        <video
+                          src={normalizeFileUrl(a.url)}
+                          muted
+                          style={{ width: "100%", height: 64, objectFit: "cover", display: "block" }}
+                        />
+                      ) : (
+                        <img
+                          src={normalizeFileUrl(a.url)}
+                          alt=""
+                          style={{ width: "100%", height: 64, objectFit: "cover", display: "block" }}
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <div className="panel-card" style={{ padding: 12, margin: 0 }}>
             <strong style={{ fontSize: 13 }}>Kết quả / log</strong>
             {!runResult && (

@@ -5,6 +5,7 @@ export type NavPage =
   | "references"
   | "prompt-hub"
   | "workflow"
+  | "projects"
   | "grok"
   | "webhook"
   | "settings"

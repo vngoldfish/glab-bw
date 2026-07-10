@@ -133,8 +133,21 @@ async def _execute_node(
     data: dict[str, Any],
     inputs: dict[str, list[Any]],
     outputs: dict[str, dict[str, list[Any]]],
+    *,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one node; mutates outputs; returns node_results entry."""
+    # Project-scoped output folders
+    img_folder = data.get("output_folder")
+    vid_folder = data.get("output_folder")
+    if project_id:
+        from app.services.project_outputs import project_output_folder
+
+        img_folder = img_folder or project_output_folder(project_id, "images")
+        vid_folder = vid_folder or project_output_folder(project_id, "videos")
+    else:
+        img_folder = img_folder or "G-Labs BW/image_output"
+        vid_folder = vid_folder or "G-Labs BW/video_output"
     if ntype == "prompt":
         text = (data.get("prompt") or data.get("text") or "").strip()
         if not text and inputs.get("prompt"):
@@ -186,7 +199,7 @@ async def _execute_node(
             "aspect_ratio": data.get("aspect_ratio") or "1:1",
             "count": int(data.get("count") or 1),
             "save_mode": "task",
-            "output_folder": data.get("output_folder") or "G-Labs BW/image_output",
+            "output_folder": img_folder,
         }
         if ref_data:
             params["reference_images"] = ref_data
@@ -215,7 +228,7 @@ async def _execute_node(
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
             "mode": mode,
             "save_mode": "task",
-            "output_folder": data.get("output_folder") or "G-Labs BW/video_output",
+            "output_folder": vid_folder,
             "resolution": data.get("resolution") or ["720p"],
         }
         ref_list: list[str] = []
@@ -269,7 +282,12 @@ async def _execute_node(
         # default for continue-video pipelines: only end frame
         if not positions:
             positions = ["end"]
-        frames = extract_frames(vpath, positions=list(positions))
+        frame_out = None
+        if project_id:
+            from app.services.project_outputs import project_root
+
+            frame_out = project_root(project_id) / "frames"
+        frames = extract_frames(vpath, positions=list(positions), output_dir=frame_out)
         urls = [f["url"] for f in frames]
         by_pos = {str(f.get("position")): f["url"] for f in frames if f.get("url")}
         # Prefer dedicated handles
@@ -310,22 +328,26 @@ async def run_workflow(
     prior_results: dict[str, Any] | None = None,
     skip_completed: bool = False,
     only_node_ids: list[str] | None = None,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Execute graph. Updates run["node_results"] after each node (poll-friendly).
 
     skip_completed + prior_results: reuse completed nodes' outputs.
     only_node_ids: only re-run these nodes (others treated as skip_completed if prior exists).
+    project_id: save media under G-Labs BW/projects/{id}/...
     """
     rid = run_id or secrets.token_hex(5)
     nodes = list(workflow.get("nodes") or [])
     edges = list(workflow.get("edges") or [])
     prior = dict(prior_results or {})
     only_set = set(only_node_ids) if only_node_ids else None
+    pid = project_id or workflow.get("project_id")
 
     run: dict[str, Any] = _runs.get(rid) or {
         "run_id": rid,
         "workflow_id": workflow.get("id"),
+        "project_id": pid,
         "status": "running",
         "started_at": time.time(),
         "finished_at": None,
@@ -334,6 +356,7 @@ async def run_workflow(
         "error": None,
         "progress": {"done": 0, "total": 0, "current": None},
     }
+    run["project_id"] = pid
     run["status"] = "running"
     run["error"] = None
     run["finished_at"] = None
@@ -409,7 +432,9 @@ async def run_workflow(
             run["node_results"][nid] = {"status": "running", "type": ntype}
 
             try:
-                result = await _execute_node(nid, ntype, data, inputs, outputs)
+                result = await _execute_node(
+                    nid, ntype, data, inputs, outputs, project_id=str(pid) if pid else None
+                )
                 run["node_results"][nid] = result
                 run["progress"]["done"] = int(run["progress"]["done"]) + 1
                 log(f"OK {nid}")
@@ -446,18 +471,25 @@ def start_workflow_background(
     prior_results: dict[str, Any] | None = None,
     skip_completed: bool = False,
     only_node_ids: list[str] | None = None,
+    project_id: str | None = None,
 ) -> dict[str, Any]:
     """Create run record and schedule execution; returns immediately."""
     rid = secrets.token_hex(5)
     nodes = list(workflow.get("nodes") or [])
+    pid = project_id or workflow.get("project_id")
+    if pid:
+        from app.services.project_outputs import project_root
+
+        project_root(str(pid))
     run: dict[str, Any] = {
         "run_id": rid,
         "workflow_id": workflow.get("id"),
+        "project_id": pid,
         "status": "running",
         "started_at": time.time(),
         "finished_at": None,
         "node_results": dict(prior_results or {}),
-        "logs": [{"t": time.time(), "msg": "Queued"}],
+        "logs": [{"t": time.time(), "msg": f"Queued (project={pid or '-'})"}],
         "error": None,
         "progress": {"done": 0, "total": len(nodes), "current": None},
         "mode": {
@@ -474,6 +506,7 @@ def start_workflow_background(
             prior_results=prior_results,
             skip_completed=skip_completed,
             only_node_ids=only_node_ids,
+            project_id=str(pid) if pid else None,
         )
 
     try:
@@ -488,6 +521,7 @@ def start_workflow_background(
                 prior_results=prior_results,
                 skip_completed=skip_completed,
                 only_node_ids=only_node_ids,
+                project_id=str(pid) if pid else None,
             )
         )
     return run

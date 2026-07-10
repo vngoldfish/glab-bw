@@ -44,9 +44,24 @@ def _save_index(items: list[dict[str, Any]]) -> None:
     tmp.replace(path)
 
 
-def list_projects() -> list[dict[str, Any]]:
+def list_projects(*, with_assets: bool = True) -> list[dict[str, Any]]:
     items = _load_index()
     items.sort(key=lambda p: float(p.get("updated_at") or 0), reverse=True)
+    if with_assets:
+        from app.services.project_outputs import asset_stats
+
+        enriched: list[dict[str, Any]] = []
+        for p in items:
+            row = dict(p)
+            try:
+                stats = asset_stats(str(p["id"]))
+                row["asset_stats"] = stats
+                if not row.get("thumbnail") and stats.get("thumbnails"):
+                    row["thumbnail"] = stats["thumbnails"][0]
+            except Exception:
+                row["asset_stats"] = {"images": 0, "videos": 0, "total": 0, "total_mb": 0}
+            enriched.append(row)
+        return enriched
     return items
 
 
@@ -124,6 +139,16 @@ def save_project(
                 thumb = urls[0]
                 break
 
+        from app.services.project_outputs import asset_stats, project_root
+
+        project_root(pid)  # ensure folders exist
+        try:
+            stats = asset_stats(pid)
+            if not thumb and stats.get("thumbnails"):
+                thumb = stats["thumbnails"][0]
+        except Exception:
+            stats = {"images": 0, "videos": 0, "total": 0, "total_mb": 0}
+
         meta = {
             "id": pid,
             "name": doc["name"],
@@ -134,6 +159,8 @@ def save_project(
             "edge_count": len(edges),
             "thumbnail": thumb,
             "tags": doc.get("tags") or [],
+            "asset_stats": stats,
+            "output_folder": f"G-Labs BW/projects/{pid}",
         }
         idx = [i for i in _load_index() if i.get("id") != pid]
         idx.append(meta)
