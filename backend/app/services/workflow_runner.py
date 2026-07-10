@@ -250,27 +250,54 @@ async def _execute_node(
         if not videos:
             raise ValueError("Frame extract needs video input")
         vurl = str(videos[0])
+        # Accept full API URL, relative /api/files/, or data-relative path
         if "/api/files/" in vurl:
             rel = unquote(vurl.split("/api/files/", 1)[1].split("?", 1)[0])
             vpath = resolve_data_file(rel)
+        elif vurl.startswith("http://") or vurl.startswith("https://"):
+            # http://127.0.0.1:8765/api/files/...
+            if "/api/files/" in vurl:
+                rel = unquote(vurl.split("/api/files/", 1)[1].split("?", 1)[0])
+                vpath = resolve_data_file(rel)
+            else:
+                raise ValueError(f"Unsupported video URL: {vurl[:120]}")
         else:
-            vpath = resolve_data_file(vurl)
-        positions = data.get("positions") or ["start", "end", "middle"]
+            vpath = resolve_data_file(unquote(vurl.lstrip("/")))
+        positions = data.get("positions") or ["end"]
         if isinstance(positions, str):
             positions = [p.strip() for p in positions.split(",") if p.strip()]
+        # default for continue-video pipelines: only end frame
+        if not positions:
+            positions = ["end"]
         frames = extract_frames(vpath, positions=list(positions))
         urls = [f["url"] for f in frames]
-        outputs[nid]["image"] = urls
-        for f in frames:
-            if f["position"] in {"start", "first", "0"}:
-                outputs[nid]["start_image"] = [f["url"]]
-            if f["position"] in {"end", "last"}:
-                outputs[nid]["end_image"] = [f["url"]]
+        by_pos = {str(f.get("position")): f["url"] for f in frames if f.get("url")}
+        # Prefer dedicated handles
+        if "start" in by_pos:
+            outputs[nid]["start_image"] = [by_pos["start"]]
+        if "end" in by_pos:
+            outputs[nid]["end_image"] = [by_pos["end"]]
+        elif urls:
+            # only one frame extracted (often "end") → treat as end
+            if len(urls) == 1 and positions == ["end"]:
+                outputs[nid]["end_image"] = [urls[0]]
+            elif "middle" in by_pos and "end" not in by_pos:
+                pass
+        # image handle: if user wants "last frame for next video", put END first
+        # so accidental wire image→start_image still prefers end when only end exists
+        ordered: list[str] = []
+        for key in ("end", "start", "middle"):
+            if key in by_pos and by_pos[key] not in ordered:
+                ordered.append(by_pos[key])
+        for u in urls:
+            if u not in ordered:
+                ordered.append(u)
+        outputs[nid]["image"] = ordered or urls
         return {
             "status": "completed",
             "type": ntype,
             "frames": frames,
-            "results": urls,
+            "results": ordered or urls,
         }
 
     raise ValueError(f"Unknown node type: {ntype}")

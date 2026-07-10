@@ -222,6 +222,7 @@ def sample_video_chain() -> dict[str, Any]:
                 "position": {"x": 1060, "y": 40},
                 "data": {
                     "title": "3. Lấy khung cuối",
+                    # chỉ end — tránh nhầm frame đầu khi nối image
                     "positions": "end",
                 },
             },

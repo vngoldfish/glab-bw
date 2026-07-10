@@ -1,4 +1,4 @@
-"""Extract frames from video via ffmpeg (G-Labs frame_extract node)."""
+"""Extract frames from video via ffmpeg (accurate end frame)."""
 
 from __future__ import annotations
 
@@ -35,18 +35,155 @@ def video_duration_sec(video_path: Path) -> float | None:
                 probe,
                 "-v",
                 "error",
+                "-select_streams",
+                "v:0",
                 "-show_entries",
                 "format=duration",
-                "of",
-                "default=noprint_wrappers=1:nokey=1",
-                str(video_path),
+                "-of",
+                "csv=p=0",
+                str(video_path.resolve()),
             ],
             text=True,
             timeout=30,
         ).strip()
-        return float(out)
+        # csv may be "8.000000" or "8.000000,"
+        return float(out.split(",")[0])
     except Exception:
         return None
+
+
+def _run_ffmpeg(cmd: list[str], *, timeout: int = 120) -> None:
+    subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+
+
+def _extract_start(ffmpeg: str, video_path: Path, dest: Path) -> bool:
+    """First video frame."""
+    try:
+        _run_ffmpeg(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(video_path),
+                "-vf",
+                "select=eq(n\\,0)",
+                "-vsync",
+                "vfr",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                str(dest),
+            ]
+        )
+        return dest.is_file() and dest.stat().st_size > 0
+    except Exception as exc:
+        logger.warning("start frame failed: %s", exc)
+        return False
+
+
+def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
+    """True last frame — try several strategies."""
+    # 1) Seek from end (fast, usually correct)
+    for offset in ("-0.04", "-0.1", "-0.25", "-1"):
+        try:
+            if dest.exists():
+                dest.unlink()
+            _run_ffmpeg(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-sseof",
+                    offset,
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "2",
+                    str(dest),
+                ]
+            )
+            if dest.is_file() and dest.stat().st_size > 500:
+                return True
+        except Exception as exc:
+            logger.debug("sseof %s failed: %s", offset, exc)
+
+    # 2) Full decode, keep last written frame (slow but accurate)
+    try:
+        if dest.exists():
+            dest.unlink()
+        _run_ffmpeg(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(video_path),
+                "-update",
+                "1",
+                "-q:v",
+                "2",
+                str(dest),
+            ],
+            timeout=300,
+        )
+        if dest.is_file() and dest.stat().st_size > 500:
+            return True
+    except Exception as exc:
+        logger.warning("update last-frame failed: %s", exc)
+
+    # 3) duration-based accurate seek (ss after -i)
+    dur = video_duration_sec(video_path) or 0.0
+    if dur > 0.05:
+        ss = max(0.0, dur - 0.05)
+        try:
+            if dest.exists():
+                dest.unlink()
+            _run_ffmpeg(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(video_path),
+                    "-ss",
+                    str(ss),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "2",
+                    str(dest),
+                ]
+            )
+            if dest.is_file() and dest.stat().st_size > 500:
+                return True
+        except Exception as exc:
+            logger.warning("duration seek end failed: %s", exc)
+
+    return False
+
+
+def _extract_at_seconds(ffmpeg: str, video_path: Path, dest: Path, seconds: float) -> bool:
+    """Accurate mid-seek: -ss after -i."""
+    try:
+        _run_ffmpeg(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(video_path),
+                "-ss",
+                str(max(0.0, seconds)),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                str(dest),
+            ]
+        )
+        return dest.is_file() and dest.stat().st_size > 0
+    except Exception as exc:
+        logger.warning("seek %ss failed: %s", seconds, exc)
+        return False
 
 
 def extract_frames(
@@ -59,73 +196,76 @@ def extract_frames(
     positions: start | end | middle | or seconds like "1.5"
     Returns list of {position, path, url}
     """
+    video_path = video_path.resolve()
     if not video_path.is_file():
         raise FileNotFoundError(f"Video not found: {video_path}")
     ffmpeg = _ffmpeg()
     positions = positions or ["start", "end", "middle"]
-    out_root = output_dir or (settings.data_dir / "G-Labs BW" / "extracted_frames")
+    # normalize + dedupe order preserve
+    norm: list[str] = []
+    for p in positions:
+        lab = str(p).strip().lower()
+        if lab and lab not in norm:
+            norm.append(lab)
+    positions = norm or ["end"]
+
+    data_root = settings.data_dir.resolve()
+    out_root = (output_dir or (data_root / "G-Labs BW" / "extracted_frames")).resolve()
+    # keep outputs under data_dir when possible
+    try:
+        out_root.relative_to(data_root)
+    except ValueError:
+        out_root = data_root / "G-Labs BW" / "extracted_frames"
     job_dir = out_root / secrets.token_hex(4)
     job_dir.mkdir(parents=True, exist_ok=True)
 
     duration = video_duration_sec(video_path) or 0.0
     results: list[dict] = []
 
-    for pos in positions:
-        label = pos.strip().lower()
+    for label in positions:
         if label in {"start", "first", "0"}:
-            ss = "0"
             name = "start.png"
+            dest = job_dir / name
+            ok = _extract_start(ffmpeg, video_path, dest)
         elif label in {"end", "last"}:
-            # near end
-            if duration and duration > 0.2:
-                ss = str(max(0.0, duration - 0.15))
-            else:
-                ss = "0"
             name = "end.png"
+            dest = job_dir / name
+            ok = _extract_end(ffmpeg, video_path, dest)
         elif label in {"middle", "mid", "center"}:
-            ss = str(duration / 2 if duration > 0 else 0)
             name = "middle.png"
+            dest = job_dir / name
+            mid = duration / 2 if duration > 0 else 0.0
+            ok = _extract_at_seconds(ffmpeg, video_path, dest, mid)
         else:
-            # numeric seconds
             try:
-                ss = str(float(label))
-                name = f"t{ss.replace('.', '_')}s.png"
+                sec = float(label)
             except ValueError as exc:
-                raise ValueError(f"Invalid position: {pos}") from exc
+                raise ValueError(f"Invalid position: {label}") from exc
+            name = f"t{str(sec).replace('.', '_')}s.png"
+            dest = job_dir / name
+            ok = _extract_at_seconds(ffmpeg, video_path, dest, sec)
 
-        dest = job_dir / name
-        cmd = [
-            ffmpeg,
-            "-y",
-            "-ss",
-            ss,
-            "-i",
-            str(video_path),
-            "-frames:v",
-            "1",
-            "-q:v",
-            "2",
-            str(dest),
-        ]
-        try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-        except subprocess.CalledProcessError as exc:
-            err = (exc.stderr or b"").decode("utf-8", errors="replace")[:300]
-            logger.warning("ffmpeg frame extract failed pos=%s: %s", pos, err)
+        if not ok:
+            logger.warning("Could not extract position=%s from %s", label, video_path.name)
             continue
-        if dest.is_file() and dest.stat().st_size > 0:
-            results.append(
-                {
-                    "position": label,
-                    "path": dest.relative_to(settings.data_dir).as_posix(),
-                    "url": file_url_from_path(dest),
-                }
-            )
+
+        # Canonical position keys for workflow handles
+        pos_key = label
+        if label in {"first", "0"}:
+            pos_key = "start"
+        elif label in {"last"}:
+            pos_key = "end"
+        elif label in {"mid", "center"}:
+            pos_key = "middle"
+
+        dest = dest.resolve()
+        results.append(
+            {
+                "position": pos_key,
+                "path": dest.relative_to(data_root).as_posix(),
+                "url": file_url_from_path(dest),
+            }
+        )
 
     if not results:
         raise RuntimeError("Could not extract any frames from video")

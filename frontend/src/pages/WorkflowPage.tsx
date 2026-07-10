@@ -504,13 +504,21 @@ function FrameNode({ id, data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} id="start_image" style={{ top: "62%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="end_image" style={{ top: "82%", background: "#ec4899" }} />
       <label className="nodrag">
-        Positions
-        <input
-          value={d.positions || "start,middle,end"}
+        Lấy frame
+        <select
+          value={d.positions || "end"}
           onChange={(e) => d.onChange?.(id, { positions: e.target.value })}
           style={{ ...fieldStyle(), marginTop: 2 }}
-        />
+        >
+          <option value="end">Chỉ khung cuối (nối video tiếp)</option>
+          <option value="start">Chỉ khung đầu</option>
+          <option value="start,end">Đầu + cuối</option>
+          <option value="start,middle,end">Đầu + giữa + cuối</option>
+        </select>
       </label>
+      <small className="muted" style={{ display: "block", marginTop: 4, fontSize: 10 }}>
+        Nối <strong>end_image</strong> (chấm phải dưới) → Video kế <strong>start_image</strong>
+      </small>
       <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={3} />
     </Shell>
   );
