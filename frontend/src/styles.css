@@ -5973,3 +5973,21 @@ textarea:focus {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
 }
+
+/* Custom interactive viewport mask styling on MiniMap */
+.react-flow__minimap-mask {
+  fill: rgba(139, 92, 246, 0.08) !important;
+  stroke: rgba(139, 92, 246, 0.45) !important;
+  stroke-width: 1.5px !important;
+  transition: fill var(--transition), stroke var(--transition);
+}
+
+.react-flow__minimap-mask:hover {
+  fill: rgba(139, 92, 246, 0.15) !important;
+  stroke: rgba(139, 92, 246, 0.65) !important;
+  cursor: grab;
+}
+
+.react-flow__minimap-mask:active {
+  cursor: grabbing;
+}

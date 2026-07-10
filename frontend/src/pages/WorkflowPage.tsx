@@ -2503,6 +2503,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               <MiniMap
                 style={{ background: "#151820" }}
                 nodeColor={(n) => NODE_COLORS[n.type || ""] || "#555"}
+                pannable
+                zoomable
               />
               <Controls />
             </ReactFlow>
