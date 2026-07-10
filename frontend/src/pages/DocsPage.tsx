@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: "run", title: "Chạy, tiếp tục & phím tắt" },
   { id: "media", title: "Media project" },
   { id: "grok-flow-mechanisms", title: "Cơ chế Grok, Flow & Meta AI" },
+  { id: "character-library", title: "Thư viện nhân vật nhất quán" },
 ] as const;
 
 function Dot({ color, label }: { color: string; label: string }) {
@@ -597,6 +598,34 @@ Phải:
                   </li>
                 </ul>
               </div>
+            </div>
+          </section>
+
+          {/* —— Character Library —— */}
+          <section id="character-library" className="panel-card docs-section">
+            <h2>Thư viện nhân vật nhất quán (Character Library)</h2>
+            <p className="muted">
+              Hệ thống cho phép bạn lưu trữ các khuôn mặt, hình dáng nhân vật mẫu làm <strong>Ảnh tham chiếu (Reference image)</strong> cố định. Tính năng này được tối ưu hóa đặc biệt khi sử dụng các mô hình tạo video như <strong>Google Veo</strong> để giữ khuôn mặt nhân vật đồng nhất qua các lần sinh (Consistent Character).
+            </p>
+
+            <h3>Cách thiết lập và sử dụng:</h3>
+            <ul className="docs-bullets">
+              <li>
+                <strong>Tải ảnh lên:</strong> Vào mục <strong>Prompt Hub</strong> &gt; Chọn tab <strong>Nhân vật của tôi</strong> và nhấn nút <strong>+ Thêm ảnh nhân vật</strong> (hoặc kéo thả tệp ảnh chân dung chân thực của nhân vật vào).
+              </li>
+              <li>
+                <strong>Đặt tên nhân vật (Token):</strong> Đặt tên định danh viết liền không dấu cho nhân vật (ví dụ: <code>nam_chinh</code>). Tên này sẽ tự động được gán thành token dạng <code>@nam_chinh</code>.
+              </li>
+              <li>
+                <strong>Sử dụng trong prompt:</strong> Trong các khung soạn thảo prompt gen ảnh/video hoặc trong các Node Prompt, bạn chỉ cần gõ token của nhân vật (ví dụ: <code>@nam_chinh đang đi bộ dưới trời mưa</code>).
+              </li>
+              <li>
+                <strong>Cơ chế tự động tiêm tham chiếu:</strong> Khi gửi lệnh gen sang các mô hình được hỗ trợ (như Google Veo), Backend sẽ tự động phát hiện các token <code>@...</code> này trong prompt, đối chiếu với ID tệp tin ảnh trong thư viện nhân vật, và tự động đính kèm URL ảnh đó vào làm tham chiếu <code>cref</code> (Character Reference) gửi lên server Google.
+              </li>
+            </ul>
+
+            <div className="docs-callout">
+              <strong>Mẹo nhỏ:</strong> Tên nhân vật (token) bắt buộc phải khớp chính xác dạng viết liền không dấu, bắt đầu bằng chữ cái và chỉ chứa chữ, số, dấu gạch dưới <code>_</code>. Bạn có thể nhấn nhanh nút <strong>Copy</strong> ở chân thẻ nhân vật để sao chép token vào clipboard và dán vào prompt nhanh chóng.
             </div>
           </section>
         </div>
