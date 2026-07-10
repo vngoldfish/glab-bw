@@ -330,10 +330,23 @@ export async function testAiApi(payload?: {
   }
 }
 
+export interface WorkflowAiNodeContext {
+  id: string;
+  type: string;
+  title?: string;
+  prompt?: string;
+  model?: string;
+  mode?: string;
+  has_image?: boolean;
+  role: "upstream" | "current" | "downstream";
+}
+
 export async function rewritePromptAi(payload: {
   prompt: string;
   kind?: "video" | "image";
   locale?: string;
+  current_node_id?: string;
+  workflow_context?: WorkflowAiNodeContext[];
 }): Promise<{ prompt: string; original: string; changed?: boolean }> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 100_000);
@@ -345,6 +358,8 @@ export async function rewritePromptAi(payload: {
         prompt: payload.prompt,
         kind: payload.kind ?? "video",
         locale: payload.locale ?? "vi",
+        current_node_id: payload.current_node_id ?? null,
+        workflow_context: payload.workflow_context ?? null,
       }),
       signal: controller.signal,
     });

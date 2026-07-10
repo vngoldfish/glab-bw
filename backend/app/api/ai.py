@@ -34,10 +34,26 @@ class AiTestRequest(BaseModel):
     model: str | None = None
 
 
+class WorkflowNodeContext(BaseModel):
+    """One node in the workflow graph for context-aware prompt rewrite."""
+
+    id: str = ""
+    type: str = ""  # prompt | generate | video_generate | reference | frame_extract
+    title: str = ""
+    prompt: str = ""
+    model: str = ""
+    mode: str = ""
+    has_image: bool = False
+    role: str = "upstream"  # upstream | current | downstream
+
+
 class RewriteRequest(BaseModel):
     prompt: str = Field(min_length=1)
     kind: str = "video"  # video | image
     locale: str = "vi"
+    # Optional: graph context so AI can write prompt fitting the pipeline
+    current_node_id: str | None = None
+    workflow_context: list[WorkflowNodeContext] | None = None
 
 
 class RewriteBatchRequest(BaseModel):
@@ -82,8 +98,17 @@ async def test_ai_api(body: AiTestRequest | None = None) -> dict:
 
 @router.post("/rewrite-prompt")
 async def rewrite_one(body: RewriteRequest) -> dict:
+    ctx = None
+    if body.workflow_context:
+        ctx = [c.model_dump() for c in body.workflow_context]
     try:
-        improved = await rewrite_prompt(body.prompt, kind=body.kind, locale=body.locale)
+        improved = await rewrite_prompt(
+            body.prompt,
+            kind=body.kind,
+            locale=body.locale,
+            workflow_context=ctx,
+            current_node_id=body.current_node_id,
+        )
     except ProviderError as exc:
         raise _http_error(exc) from exc
     return {

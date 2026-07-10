@@ -43,6 +43,7 @@ import {
   saveProject,
   type ProjectAsset,
   type ProjectMeta,
+  type WorkflowAiNodeContext,
   type WorkflowRunResult,
 } from "../api";
 import { useSearchParams } from "react-router-dom";
@@ -80,6 +81,8 @@ type WNodeData = {
   onRerun?: (id: string) => void;
   onPickImage?: (id: string, field: ImageField) => void;
   onError?: (msg: string) => void;
+  /** Build graph context for AI (upstream + downstream nodes) */
+  getWorkflowContext?: (nodeId: string) => WorkflowAiNodeContext[];
   /** true if an edge feeds start_image / image into this video node */
   hasStartImageInput?: boolean;
   /** true if end_image edge connected (e.g. from frame extract) */
@@ -400,6 +403,7 @@ function ImageAttachBar({
 function PromptNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   const [aiBusy, setAiBusy] = useState(false);
+  // kind hint; server may override from pipeline (downstream image vs video)
   const kind = d.promptKind === "video" ? "video" : "image";
 
   async function handleAiRewrite() {
@@ -411,13 +415,28 @@ function PromptNode({ id, data, selected }: NodeProps) {
     if (aiBusy) return;
     setAiBusy(true);
     try {
-      const res = await rewritePromptAi({ prompt: source, kind, locale: "vi" });
+      const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      // Prefer pipeline-inferred kind: if only video downstream → video, etc.
+      let kindUse: "image" | "video" = kind;
+      const down = workflow_context.filter((c) => c.role === "downstream");
+      const hasVid = down.some((c) => c.type === "video_generate");
+      const hasImg = down.some((c) => c.type === "generate");
+      if (hasVid && !hasImg) kindUse = "video";
+      else if (hasImg && !hasVid) kindUse = "image";
+
+      const res = await rewritePromptAi({
+        prompt: source,
+        kind: kindUse,
+        locale: "vi",
+        current_node_id: id,
+        workflow_context,
+      });
       const next = (res.prompt || "").trim();
       if (!next) {
         d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
         return;
       }
-      d.onChange?.(id, { prompt: next });
+      d.onChange?.(id, { prompt: next, promptKind: kindUse });
       if (next === source) {
         d.onError?.("AI gần như không đổi prompt — thử model/style khác trong Cài đặt");
       }
@@ -439,15 +458,16 @@ function PromptNode({ id, data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} id="prompt" style={{ background: "#6366f1" }} />
       <div className="nodrag node-prompt-toolbar">
         <label className="node-prompt-kind">
-          Kiểu
+          Gợi ý AI
           <select
             value={kind}
             onChange={(e) =>
               d.onChange?.(id, { promptKind: e.target.value as "image" | "video" })
             }
+            title="Gợi ý style AI; nếu đã nối sang Ảnh/Video, AI sẽ ưu tiên theo pipeline"
           >
-            <option value="image">Ảnh</option>
-            <option value="video">Video</option>
+            <option value="image">Viết kiểu ảnh</option>
+            <option value="video">Viết kiểu video</option>
           </select>
         </label>
         <button
@@ -455,7 +475,7 @@ function PromptNode({ id, data, selected }: NodeProps) {
           className="node-ai-btn"
           disabled={aiBusy || !(d.prompt || "").trim()}
           onClick={() => void handleAiRewrite()}
-          title="AI viết lại prompt chuyên nghiệp (cần bật API AI trong Cài đặt)"
+          title="AI đọc prompt này + các node trước/sau trên graph để viết lại cho khớp pipeline"
         >
           {aiBusy ? "AI…" : "✦ AI"}
         </button>
@@ -465,15 +485,15 @@ function PromptNode({ id, data, selected }: NodeProps) {
         rows={4}
         value={d.prompt || ""}
         onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-        placeholder="Nhập prompt… rồi bấm ✦ AI để làm chuyên nghiệp"
+        placeholder="Nhập ý ngắn… AI sẽ đọc node trước/sau rồi viết prompt chuyên nghiệp"
         style={{ ...fieldStyle(), resize: "vertical" }}
         disabled={aiBusy}
       />
       {aiBusy ? (
-        <div className="node-ai-status">AI đang viết lại prompt…</div>
+        <div className="node-ai-status">AI đang phân tích pipeline + viết lại prompt…</div>
       ) : (
         <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.35 }}>
-          ✦ AI dùng cấu hình trong <strong>Cài đặt → API AI</strong>
+          ✦ AI xem prompt hiện tại + node phía trước/sau (ảnh, video, frame) để viết hợp lý
         </div>
       )}
     </Shell>
@@ -806,6 +826,92 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   const rerunRef = useRef<(id: string) => void>(() => undefined);
   const pickImageRef = useRef<(id: string, field: ImageField) => void>(() => undefined);
+  const edgesRef = useRef<Edge[]>([]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  /** Collect upstream + downstream nodes for context-aware AI rewrite */
+  const getWorkflowContext = useCallback((nodeId: string): WorkflowAiNodeContext[] => {
+    const nds = nodesRef.current;
+    const eds = edgesRef.current;
+    const byId = new Map(nds.map((n) => [n.id, n]));
+
+    const upstreamIds = new Set<string>();
+    const downstreamIds = new Set<string>();
+
+    // BFS backward (what feeds into this node / its consumers' ancestors)
+    const backQ = [nodeId];
+    const backSeen = new Set<string>([nodeId]);
+    while (backQ.length) {
+      const cur = backQ.pop()!;
+      for (const e of eds) {
+        if (e.target === cur && !backSeen.has(e.source)) {
+          backSeen.add(e.source);
+          upstreamIds.add(e.source);
+          backQ.push(e.source);
+        }
+      }
+    }
+    // BFS forward from this node
+    const fwdQ = [nodeId];
+    const fwdSeen = new Set<string>([nodeId]);
+    while (fwdQ.length) {
+      const cur = fwdQ.pop()!;
+      for (const e of eds) {
+        if (e.source === cur && !fwdSeen.has(e.target)) {
+          fwdSeen.add(e.target);
+          downstreamIds.add(e.target);
+          fwdQ.push(e.target);
+        }
+      }
+    }
+    // Also: nodes that share the same prompt output targets' other inputs (siblings via consumers)
+    for (const e of eds) {
+      if (e.source === nodeId) {
+        // consumers of this prompt
+        for (const e2 of eds) {
+          if (e2.target === e.target && e2.source !== nodeId) {
+            upstreamIds.add(e2.source); // other inputs into the same generate/video
+          }
+        }
+      }
+    }
+
+    const pack = (n: Node, role: WorkflowAiNodeContext["role"]): WorkflowAiNodeContext => {
+      const d = n.data as WNodeData;
+      return {
+        id: n.id,
+        type: String(n.type || ""),
+        title: d.title || "",
+        prompt: (d.prompt || "").slice(0, 500),
+        model: d.model || "",
+        mode: d.mode || "",
+        has_image: Boolean(
+          d.image ||
+            d.start_image ||
+            d.end_image ||
+            (d.resultUrls && d.resultUrls.length) ||
+            d.hasStartImageInput,
+        ),
+        role,
+      };
+    };
+
+    const out: WorkflowAiNodeContext[] = [];
+    const self = byId.get(nodeId);
+    if (self) out.push(pack(self, "current"));
+    for (const uid of upstreamIds) {
+      const n = byId.get(uid);
+      if (n) out.push(pack(n, "upstream"));
+    }
+    for (const did of downstreamIds) {
+      const n = byId.get(did);
+      if (n) out.push(pack(n, "downstream"));
+    }
+    return out;
+  }, []);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<WNodeData>) => {
@@ -820,6 +926,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   onChange: patchNode,
                   onPreview: openPreview,
                   onError,
+                  getWorkflowContext,
                   onRerun: (nid: string) => rerunRef.current(nid),
                   onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
                 },
@@ -829,7 +936,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       );
       setDirty(true);
     },
-    [onError, openPreview, setNodes],
+    [getWorkflowContext, onError, openPreview, setNodes],
   );
 
   const attachHandlers = useCallback(
@@ -841,11 +948,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           onChange: patchNode,
           onPreview: openPreview,
           onError,
+          getWorkflowContext,
           onRerun: (nid: string) => rerunRef.current(nid),
           onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
         },
       })),
-    [onError, openPreview, patchNode],
+    [getWorkflowContext, onError, openPreview, patchNode],
   );
 
   pickImageRef.current = (id: string, field: ImageField) => {

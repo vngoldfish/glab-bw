@@ -315,11 +315,57 @@ async def test_connection(
     }
 
 
+def _format_workflow_context(
+    workflow_context: list[dict[str, Any]] | None,
+    current_node_id: str | None,
+) -> str:
+    """Human-readable pipeline context for the LLM."""
+    if not workflow_context:
+        return ""
+    lines: list[str] = [
+        "WORKFLOW PIPELINE CONTEXT (use this so the rewritten prompt fits the graph):",
+        "Upstream = nodes that feed INTO this prompt's pipeline before/around it.",
+        "Downstream = nodes that CONSUME this prompt (what will be generated next).",
+        "",
+    ]
+    for n in workflow_context:
+        role = str(n.get("role") or "upstream")
+        ntype = str(n.get("type") or "?")
+        title = str(n.get("title") or n.get("id") or "")
+        nid = str(n.get("id") or "")
+        mark = "← CURRENT PROMPT NODE" if (current_node_id and nid == current_node_id) or role == "current" else ""
+        lines.append(f"- [{role}] type={ntype} title={title!r} {mark}".strip())
+        if n.get("prompt"):
+            lines.append(f"    existing_text: {str(n['prompt'])[:400]}")
+        if n.get("model"):
+            lines.append(f"    model: {n['model']}")
+        if n.get("mode"):
+            lines.append(f"    mode: {n['mode']}")
+        if n.get("has_image"):
+            lines.append("    has_image_attached_or_from_previous_node: yes")
+    lines.append("")
+    lines.append(
+        "Rules from pipeline:\n"
+        "- If downstream is IMAGE generate: write a strong still-image prompt "
+        "(composition, light, subject) — not camera motion.\n"
+        "- If downstream is VIDEO: emphasize motion, camera, temporal continuity.\n"
+        "- If upstream already has an IMAGE (generate/reference) and this prompt feeds VIDEO: "
+        "write a motion/action prompt that CONTINUES from that still (do not re-describe a brand-new subject).\n"
+        "- If upstream is frame_extract / last-frame continue: keep character/scene continuity "
+        "from previous clip; describe what happens NEXT.\n"
+        "- If multiple downstream targets, prioritize the closest generate/video node.\n"
+        "- Keep the user's core idea; do not invent a different story."
+    )
+    return "\n".join(lines)
+
+
 async def rewrite_prompt(
     prompt: str,
     *,
     kind: str = "video",
     locale: str = "vi",
+    workflow_context: list[dict[str, Any]] | None = None,
+    current_node_id: str | None = None,
 ) -> str:
     raw = get_credentials()
     if not raw.get("enabled"):
@@ -329,6 +375,18 @@ async def rewrite_prompt(
         )
 
     kind_key = "video" if kind == "video" else "image"
+    # Infer kind from pipeline if connected mostly to video
+    if workflow_context:
+        down = [n for n in workflow_context if n.get("role") == "downstream"]
+        if any(n.get("type") == "video_generate" for n in down) and not any(
+            n.get("type") == "generate" for n in down
+        ):
+            kind_key = "video"
+        elif any(n.get("type") == "generate" for n in down) and not any(
+            n.get("type") == "video_generate" for n in down
+        ):
+            kind_key = "image"
+
     if kind_key == "video" and not raw.get("video_enabled", True):
         raise ProviderError(
             "AI sửa prompt VIDEO đang tắt — bật trong Cài đặt → 2. Cấu hình Prompt",
@@ -350,7 +408,31 @@ async def rewrite_prompt(
         style=style,
         custom_instruction=custom,
     )
+    if workflow_context:
+        system += (
+            "\n\nYou also receive WORKFLOW PIPELINE CONTEXT. "
+            "Rewrite the prompt so it is consistent with upstream nodes "
+            "(previous images/videos/frames) and suitable for downstream generation nodes. "
+            "Prefer continuity over inventing a new scene when upstream media exists."
+        )
     temp = 0.25 if style == "light" else 0.35 if style == "pro" else 0.45
+
+    ctx_block = _format_workflow_context(workflow_context, current_node_id)
+    user_content = (
+        f"The user wrote a short/casual idea on a workflow Prompt node. "
+        f"Analyze the idea AND the pipeline context, then rewrite as a professional "
+        f"{'VIDEO' if kind_key == 'video' else 'IMAGE'} generation prompt "
+        "(clear for Google Flow / generation AI).\n"
+        "Keep the SAME meaning and subject. Expand only visual detail that fits. "
+        "Do NOT invent a new scene. "
+        "If the original has no @name tokens, do NOT add any @name tokens.\n\n"
+    )
+    if ctx_block:
+        user_content += ctx_block + "\n\n"
+    user_content += (
+        f"Original (simple) prompt on THIS node:\n{prompt.strip()}\n\n"
+        "Professional generation prompt (single prompt only, no explanation):"
+    )
 
     url = f"{base}/chat/completions"
     payload: dict[str, Any] = {
@@ -360,16 +442,7 @@ async def rewrite_prompt(
             {"role": "system", "content": system},
             {
                 "role": "user",
-                "content": (
-                    f"The user wrote a short/casual idea. Analyze it and rewrite as a professional "
-                    f"{'VIDEO' if kind_key == 'video' else 'IMAGE'} generation prompt "
-                    "(clear for Google Flow / generation AI).\n"
-                    "Keep the SAME meaning and subject. Expand only visual detail that fits. "
-                    "Do NOT invent a new scene. "
-                    "If the original has no @name tokens, do NOT add any @name tokens.\n\n"
-                    f"Original (simple) prompt:\n{prompt.strip()}\n\n"
-                    "Professional generation prompt:"
-                ),
+                "content": user_content,
             },
         ],
     }
