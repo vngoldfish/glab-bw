@@ -19,6 +19,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
+import VideoEditorPage from "./pages/VideoEditorPage";
 import WebhookPage from "./pages/WebhookPage";
 import WorkflowPage from "./pages/WorkflowPage";
 import { ReferenceLibraryProvider } from "./referenceLibraryContext";
@@ -258,6 +259,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <ProjectsPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES["video-editor"]}
+                element={
+                  <div className="page-panel">
+                    <VideoEditorPage onError={setError} />
                   </div>
                 }
               />

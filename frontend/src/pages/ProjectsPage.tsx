@@ -7,12 +7,14 @@ import {
   duplicateProject,
   fetchProjectAssets,
   listProjects,
+  mediaUrl,
   normalizeFileUrl,
   openProjectFolder,
   saveProject,
   type ProjectAsset,
   type ProjectMeta,
 } from "../api";
+import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 
 interface ProjectsPageProps {
@@ -24,6 +26,7 @@ function isVideo(a: ProjectAsset) {
 }
 
 export default function ProjectsPage({ onError }: ProjectsPageProps) {
+  const dialog = useUiDialog();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [q, setQ] = useState("");
@@ -262,8 +265,21 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                     type="button"
                     className="btn btn-ghost danger btn-sm"
                     onClick={async () => {
-                      if (!confirm(`Xóa project “${selected.name}”?`)) return;
-                      const delFiles = confirm("Xóa luôn ảnh/video trong folder project?");
+                      const ok = await dialog.confirm({
+                        title: "Xóa project?",
+                        message: `“${selected.name}” sẽ bị xóa khỏi danh sách workflow project.`,
+                        confirmLabel: "Tiếp tục",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
+                      const delFiles = await dialog.confirm({
+                        title: "Xóa luôn media?",
+                        message: "Xóa luôn ảnh/video trong folder project trên đĩa?",
+                        confirmLabel: "Xóa media",
+                        cancelLabel: "Giữ file",
+                        tone: "danger",
+                      });
                       try {
                         await deleteProjectFull(selected.id, delFiles);
                         setSelectedId(null);
@@ -327,7 +343,14 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                     type="button"
                     className="btn btn-ghost danger btn-sm"
                     onClick={async () => {
-                      if (!confirm("Xóa toàn bộ media trong project này?")) return;
+                      const ok = await dialog.confirm({
+                        title: "Xóa toàn bộ media?",
+                        message: "Mọi ảnh/video trong project này sẽ bị xóa khỏi folder.",
+                        confirmLabel: "Xóa hết",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       try {
                         await clearProjectAssets(selected.id, "all");
                         await loadAssets(selected.id, assetKind);
@@ -397,7 +420,14 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                             type="button"
                             className="btn btn-ghost danger btn-sm"
                             onClick={async () => {
-                              if (!confirm("Xóa file này?")) return;
+                              const ok = await dialog.confirm({
+                                title: "Xóa file?",
+                                message: "File media này sẽ bị xóa vĩnh viễn.",
+                                confirmLabel: "Xóa",
+                                cancelLabel: "Hủy",
+                                tone: "danger",
+                              });
+                              if (!ok) return;
                               try {
                                 await deleteProjectAsset(selected.id, a.path);
                                 await loadAssets(selected.id, assetKind);
@@ -422,17 +452,18 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
 
       {lightbox && (
         <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>
-          {/\.mp4($|\?)/i.test(lightbox) ? (
+          {/\.mp4($|\?)/i.test(lightbox) || /video/i.test(lightbox) ? (
             <video
-              src={lightbox}
+              src={mediaUrl(lightbox)}
               controls
               autoPlay
-              style={{ maxWidth: "92vw", maxHeight: "90vh", borderRadius: 14 }}
+              playsInline
+              style={{ maxWidth: "92vw", maxHeight: "90vh", borderRadius: 14, background: "#000" }}
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
             <img
-              src={lightbox}
+              src={mediaUrl(lightbox)}
               alt=""
               style={{
                 maxWidth: "92vw",

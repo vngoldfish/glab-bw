@@ -11,6 +11,7 @@ import {
   type NamedReference,
   type ReferenceCategory,
 } from "../types";
+import { useUiDialog } from "../components/UiDialog";
 
 interface ReferenceLibraryPageProps {
   onError: (msg: string) => void;
@@ -28,6 +29,7 @@ function categoryLabel(value: ReferenceCategory): string {
 }
 
 export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPageProps) {
+  const dialog = useUiDialog();
   const {
     library,
     folder,
@@ -377,8 +379,17 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
                         type="button"
                         className="btn btn-ghost btn-xs danger"
                         onClick={() => {
-                          if (!window.confirm(`Xóa ảnh @${item.name}?`)) return;
-                          removeReference(item.id).catch((err) => onError(String(err)));
+                          void (async () => {
+                            const ok = await dialog.confirm({
+                              title: "Xóa ảnh tham chiếu?",
+                              message: `Ảnh @${item.name} sẽ bị xóa khỏi thư viện.`,
+                              confirmLabel: "Xóa",
+                              cancelLabel: "Hủy",
+                              tone: "danger",
+                            });
+                            if (!ok) return;
+                            removeReference(item.id).catch((err) => onError(String(err)));
+                          })();
                         }}
                       >
                         Xóa

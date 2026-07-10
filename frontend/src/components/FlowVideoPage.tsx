@@ -28,7 +28,9 @@ import {
   slugifyRefName,
   validatePromptMentions,
 } from "../referenceUtils";
+import { useUiDialog } from "./UiDialog";
 import {
+  META_VIDEO_MODELS,
   GROK_VIDEO_MODELS,
   MEDIA_ENGINES,
   OMNI_FLASH_DURATIONS,
@@ -59,11 +61,11 @@ const DEFAULT_CONFIG: VideoConfig = {
 };
 
 function videoModelsForEngine(engine: MediaEngine) {
-  return engine === "grok" ? GROK_VIDEO_MODELS : VIDEO_MODELS;
+  return engine === "grok" ? GROK_VIDEO_MODELS : engine === "meta" ? META_VIDEO_MODELS : VIDEO_MODELS;
 }
 
 function defaultVideoModel(engine: MediaEngine): string {
-  return engine === "grok" ? GROK_VIDEO_MODELS[0].value : VIDEO_MODELS[0].value;
+  return engine === "grok" ? GROK_VIDEO_MODELS[0].value : engine === "meta" ? META_VIDEO_MODELS[0].value : VIDEO_MODELS[0].value;
 }
 
 function emptyRow(): QueueRow {
@@ -163,14 +165,22 @@ async function filesToLocalFrames(
   return out;
 }
 
-function confirmRerun(targetRows: QueueRow[]): boolean {
+async function confirmRerun(
+  dialog: { confirm: (opts: { title?: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "danger" | "default" }) => Promise<boolean> },
+  targetRows: QueueRow[],
+): Promise<boolean> {
   const completedCount = targetRows.filter((r) => r.status === "completed").length;
   if (completedCount === 0) return true;
   const message =
     completedCount === 1
       ? "Prompt này đã hoàn thành. Bạn có chắc muốn chạy lại?"
       : `${completedCount} prompt đã hoàn thành. Bạn có chắc muốn chạy lại?`;
-  return window.confirm(message);
+  return dialog.confirm({
+    title: "Chạy lại?",
+    message,
+    confirmLabel: "Chạy lại",
+    cancelLabel: "Hủy",
+  });
 }
 
 function statusLabel(status: RowStatus): string {
@@ -327,6 +337,7 @@ interface FlowVideoPageProps {
 }
 
 export default function FlowVideoPage({ activeCount, onError }: FlowVideoPageProps) {
+  const dialog = useUiDialog();
   const navigate = useNavigate();
   const { library: referenceLibrary } = useReferenceLibrary();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
@@ -437,26 +448,30 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           namedRefs = buildNamedReferencesPayload(prompt, referenceLibrary);
         }
         const isGrok = config.engine === "grok";
-        // Grok: map Flow modes → t2v / i2v (Auth Helper / API)
-        const grokMode =
+        const isMeta = config.engine === "meta";
+        // Grok/Meta: map Flow modes → t2v / i2v
+        const extraMode =
           resolved.mode === "text_to_video" || namedRefs.length === 0 ? "t2v" : "i2v";
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          mode: isGrok ? grokMode : resolved.mode,
+          mode: (isGrok || isMeta) ? extraMode : resolved.mode,
           save_mode: config.saveMode,
           output_folder: isGrok
             ? config.outputFolder.replace("video_output", "grok_output") ||
               "G-Labs BW/grok_output"
+            : isMeta
+            ? config.outputFolder.replace("video_output", "meta_output") ||
+              "G-Labs BW/meta_output"
             : config.outputFolder,
-          ...((config.model === "omni_flash" || isGrok)
+          ...((config.model === "omni_flash" || isGrok || isMeta)
             ? { duration: config.duration || 8, video_length: config.duration || 8 }
             : {}),
           ...(config.resolution.length > 0 ? { resolution: config.resolution } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
         };
         const result = await submitBatch(
-          [{ prompt, provider: isGrok ? "grok" : "video", params }],
+          [{ prompt, provider: isGrok ? "grok" : isMeta ? "meta" : "video", params }],
           1,
         );
         const item = result.results[0];
@@ -486,14 +501,14 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     setRunning(false);
   }
 
-  function runSelected() {
+  async function runSelected() {
     const selected = rows.filter((r) => r.selected && r.prompt.trim());
     if (selected.length === 0) {
       onError("Chọn ít nhất một dòng có prompt");
       return;
     }
-    if (!confirmRerun(selected)) return;
-    runRows(selected);
+    if (!(await confirmRerun(dialog, selected))) return;
+    void runRows(selected);
   }
 
   function importCsvFile(file: File) {
@@ -587,13 +602,13 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     }
   }
 
-  function runSingle(row: QueueRow) {
+  async function runSingle(row: QueueRow) {
     if (!row.prompt.trim()) {
       onError("Dòng này chưa có prompt");
       return;
     }
-    if (!confirmRerun([row])) return;
-    runRows([row]);
+    if (!(await confirmRerun(dialog, [row]))) return;
+    void runRows([row]);
   }
 
   const displayRows = useMemo(() => {
@@ -836,10 +851,15 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     setRows((prev) => prev.map((row) => ({ ...row, selected: false })));
   }
 
-  function clearQueueTable() {
-    if (!window.confirm("Xóa toàn bộ bảng prompt? Hành động này không thể hoàn tác.")) {
-      return;
-    }
+  async function clearQueueTable() {
+    const ok = await dialog.confirm({
+      title: "Xóa toàn bộ bảng?",
+      message: "Toàn bộ prompt trong bảng sẽ bị xóa. Hành động này không thể hoàn tác.",
+      confirmLabel: "Xóa hết",
+      cancelLabel: "Hủy",
+      tone: "danger",
+    });
+    if (!ok) return;
     setRows([]);
     clearFlowVideoSnapshot();
     saveFlowVideoSnapshot({
@@ -875,9 +895,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     <div className="flow-page flow-video-page">
       <header className="flow-page-top">
         <div className="flow-page-top-main">
-          <h1>{config.engine === "grok" ? "Grok Video" : "Flow Video"}</h1>
+          <h1>{config.engine === "grok" ? "Grok Video" : config.engine === "meta" ? "Meta Video" : "Flow Video"}</h1>
           <span className="pill pill-purple">
-            {config.engine === "grok" ? "Grok · Auth Helper" : "Google Flow"}
+            {config.engine === "grok" ? "Grok · Auth Helper" : config.engine === "meta" ? "Meta AI · Vibes" : "Google Flow"}
           </span>
           <span className="pill pill-purple">Batch</span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
@@ -918,10 +938,12 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     ...c,
                     engine,
                     model: defaultVideoModel(engine),
-                    mode: engine === "grok" ? "text_to_video" : c.mode,
+                    mode: (engine === "grok" || engine === "meta") ? "text_to_video" : c.mode,
                     outputFolder:
                       engine === "grok"
                         ? "G-Labs BW/grok_output"
+                        : engine === "meta"
+                        ? "G-Labs BW/meta_output"
                         : "G-Labs BW/video_output",
                   }));
                 }}

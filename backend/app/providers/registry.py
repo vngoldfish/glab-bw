@@ -102,7 +102,11 @@ def account_to_dict(account: Account) -> dict:
                 "tab browser grok.com (Auth Helper)"
                 if account.provider == "grok"
                 and not creds.get("api_key")
-                else "credentials trong app"
+                else (
+                    "cookie meta_session từ vibes.ai"
+                    if account.provider == "meta"
+                    else "credentials trong app"
+                )
             )
         ),
     }

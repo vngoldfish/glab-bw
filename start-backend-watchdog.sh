@@ -49,7 +49,7 @@ while true; do
     sleep 1
     (
       cd "$ROOT"
-      "$VENV_PY" -m uvicorn app.main:app --host 127.0.0.1 --port 8765 \
+      "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8765 \
         >>"$LOG_DIR/backend.console.log" 2>&1
     ) &
     proc=$!

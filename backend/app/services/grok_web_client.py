@@ -505,6 +505,27 @@ class GrokWebClient:
                 error_code=0,
             )
 
+    @staticmethod
+    def _get_grok_mint() -> dict[str, Any]:
+        """Return the Turbopack / Webpack statsig mint recipe.
+        
+        Matches G-Labs Automation.app's baked-in default.
+        """
+        try:
+            from app.services.ai_settings_store import get_credentials
+            cfg = get_credentials()
+            override = cfg.get("grok_statsig_mint")
+            if isinstance(override, dict) and override:
+                return override
+        except Exception:
+            pass
+        return {
+            "globalName": "TURBOPACK",
+            "moduleId": 13530089,
+            "path": ["chatApi", "configuration", "middleware", 0, "pre"],
+            "probeId": 990099001
+        }
+
     async def _extension_gfetch(
         self,
         payload: dict[str, Any],
@@ -541,6 +562,7 @@ class GrokWebClient:
             page_headers["x-statsig-id"] = sid
         do_inject = bool(inject_statsig)
         target = url or NEW_CHAT_URL
+        mint_cfg = self._get_grok_mint()
         task_id = auth_bridge.queue_grok_task(
             method=method,
             url=target,
@@ -550,14 +572,16 @@ class GrokWebClient:
             response_mode=response_mode,
             timeout_ms=timeout_ms,
             inject_statsig=do_inject,
+            payload_extra={"mint": mint_cfg}
         )
         logger.info(
-            "Grok gfetch queued id=%s url=%s mode=%s inject=%s hasStatsigHeader=%s",
+            "Grok gfetch queued id=%s url=%s mode=%s inject=%s hasStatsigHeader=%s hasMint=%s",
             task_id,
             target.replace(GROK_ORIGIN, "")[:60],
             response_mode,
             do_inject,
             bool(sid),
+            bool(mint_cfg),
         )
         return await self._wait_task(task_id, timeout=max(30.0, timeout_ms / 1000.0 + 20.0))
 

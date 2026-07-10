@@ -22,7 +22,24 @@ import {
   type TestRunResult,
   type TestSuite,
 } from "../api";
-import { parseFlowCookieInput } from "../cookie";
+import { useUiDialog } from "../components/UiDialog";
+import { parseFlowCookieInput, parseMetaCookieInput } from "../cookie";
+import {
+  Users,
+  Sparkles,
+  Cpu,
+  UserPlus,
+  Globe,
+  Download,
+  Upload,
+  Trash2,
+  Play,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Key,
+  Database
+} from "lucide-react";
 
 const AI_PROVIDERS = [
   { value: "openai", label: "OpenAI", base: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -41,11 +58,6 @@ const AI_PROVIDERS = [
   },
 ] as const;
 
-/**
- * Hướng dẫn mẫu: user gõ prompt CHUNG CHUNG → AI phân tích → viết lại
- * thành prompt CHUYÊN NGHIỆP dễ cho model tạo ảnh/video.
- * Bấm chip → đổ vào "Hướng dẫn thêm".
- */
 const IMAGE_PROMPT_TEMPLATES: { id: string; label: string; text: string }[] = [
   {
     id: "img-default-pro",
@@ -163,6 +175,10 @@ function formatCooldown(sec?: number): string {
 }
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
+  const dialog = useUiDialog();
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "system">("accounts");
+  const [showGuide, setShowGuide] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [newProvider, setNewProvider] = useState<Provider>("flow");
   const [newLabel, setNewLabel] = useState("");
@@ -176,7 +192,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
   const [aiModel, setAiModel] = useState("gpt-4o-mini");
   const [aiApiKey, setAiApiKey] = useState("");
-  /** User bấm "Đổi key" — chỉ khi true mới gửi api_key lên server */
   const [aiReplaceKey, setAiReplaceKey] = useState(false);
   const [aiImageEnabled, setAiImageEnabled] = useState(true);
   const [aiVideoEnabled, setAiVideoEnabled] = useState(true);
@@ -215,7 +230,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     setAiVideoStyle(data.video_style || "pro");
     setAiImageCustom(data.image_custom_instruction || "");
     setAiVideoCustom(data.video_custom_instruction || "");
-    // Không xóa key đã lưu trên server; form key luôn rỗng trừ khi user đổi
     setAiApiKey("");
     setAiReplaceKey(false);
   }, []);
@@ -245,14 +259,11 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }
 
-  /** Chỉ lưu kết nối API AI — key trống = giữ key đã lưu trên server. */
   async function handleSaveAiApi() {
     setAiSaving(true);
     setAiMsg("");
     onError("");
     try {
-      // Lần đầu (chưa có key) HOẶC đang "Đổi key": gửi key đang gõ.
-      // Đã có key + không đổi: không gửi field api_key → server giữ key cũ.
       const typedKey = aiApiKey.trim();
       const sendKey = !hasSavedKey || aiReplaceKey;
       const newKey = sendKey ? typedKey : "";
@@ -262,7 +273,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         return;
       }
       if (aiReplaceKey && !newKey && hasSavedKey) {
-        // User bấm Đổi key rồi Lưu trống → giữ key cũ (không xóa)
         setAiMsg("Key trống — giữ key đã lưu, không thay");
       }
       const data = await saveAiApiSettings({
@@ -291,7 +301,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }
 
-  /** Gọi thử API — ưu tiên key form (lần đầu / đang đổi); không thì key đã lưu. */
   async function handleTestAiApi() {
     setAiTesting(true);
     setAiTestMsg("");
@@ -324,7 +333,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }
 
-  /** Chỉ lưu cách viết lại prompt — không đụng API key / model. */
   async function handleSavePrompt() {
     setPromptSaving(true);
     setPromptMsg("");
@@ -379,6 +387,10 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       onError("Dán cookie grok.com (sso + sso-rw) — giống Flow. Hoặc API key xAI.");
       return;
     }
+    if (newProvider === "meta" && !newCookie.trim()) {
+      onError("Dán cookie vibes.ai (phải chứa meta_session=...).");
+      return;
+    }
     setLoading(true);
     onError("");
     try {
@@ -388,7 +400,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         credentials = { api_key: newApiKey.trim() };
         if (!label) label = "OpenAI";
       } else if (newProvider === "grok") {
-        // Cookie web (ưu tiên) + optional API key
         if (newCookie.trim()) {
           credentials = { cookie: newCookie.trim() };
           if (newApiKey.trim()) credentials.api_key = newApiKey.trim();
@@ -401,6 +412,10 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         const parsed = parseFlowCookieInput(newSessionToken);
         credentials = { session_token: parsed.session_token };
         if (!label && parsed.email) label = parsed.email;
+      } else if (newProvider === "meta") {
+        const parsedCookie = parseMetaCookieInput(newCookie);
+        credentials = { cookie: parsedCookie };
+        if (!label) label = "Meta AI";
       } else {
         credentials = { cookie: newCookie.trim() };
       }
@@ -467,792 +482,840 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       <header className="page-header">
         <div className="page-title-group">
           <h1>Cài Đặt</h1>
-          <span className="pill pill-purple">TÀI KHOẢN</span>
+          <span className="pill pill-purple">CẤU HÌNH</span>
           <span className="pill pill-green">
-            Flow sẵn sàng: {flowReady.length}/{flowAccounts.length}
+            Flow hoạt động: {flowReady.length}/{flowAccounts.length}
           </span>
         </div>
       </header>
 
-      <section className="panel-card">
-        <h2>Xoay vòng tài khoản Flow (ảnh + video)</h2>
-        <p className="muted" style={{ marginTop: 0, lineHeight: 1.5 }}>
-          Thêm <strong>nhiều account Flow</strong> (mỗi account = cookie / session-token riêng).
-          App <strong>round-robin</strong> giữa các account đang bật. Khi một account{" "}
-          <strong>hết quota</strong>, app tự cooldown ~1 giờ và chuyển sang account khác.
-        </p>
-        <div
-          className="muted"
-          style={{
-            marginTop: 10,
-            padding: "10px 12px",
-            borderRadius: 8,
-            background: "rgba(251, 191, 36, 0.12)",
-            border: "1px solid rgba(251, 191, 36, 0.35)",
-            lineHeight: 1.55,
-          }}
+      {/* Tabs Menu */}
+      <div className="settings-tabs">
+        <button
+          type="button"
+          className={`settings-tab ${activeTab === "accounts" ? "active" : ""}`}
+          onClick={() => setActiveTab("accounts")}
         >
-          <strong>Vì sao chỉ 1 Gmail chạy, account add thêm bị lỗi?</strong>
-          <br />
-          App gen bằng <strong>cookie đã lưu</strong>, còn captcha lấy từ{" "}
-          <strong>tab labs.google đang mở</strong>. Hai cái phải <strong>cùng một Gmail</strong>.
-          <br />
-          Ví dụ: tab Flow đang login <code>nktnclean@…</code> mà cookie account B khác → gen account B sẽ fail.
-          <br />
-          Cách đúng mỗi account:
-          <ol style={{ margin: "6px 0 0", paddingLeft: 20 }}>
-            <li>
-              Chrome <strong>profile riêng</strong> (hoặc ẩn danh) → login <em>đúng</em> Gmail đó trên{" "}
-              <code>labs.google/fx/tools/flow</code>
-            </li>
-            <li>
-              Copy cookie <code>__Secure-next-auth.session-token</code> <em>lúc đã login account đó</em>
-            </li>
-            <li>Dán vào form → Thêm tài khoản (label = email)</li>
-            <li>
-              Khi gen bằng account đó: mở tab Flow <strong>cùng Gmail</strong> (Auth Helper xanh)
-            </li>
-          </ol>
-          Không chỉ “đổi email trên tab” mà vẫn để cookie cũ của nktnclean trong app.
-        </div>
-        <ol className="muted" style={{ margin: "12px 0 0", paddingLeft: 20, lineHeight: 1.55 }}>
-          <li>Profile Chrome A → login account A → copy cookie → Thêm TK A</li>
-          <li>Profile Chrome B → login account B → copy cookie → Thêm TK B (không xóa A)</li>
-          <li>Gen: tab Flow phải login cùng account mà app đang pick (hoặc tắt account không dùng)</li>
-          <li>Hết quota: cooldown ~1h; account khác còn bật sẽ được thử</li>
-        </ol>
-      </section>
-
-      <section className="panel-card">
-        <h2>Login browser (giống G-Labs)</h2>
-        <p className="muted" style={{ marginTop: 0, lineHeight: 1.5 }}>
-          Mở Chrome do app điều khiển → bạn đăng nhập Google Flow → app tự lấy{" "}
-          <code>session-token</code> và thêm account. Cần cài Playwright + Chromium trên máy backend.
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            placeholder="Label (tuỳ chọn, vd email)"
-            value={loginLabel}
-            onChange={(e) => setLoginLabel(e.target.value)}
-            style={{ minWidth: 200 }}
-          />
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={loginBusy}
-            onClick={async () => {
-              try {
-                setLoginBusy(true);
-                const job = await startLoginBrowser(loginLabel.trim());
-                setLoginJob(job);
-                const id = job.job_id;
-                for (let i = 0; i < 200; i++) {
-                  await new Promise((r) => setTimeout(r, 2000));
-                  const st = await fetchLoginBrowserStatus(id);
-                  setLoginJob(st);
-                  if (["completed", "failed", "cancelled"].includes(st.status)) {
-                    if (st.status === "completed") {
-                      await onRefresh();
-                    } else if (st.error) {
-                      onError(st.error);
-                    }
-                    break;
-                  }
-                }
-              } catch (e) {
-                onError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setLoginBusy(false);
-              }
-            }}
-          >
-            {loginBusy ? "Đang login…" : "Mở Chrome login Flow"}
-          </button>
-        </div>
-        {loginJob && (
-          <p className="muted" style={{ marginTop: 10 }}>
-            Job <code>{loginJob.job_id}</code> · {loginJob.status} — {loginJob.message}
-            {loginJob.account_id ? ` · account ${loginJob.account_id}` : ""}
-          </p>
-        )}
-      </section>
-
-      <section className="panel-card">
-        <h2>Thêm tài khoản</h2>
-        <div className="form-grid">
-          <label>
-            Provider
-            <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as Provider)}>
-              {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
-                <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Tên hiển thị
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="email@gmail.com hoặc Account #2"
-            />
-          </label>
-          {newProvider === "openai" ? (
-            <label className="span-2">
-              OpenAI API Key
-              <input
-                type="password"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                placeholder="sk-..."
-                autoComplete="new-password"
-              />
-            </label>
-          ) : newProvider === "grok" ? (
-            <>
-              <label className="span-2">
-                Cookie Grok.com (giống Flow — không dùng API key)
-                <textarea
-                  rows={5}
-                  value={newCookie}
-                  onChange={(e) => setNewCookie(e.target.value)}
-                  placeholder={
-                    "1) Login https://grok.com\n" +
-                    "2) F12 → Network → bấm bất kỳ request grok.com\n" +
-                    "3) Copy header Cookie (cần sso=...; sso-rw=...)\n" +
-                    "   hoặc export JSON cookie (EditThisCookie)"
-                  }
-                />
-                <small className="field-hint">
-                  Bắt buộc: <code>sso</code> + nên có <code>sso-rw</code>. Account SuperGrok có Imagine ảnh/video.
-                  App gọi <code>grok.com/rest/app-chat/...</code> bằng cookie — giống Flow + Google.
-                </small>
-              </label>
-              <label className="span-2">
-                xAI API Key (tuỳ chọn — fallback nếu cookie fail)
-                <input
-                  type="password"
-                  value={newApiKey}
-                  onChange={(e) => setNewApiKey(e.target.value)}
-                  placeholder="xai-... (không bắt buộc)"
-                  autoComplete="new-password"
-                />
-              </label>
-            </>
-          ) : newProvider === "flow" ? (
-            <label className="span-2">
-              Cookie Google Flow (JSON export hoặc session token) — account MỚI
-              <textarea
-                rows={6}
-                value={newSessionToken}
-                onChange={(e) => setNewSessionToken(e.target.value)}
-                placeholder="Dán JSON cookie hoặc __Secure-next-auth.session-token (eyJ...) của tài khoản khác"
-              />
-              <small className="field-hint">
-                Export khi đang mở <code>labs.google</code> (đã login đúng Gmail).
-                App lấy cookie domain <code>labs.google</code>, rồi hỏi Google email thật
-                (không tin field email trong file cookie — dễ sai).
-              </small>
-            </label>
-          ) : (
-            <label className="span-2">
-              Session / Cookie
-              <textarea
-                rows={4}
-                value={newCookie}
-                onChange={(e) => setNewCookie(e.target.value)}
-                placeholder="Dán cookie hoặc session token..."
-              />
-            </label>
-          )}
-        </div>
-        <button type="button" className="btn btn-primary" onClick={handleAddAccount} disabled={loading}>
-          Thêm tài khoản
+          <Users size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Quản lý Tài khoản ({accounts.length})
         </button>
-      </section>
+        <button
+          type="button"
+          className={`settings-tab ${activeTab === "ai" ? "active" : ""}`}
+          onClick={() => setActiveTab("ai")}
+        >
+          <Sparkles size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Trợ lý AI & Prompt
+        </button>
+        <button
+          type="button"
+          className={`settings-tab ${activeTab === "system" ? "active" : ""}`}
+          onClick={() => setActiveTab("system")}
+        >
+          <Cpu size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Hệ thống & Tiện ích
+        </button>
+      </div>
 
-      {/* ——— 1) Cấu hình AI: kết nối API (không lẫn style prompt) ——— */}
-      <section className="panel-card">
-        <h2>1. Cấu hình AI (API)</h2>
-        <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-          Chỉ phần <strong>kết nối</strong>: bật/tắt, nhà cung cấp, model, Base URL, API key.
-          Không quyết định nội dung prompt — phần đó ở mục <strong>2. Cấu hình Prompt</strong>.
-        </p>
-        <div className="form-grid">
-          <label className="checkbox-label span-2">
-            <input
-              type="checkbox"
-              checked={aiEnabled}
-              onChange={(e) => setAiEnabled(e.target.checked)}
-            />
-            Bật AI sửa prompt (cần key + URL hợp lệ)
-          </label>
-          <label>
-            Nhà cung cấp / loại key
-            <select value={aiProvider} onChange={(e) => applyAiProviderPreset(e.target.value)}>
-              {AI_PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-            <small className="field-hint">
-              “API ngoài” hoặc “Tùy chỉnh” để dán key + Base URL dịch vụ bên thứ ba
-            </small>
-          </label>
-          <label>
-            Model
-            <input
-              value={aiModel}
-              onChange={(e) => setAiModel(e.target.value)}
-              placeholder="gpt-4o-mini · deepseek-chat · grok-2-latest · …"
-            />
-          </label>
-          <label className="span-2">
-            Base URL (endpoint /v1)
-            <input
-              value={aiBaseUrl}
-              onChange={(e) => setAiBaseUrl(e.target.value)}
-              placeholder="https://api.openai.com/v1  hoặc URL API ngoài của bạn"
-            />
-            <small className="field-hint">
-              OpenAI: https://api.openai.com/v1 · OpenRouter: https://openrouter.ai/api/v1 ·
-              DeepSeek: https://api.deepseek.com/v1 · xAI: https://api.x.ai/v1
-            </small>
-          </label>
-          <div className="span-2 ai-key-block">
-            <span className="ai-key-label">API Key</span>
-            {aiLoading ? (
-              <p className="muted" style={{ margin: "6px 0 0" }}>Đang tải key đã lưu…</p>
-            ) : hasSavedKey && !aiReplaceKey ? (
-              <div className="ai-key-saved">
-                <div className="ai-key-saved-row">
-                  <span className="ai-key-masked" title="Key đã lưu trên server — không hiện full">
-                    ●●●●●●●●  {ai?.api_key_masked || "••••"}
-                  </span>
-                  <span className="pill pill-green">Đã lưu</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => {
-                      setAiReplaceKey(true);
-                      setAiApiKey("");
-                      setAiMsg("Dán key mới bên dưới rồi Lưu — để trống + Hủy nếu giữ key cũ");
-                    }}
-                  >
-                    Đổi key
-                  </button>
-                </div>
-                <small className="field-hint">
-                  Key đã lưu được dùng khi bấm ✦ / Test. Vào lại Cài đặt <strong>không cần dán lại</strong>.
-                  Chỉ bấm <strong>Đổi key</strong> khi muốn thay key mới.
-                </small>
+      {/* TAB 1: ACCOUNTS */}
+      {activeTab === "accounts" && (
+        <div className="settings-tab-content">
+          {/* Guide dropdown */}
+          <section className="panel-card" style={{ paddingBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <HelpCircle size={18} style={{ color: "var(--purple-bright)" }} />
+                <h3 style={{ margin: 0, fontSize: "15px" }}>Cách hoạt động &amp; Xoay vòng tài khoản</h3>
               </div>
-            ) : (
-              <>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowGuide(!showGuide)}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px" }}
+              >
+                {showGuide ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {showGuide ? "Thu gọn" : "Xem chi tiết"}
+              </button>
+            </div>
+
+            {showGuide && (
+              <div style={{ marginTop: 14 }}>
+                <p className="muted" style={{ marginTop: 0, lineHeight: 1.5, fontSize: "13.5px" }}>
+                  Bạn có thể thêm **nhiều account Flow** (mỗi account dùng cookie riêng).
+                  Hệ thống sẽ **tự động xoay vòng** giữa các tài khoản đang bật. 
+                  Khi một account **hết quota**, hệ thống sẽ cho cooldown ~1 giờ và tự động chuyển sang tài khoản tiếp theo.
+                </p>
+                <div
+                  className="muted"
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 10,
+                    background: "rgba(251, 191, 36, 0.08)",
+                    border: "1px solid rgba(251, 191, 36, 0.25)",
+                    fontSize: "13px",
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <strong style={{ color: "#fbbf24", display: "block", marginBottom: 4 }}>
+                    ⚠️ Lưu ý quan trọng về Captcha:
+                  </strong>
+                  Quy trình gen bằng cookie, nhưng reCAPTCHA sẽ được giải bằng **tab Google Flow đang mở trên Chrome**. 
+                  Hai phần này **bắt buộc phải đăng nhập cùng một tài khoản Gmail**. 
+                  Nếu tab Chrome đang đăng nhập Gmail A mà cookie đang gen lại của Gmail B, quá trình tạo ảnh/video sẽ thất bại.
+                  <br />
+                  <strong style={{ display: "block", marginTop: 8, marginBottom: 2 }}>Cách setup nhiều tài khoản chuẩn:</strong>
+                  <ol style={{ margin: 0, paddingLeft: 18 }}>
+                    <li>Mở một profile Chrome ẩn danh (hoặc profile phụ) → Đăng nhập Gmail tương ứng trên tab Google Flow.</li>
+                    <li>Sử dụng extension F12/Cookie Editor để lấy mã cookie <code>__Secure-next-auth.session-token</code>.</li>
+                    <li>Dán vào form "Thêm tài khoản" ở dưới (Đặt tên nhãn bằng Email để dễ quản lý).</li>
+                    <li>Khi chuyển đổi gen giữa các Gmail, hãy đảm bảo mở tab Google Flow tương ứng có hoạt động Auth Helper.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Account Lists */}
+          <section className="panel-card" style={{ marginTop: 16 }}>
+            <h2>Danh sách tài khoản ({accounts.length})</h2>
+            <div className="account-list" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
+              {accounts.length === 0 && <p className="muted">Chưa có tài khoản nào được cấu hình.</p>}
+              {accounts.map((account) => (
+                <article
+                  key={account.id}
+                  className={`account-card${account.in_cooldown ? " account-card--cooldown" : ""}${!account.enabled ? " account-card--off" : ""}`}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className={`status-dot ${account.enabled ? "online" : "offline"}`} />
+                      <strong style={{ fontSize: "14px" }}>{account.label}</strong>
+                    </div>
+                    <p style={{ margin: "2px 0", fontSize: "12px", color: "var(--text-secondary)" }}>
+                      {PROVIDER_LABELS[account.provider]}
+                      {account.email && account.email !== account.label ? ` · ${account.email}` : ""}
+                    </p>
+                    <small style={{ color: "var(--muted)" }}>
+                      {account.enabled ? "Đang bật" : "Đã tắt"} ·
+                      {account.has_credentials ? " Đã cấu hình" : " Chưa có cookie"}
+                      {account.image_enabled ? " · Ảnh" : ""}
+                      {account.video_enabled ? " · Video" : ""}
+                      {account.in_cooldown ? ` · Cooldown ${formatCooldown(account.cooldown_left_sec)}` : ""}
+                      {account.auth_hint ? ` · ${account.auth_hint}` : ""}
+                    </small>
+                    {account.last_error && (
+                      <p className="account-error" style={{ color: "var(--red)", marginTop: 6, fontSize: "11px", lineHeight: "1.3" }} title={account.last_error}>
+                        Lỗi: {account.last_error.slice(0, 90)}...
+                      </p>
+                    )}
+                  </div>
+                  <div className="account-card-actions" style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ width: "100%", padding: "5px 12px" }}
+                      onClick={() => handleToggle(account)}
+                      disabled={loading}
+                    >
+                      {account.enabled ? "Tắt" : "Bật"}
+                    </button>
+                    {account.in_cooldown && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ width: "100%", padding: "5px 12px" }}
+                        onClick={() => handleClearCooldown(account)}
+                        disabled={loading}
+                      >
+                        Bỏ cooldown
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-ghost danger btn-sm"
+                      style={{ width: "100%", padding: "5px 12px" }}
+                      onClick={() => handleDeleteAccount(account.id)}
+                      disabled={loading}
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          {/* Add Account & Auto Login Row */}
+          <div className="info-grid" style={{ marginTop: 16, gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))" }}>
+            {/* Auto Login Card */}
+            <section className="panel-card" style={{ height: "fit-content" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <Globe size={18} style={{ color: "var(--blue)" }} />
+                <h2 style={{ margin: 0 }}>Tự động đăng nhập Chrome</h2>
+              </div>
+              <p className="muted" style={{ marginTop: 0, fontSize: "13px", lineHeight: 1.5 }}>
+                Mở một cửa sổ Chrome tự động. Bạn chỉ cần đăng nhập Google Flow trên cửa sổ đó, 
+                hệ thống sẽ tự động lấy token và cấu hình tài khoản cho bạn.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <input
-                  type="password"
-                  value={aiApiKey}
-                  onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder={
-                    hasSavedKey
-                      ? `Dán key mới để thay (${ai?.api_key_masked})`
-                      : "sk-... · key OpenRouter · key DeepSeek · key API riêng…"
-                  }
-                  autoComplete="new-password"
-                  name="glabs-ai-api-key"
+                  placeholder="Đặt tên Gmail / Nhãn tài khoản..."
+                  value={loginLabel}
+                  onChange={(e) => setLoginLabel(e.target.value)}
                 />
-                <div className="ai-key-actions">
-                  {hasSavedKey ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ display: "flex", alignItems: "center", justifyItems: "center", gap: 8, width: "100%" }}
+                  disabled={loginBusy}
+                  onClick={async () => {
+                    try {
+                      setLoginBusy(true);
+                      const job = await startLoginBrowser(loginLabel.trim());
+                      setLoginJob(job);
+                      const id = job.job_id;
+                      for (let i = 0; i < 200; i++) {
+                        await new Promise((r) => setTimeout(r, 2000));
+                        const st = await fetchLoginBrowserStatus(id);
+                        setLoginJob(st);
+                        if (["completed", "failed", "cancelled"].includes(st.status)) {
+                          if (st.status === "completed") {
+                            await onRefresh();
+                          } else if (st.error) {
+                            onError(st.error);
+                          }
+                          break;
+                        }
+                      }
+                    } catch (e) {
+                      onError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setLoginBusy(false);
+                    }
+                  }}
+                >
+                  <Globe size={16} />
+                  {loginBusy ? "Đang chạy Chrome đăng nhập..." : "Mở Trình duyệt Đăng nhập"}
+                </button>
+              </div>
+              {loginJob && (
+                <div style={{ marginTop: 10, padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6, fontSize: "12px" }}>
+                  Trạng thái: <code>{loginJob.status}</code> — {loginJob.message}
+                </div>
+              )}
+            </section>
+
+            {/* Manual Form Card */}
+            <section className="panel-card">
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <UserPlus size={18} style={{ color: "var(--purple-bright)" }} />
+                <h2 style={{ margin: 0 }}>Thêm tài khoản thủ công</h2>
+              </div>
+              <div className="form-grid" style={{ gap: "10px 14px", marginBottom: 14 }}>
+                <label>
+                  Nền tảng
+                  <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as Provider)}>
+                    {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
+                      <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Tên hiển thị (Email)
+                  <input
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    placeholder="vd: email@gmail.com"
+                  />
+                </label>
+                {newProvider === "openai" ? (
+                  <label className="span-2">
+                    OpenAI API Key
+                    <input
+                      type="password"
+                      value={newApiKey}
+                      onChange={(e) => setNewApiKey(e.target.value)}
+                      placeholder="sk-..."
+                      autoComplete="new-password"
+                    />
+                  </label>
+                ) : newProvider === "grok" ? (
+                  <>
+                    <label className="span-2">
+                      Cookie Grok.com
+                      <textarea
+                        rows={3}
+                        value={newCookie}
+                        onChange={(e) => setNewCookie(e.target.value)}
+                        placeholder="sso=...; sso-rw=..."
+                        style={{ fontFamily: "monospace", fontSize: "11px" }}
+                      />
+                    </label>
+                    <label className="span-2">
+                      xAI API Key (Tùy chọn fallback)
+                      <input
+                        type="password"
+                        value={newApiKey}
+                        onChange={(e) => setNewApiKey(e.target.value)}
+                        placeholder="xai-..."
+                        autoComplete="new-password"
+                      />
+                    </label>
+                  </>
+                ) : newProvider === "flow" ? (
+                  <label className="span-2">
+                    Cookie Google Flow (session token)
+                    <textarea
+                      rows={3}
+                      value={newSessionToken}
+                      onChange={(e) => setNewSessionToken(e.target.value)}
+                      placeholder="Mã key __Secure-next-auth.session-token..."
+                      style={{ fontFamily: "monospace", fontSize: "11px" }}
+                    />
+                  </label>
+                ) : newProvider === "meta" ? (
+                  <label className="span-2">
+                    Cookie Vibes.ai (chứa meta_session)
+                    <textarea
+                      rows={3}
+                      value={newCookie}
+                      onChange={(e) => setNewCookie(e.target.value)}
+                      placeholder="Dán Cookie vibes.ai vào đây (phải chứa meta_session=...)..."
+                      style={{ fontFamily: "monospace", fontSize: "11px" }}
+                    />
+                  </label>
+                ) : (
+                  <label className="span-2">
+                    Session / Cookie
+                    <textarea
+                      rows={3}
+                      value={newCookie}
+                      onChange={(e) => setNewCookie(e.target.value)}
+                      placeholder="Dán Cookie..."
+                      style={{ fontFamily: "monospace", fontSize: "11px" }}
+                    />
+                  </label>
+                )}
+              </div>
+              <button type="button" className="btn btn-primary" style={{ width: "100%" }} onClick={handleAddAccount} disabled={loading}>
+                Thêm tài khoản
+              </button>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: AI & PROMPT */}
+      {activeTab === "ai" && (
+        <div className="settings-tab-content" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* AI API CONFIG */}
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Key size={18} style={{ color: "var(--blue)" }} />
+              <h2 style={{ margin: 0 }}>1. Kết nối API Trợ lý AI</h2>
+            </div>
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px", lineHeight: 1.5 }}>
+              Cấu hình mô hình ngôn ngữ lớn (LLM) dùng để sửa đổi và tối ưu hóa các prompt thô thành dạng prompt chuyên nghiệp trước khi generate.
+            </p>
+            <div className="form-grid" style={{ marginBottom: 14 }}>
+              <label className="checkbox-label span-2" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={aiEnabled}
+                  onChange={(e) => setAiEnabled(e.target.checked)}
+                />
+                Kích hoạt trợ lý AI sửa đổi Prompt thô (Bật ✦)
+              </label>
+              <label>
+                Nhà cung cấp
+                <select value={aiProvider} onChange={(e) => applyAiProviderPreset(e.target.value)}>
+                  {AI_PROVIDERS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Tên Model
+                <input
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  placeholder="gpt-4o-mini, grok-2-latest..."
+                />
+              </label>
+              <label className="span-2">
+                Endpoint URL (Base URL)
+                <input
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </label>
+              <div className="span-2 ai-key-block" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span className="ai-key-label" style={{ fontSize: "12px", fontWeight: "600" }}>API Key</span>
+                {aiLoading ? (
+                  <p className="muted" style={{ margin: 0 }}>Đang tải khóa...</p>
+                ) : hasSavedKey && !aiReplaceKey ? (
+                  <div className="ai-key-saved" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 10, background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span className="ai-key-masked" style={{ fontFamily: "monospace", letterSpacing: "0.08em" }}>
+                        •••••••• {ai?.api_key_masked}
+                      </span>
+                      <span className="pill pill-green" style={{ fontSize: 9 }}>ĐÃ LƯU</span>
+                    </div>
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
                       onClick={() => {
-                        setAiReplaceKey(false);
+                        setAiReplaceKey(true);
                         setAiApiKey("");
-                        setAiMsg("Giữ key đã lưu — không thay");
+                        setAiMsg("Hãy dán key mới ở dưới...");
                       }}
                     >
-                      Hủy đổi key
+                      Thay đổi key
                     </button>
-                  ) : null}
-                  <small className="field-hint">
-                    App gọi <code>POST {"{base}"}/chat/completions</code>. Lưu xong key được giữ trên server.
-                  </small>
-                </div>
-              </>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input
+                      type="password"
+                      value={aiApiKey}
+                      onChange={(e) => setAiApiKey(e.target.value)}
+                      placeholder={hasSavedKey ? "Dán mã khóa mới để lưu đè..." : "Nhập API Key..."}
+                      autoComplete="new-password"
+                    />
+                    {hasSavedKey && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ width: "fit-content" }}
+                        onClick={() => {
+                          setAiReplaceKey(false);
+                          setAiApiKey("");
+                          setAiMsg("");
+                        }}
+                      >
+                        Hủy đổi key
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleSaveAiApi()}
+                disabled={aiSaving || aiTesting || aiLoading}
+              >
+                {aiSaving ? "Đang lưu cấu hình..." : "Lưu cấu hình API"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void handleTestAiApi()}
+                disabled={aiTesting || aiSaving || aiLoading}
+              >
+                {aiTesting ? "Đang test API..." : "Test kết nối API"}
+              </button>
+              {aiMsg && <span className="muted" style={{ fontSize: "13px" }}>{aiMsg}</span>}
+            </div>
+            {aiTestMsg && (
+              <p
+                className={`ai-test-result ${aiTestOk === true ? "ai-test-result--ok" : aiTestOk === false ? "ai-test-result--fail" : ""}`}
+                style={{ marginTop: 12, marginBottom: 0, padding: 10, borderRadius: 6 }}
+              >
+                {aiTestOk === true ? "✓ " : "✗ "}
+                {aiTestMsg}
+              </p>
             )}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void handleSaveAiApi()}
-            disabled={aiSaving || aiTesting || aiLoading}
-          >
-            {aiSaving ? "Đang lưu..." : "Lưu cấu hình AI"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => void handleTestAiApi()}
-            disabled={aiTesting || aiSaving || aiLoading}
-            title="Dùng key đã lưu (hoặc key đang dán nếu đang Đổi key)"
-          >
-            {aiTesting ? "Đang test..." : "Test API"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void loadAiSettings()}
-            disabled={aiLoading || aiSaving}
-            title="Tải lại key + cấu hình từ server"
-          >
-            {aiLoading ? "…" : "Tải lại"}
-          </button>
-          {aiMsg && <span className="muted">{aiMsg}</span>}
-          {ai && (
-            <span className={`pill ${ai.enabled && hasSavedKey ? "pill-green" : "pill-purple"}`}>
-              {ai.enabled && hasSavedKey
-                ? `API sẵn sàng · ${ai.api_key_masked}`
-                : hasSavedKey
-                  ? `Có key · chưa bật`
-                  : "Chưa có API key"}
-            </span>
-          )}
-        </div>
-        {aiTestMsg ? (
-          <p
-            className={`ai-test-result ${aiTestOk === true ? "ai-test-result--ok" : aiTestOk === false ? "ai-test-result--fail" : ""}`}
-            style={{ marginTop: 12, marginBottom: 0 }}
-          >
-            {aiTestOk === true ? "✓ " : aiTestOk === false ? "✗ " : ""}
-            {aiTestMsg}
-          </p>
-        ) : (
-          <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>
-            Lần đầu: dán key → <strong>Lưu cấu hình AI</strong>. Đã có key: để trống khi Lưu = giữ key cũ;
-            bấm <strong>Đổi key</strong> chỉ khi muốn thay. Test dùng key form hoặc key đã lưu.
-          </p>
-        )}
-      </section>
+          </section>
 
-      {/* ——— 2) Cấu hình Prompt: cách viết lại ý ngắn → pro ——— */}
-      <section className="panel-card">
-        <h2>2. Cấu hình Prompt (ảnh / video)</h2>
-        <p className="muted" style={{ marginTop: 0, lineHeight: 1.55 }}>
-          Luồng sản phẩm: user gõ <strong>prompt chung chung</strong> → bấm <strong>✦</strong> → AI
-          phân tích và viết lại <strong>prompt chuyên nghiệp</strong> (dễ gen ảnh/video).
-          Mục này chỉ chỉnh <strong>cách viết lại</strong> — không phải API key.
-          {ai && !ai.enabled && (
-            <> Cần bật API ở mục 1 trước.</>
-          )}
-        </p>
-
-        <div className="ai-mode-grid">
-          <div className="ai-mode-card">
-            <h3>Prompt → Ảnh (Flow Ảnh)</h3>
-            <p className="muted" style={{ marginTop: 0 }}>
-              Khi bấm ✦ trên <strong>Flow Ảnh</strong>: ý ngắn → prompt gen ảnh rõ.
-            </p>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={aiImageEnabled}
-                onChange={(e) => setAiImageEnabled(e.target.checked)}
-              />
-              Bật viết lại prompt ảnh
-            </label>
-            <label>
-              Mức độ viết lại
-              <select value={aiImageStyle} onChange={(e) => setAiImageStyle(e.target.value)}>
-                {STYLE_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Hướng dẫn thêm (tùy chọn)
-              <textarea
-                rows={3}
-                value={aiImageCustom}
-                onChange={(e) => setAiImageCustom(e.target.value)}
-                placeholder="VD: từ ý ngắn, làm rõ chủ thể + nền + ánh sáng; giữ @tên; không bịa chuyện…"
-              />
-            </label>
-            <div className="ai-template-block">
-              <span className="ai-template-label">Mẫu hướng dẫn (ảnh)</span>
-              <div className="ai-template-chips">
-                {IMAGE_PROMPT_TEMPLATES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`ai-template-chip${aiImageCustom === t.text ? " active" : ""}`}
-                    title={t.text}
-                    onClick={() => applyImageTemplate(t.text)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              {aiImageCustom ? (
-                <button
-                  type="button"
-                  className="ai-template-clear"
-                  onClick={() => {
-                    setAiImageCustom("");
-                    setPromptMsg("Đã xóa hướng dẫn ảnh (chưa lưu)");
-                  }}
-                >
-                  Xóa hướng dẫn
-                </button>
-              ) : null}
+          {/* PROMPT SYSTEM INSTRUCTION CONFIG */}
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Sparkles size={18} style={{ color: "var(--purple-bright)" }} />
+              <h2 style={{ margin: 0 }}>2. Cấu hình quy tắc tối ưu Prompt</h2>
             </div>
-          </div>
-
-          <div className="ai-mode-card">
-            <h3>Prompt → Video (Flow Video)</h3>
-            <p className="muted" style={{ marginTop: 0 }}>
-              Khi bấm ✦ trên <strong>Flow Video</strong>: ý ngắn → prompt gen video rõ.
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px" }}>
+              Tùy chỉnh các hướng dẫn hệ thống (System Instructions) được gửi tới AI để hướng dẫn cách tối ưu và nâng cấp các prompts.
             </p>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={aiVideoEnabled}
-                onChange={(e) => setAiVideoEnabled(e.target.checked)}
-              />
-              Bật viết lại prompt video
-            </label>
-            <label>
-              Mức độ viết lại
-              <select value={aiVideoStyle} onChange={(e) => setAiVideoStyle(e.target.value)}>
-                {STYLE_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Hướng dẫn thêm (tùy chọn)
-              <textarea
-                rows={3}
-                value={aiVideoCustom}
-                onChange={(e) => setAiVideoCustom(e.target.value)}
-                placeholder="VD: từ ý ngắn, thêm chuyển động + camera; 1 cảnh; giữ @tên; không bịa…"
-              />
-            </label>
-            <div className="ai-template-block">
-              <span className="ai-template-label">Mẫu hướng dẫn (video)</span>
-              <div className="ai-template-chips">
-                {VIDEO_PROMPT_TEMPLATES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`ai-template-chip${aiVideoCustom === t.text ? " active" : ""}`}
-                    title={t.text}
-                    onClick={() => applyVideoTemplate(t.text)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+
+            <div className="ai-mode-grid" style={{ gap: 16 }}>
+              {/* Image Prompts Rewrite */}
+              <div className="ai-mode-card" style={{ background: "rgba(255,255,255,0.015)", border: "1px solid var(--border)", padding: 16, borderRadius: 12 }}>
+                <h3 style={{ margin: "0 0 10px" }}>Tối ưu Prompt Tạo Ảnh</h3>
+                <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={aiImageEnabled}
+                    onChange={(e) => setAiImageEnabled(e.target.checked)}
+                  />
+                  Cho phép AI sửa prompt Ảnh
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  Mức độ viết lại
+                  <select value={aiImageStyle} onChange={(e) => setAiImageStyle(e.target.value)}>
+                    {STYLE_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  Hướng dẫn chi tiết (System Instruction)
+                  <textarea
+                    rows={4}
+                    value={aiImageCustom}
+                    onChange={(e) => setAiImageCustom(e.target.value)}
+                    placeholder="VD: Viết rõ bối cảnh, ánh sáng, góc máy..."
+                  />
+                </label>
+                <div className="ai-template-block">
+                  <span className="ai-template-label" style={{ fontSize: "11px", fontWeight: "600", color: "var(--muted)", display: "block", marginBottom: 6 }}>
+                    Mẫu Hướng Dẫn Nhanh:
+                  </span>
+                  <div className="ai-template-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {IMAGE_PROMPT_TEMPLATES.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={`ai-template-chip${aiImageCustom === t.text ? " active" : ""}`}
+                        style={{ fontSize: "11px", padding: "4px 8px", borderRadius: 6 }}
+                        onClick={() => applyImageTemplate(t.text)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {aiImageCustom && (
+                    <button
+                      type="button"
+                      className="ai-template-clear"
+                      style={{ marginTop: 8, fontSize: "11px", color: "var(--red)", border: "none", background: "transparent", cursor: "pointer" }}
+                      onClick={() => setAiImageCustom("")}
+                    >
+                      Xóa hướng dẫn tùy chỉnh
+                    </button>
+                  )}
+                </div>
               </div>
-              {aiVideoCustom ? (
-                <button
-                  type="button"
-                  className="ai-template-clear"
-                  onClick={() => {
-                    setAiVideoCustom("");
-                    setPromptMsg("Đã xóa hướng dẫn video (chưa lưu)");
-                  }}
-                >
-                  Xóa hướng dẫn
-                </button>
-              ) : null}
+
+              {/* Video Prompts Rewrite */}
+              <div className="ai-mode-card" style={{ background: "rgba(255,255,255,0.015)", border: "1px solid var(--border)", padding: 16, borderRadius: 12 }}>
+                <h3 style={{ margin: "0 0 10px" }}>Tối ưu Prompt Tạo Video</h3>
+                <label className="checkbox-label" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={aiVideoEnabled}
+                    onChange={(e) => setAiVideoEnabled(e.target.checked)}
+                  />
+                  Cho phép AI sửa prompt Video
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  Mức độ viết lại
+                  <select value={aiVideoStyle} onChange={(e) => setAiVideoStyle(e.target.value)}>
+                    {STYLE_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                  Hướng dẫn chi tiết (System Instruction)
+                  <textarea
+                    rows={4}
+                    value={aiVideoCustom}
+                    onChange={(e) => setAiVideoCustom(e.target.value)}
+                    placeholder="VD: Thêm chuyển động máy quay, zoom in, panning..."
+                  />
+                </label>
+                <div className="ai-template-block">
+                  <span className="ai-template-label" style={{ fontSize: "11px", fontWeight: "600", color: "var(--muted)", display: "block", marginBottom: 6 }}>
+                    Mẫu Hướng Dẫn Nhanh:
+                  </span>
+                  <div className="ai-template-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {VIDEO_PROMPT_TEMPLATES.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={`ai-template-chip${aiVideoCustom === t.text ? " active" : ""}`}
+                        style={{ fontSize: "11px", padding: "4px 8px", borderRadius: 6 }}
+                        onClick={() => applyVideoTemplate(t.text)}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {aiVideoCustom && (
+                    <button
+                      type="button"
+                      className="ai-template-clear"
+                      style={{ marginTop: 8, fontSize: "11px", color: "var(--red)", border: "none", background: "transparent", cursor: "pointer" }}
+                      onClick={() => setAiVideoCustom("")}
+                    >
+                      Xóa hướng dẫn tùy chỉnh
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void handleSavePrompt()}
-            disabled={promptSaving}
-          >
-            {promptSaving ? "Đang lưu..." : "Lưu cấu hình Prompt"}
-          </button>
-          {promptMsg && <span className="muted">{promptMsg}</span>}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleSavePrompt()}
+                disabled={promptSaving}
+              >
+                {promptSaving ? "Đang lưu cấu hình..." : "Lưu cấu hình Prompt"}
+              </button>
+              {promptMsg && <span className="muted" style={{ fontSize: "13px" }}>{promptMsg}</span>}
+            </div>
+          </section>
         </div>
-      </section>
+      )}
 
-      <section className="panel-card">
-        <h2>Backup tài khoản &amp; dọn disk</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Export/import account (mặc định <strong>không</strong> gồm cookie/key). Cleanup chỉ xóa file
-          output cũ — dry-run trước khi xóa thật.
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={loading}
-            onClick={async () => {
-              try {
-                setLoading(true);
-                const data = await exportAccountsBackup(false);
-                const blob = new Blob([JSON.stringify(data, null, 2)], {
-                  type: "application/json",
-                });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = `glab-accounts-${new Date().toISOString().slice(0, 10)}.json`;
-                a.click();
-                URL.revokeObjectURL(a.href);
-              } catch (e) {
-                onError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Export (không secret)
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={loading}
-            onClick={async () => {
-              if (
-                !confirm(
-                  "Export CÓ cookie/API key — chỉ lưu file local an toàn. Tiếp tục?",
-                )
-              ) {
-                return;
-              }
-              try {
-                setLoading(true);
-                const data = await exportAccountsBackup(true);
-                const blob = new Blob([JSON.stringify(data, null, 2)], {
-                  type: "application/json",
-                });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = `glab-accounts-SECRETS-${new Date().toISOString().slice(0, 10)}.json`;
-                a.click();
-                URL.revokeObjectURL(a.href);
-              } catch (e) {
-                onError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Export + secrets
-          </button>
-          <label className="btn btn-ghost" style={{ cursor: "pointer" }}>
-            Import backup…
-            <input
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                try {
-                  setLoading(true);
-                  const text = await file.text();
-                  const parsed = JSON.parse(text) as {
-                    accounts?: Array<{
-                      provider: Provider;
-                      label?: string;
-                      credentials?: Record<string, string>;
-                      image_enabled?: boolean;
-                      video_enabled?: boolean;
-                      enabled?: boolean;
-                    }>;
-                  };
-                  if (!parsed.accounts?.length) {
-                    throw new Error("File không có mảng accounts");
+      {/* TAB 3: SYSTEM UTILITIES */}
+      {activeTab === "system" && (
+        <div className="settings-tab-content" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Backup Block */}
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Database size={18} style={{ color: "var(--purple-bright)" }} />
+              <h2 style={{ margin: 0 }}>Sao lưu &amp; Phục hồi dữ liệu</h2>
+            </div>
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px", lineHeight: 1.5 }}>
+              Xuất dữ liệu danh sách tài khoản dưới dạng tệp tin JSON hoặc nhập lại từ tệp tin có sẵn để đồng bộ thiết bị.
+            </p>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                disabled={loading}
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const data = await exportAccountsBackup(false);
+                    const blob = new Blob([JSON.stringify(data, null, 2)], {
+                      type: "application/json",
+                    });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `glab-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setLoading(false);
                   }
-                  const result = await importAccountsBackup({ accounts: parsed.accounts });
-                  await onRefresh();
-                  alert(
-                    `Import: +${result.created} · skip ${result.skipped}` +
-                      (result.errors?.length ? `\nLỗi: ${result.errors.join("; ")}` : ""),
-                  );
-                } catch (err) {
-                  onError(err instanceof Error ? err.message : String(err));
-                } finally {
-                  setLoading(false);
-                }
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={loading}
-            onClick={async () => {
-              try {
-                setLoading(true);
-                const disk = await fetchDiskInfo();
-                const preview = await cleanupOutputs({ olderThanDays: 30, dryRun: true });
-                const msg =
-                  `Disk free: ${disk.disk_free_gb} GB · output ~${disk.output_total_mb} MB\n` +
-                  `File >30 ngày: ${preview.matched_files}\nXóa thật?`;
-                if (!confirm(msg)) return;
-                const done = await cleanupOutputs({ olderThanDays: 30, dryRun: false });
-                alert(`Đã xóa ${done.removed_files} file · giải phóng ~${done.freed_mb} MB`);
-              } catch (err) {
-                onError(err instanceof Error ? err.message : String(err));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Dọn output &gt;30 ngày
-          </button>
-        </div>
-      </section>
+                }}
+              >
+                <Download size={14} />
+                Export backup (Không mật khẩu)
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                disabled={loading}
+                onClick={async () => {
+                  const ok = await dialog.confirm({
+                    title: "Xuất dữ liệu chứa Secrets?",
+                    message:
+                      "Tệp tin tải xuống sẽ chứa Cookie và API Key. Hãy lưu trữ an toàn. Tiếp tục?",
+                    confirmLabel: "Chấp nhận",
+                    cancelLabel: "Hủy",
+                    tone: "danger",
+                  });
+                  if (!ok) return;
+                  try {
+                    setLoading(true);
+                    const data = await exportAccountsBackup(true);
+                    const blob = new Blob([JSON.stringify(data, null, 2)], {
+                      type: "application/json",
+                    });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `glab-accounts-SECRETS-${new Date().toISOString().slice(0, 10)}.json`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                <Download size={14} />
+                Export backup + secrets
+              </button>
+              <label className="btn btn-ghost" style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <Upload size={14} />
+                Nhập file Backup...
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    try {
+                      setLoading(true);
+                      const text = await file.text();
+                      const parsed = JSON.parse(text) as {
+                        accounts?: Array<{
+                          provider: Provider;
+                          label?: string;
+                          credentials?: Record<string, string>;
+                          image_enabled?: boolean;
+                          video_enabled?: boolean;
+                          enabled?: boolean;
+                        }>;
+                      };
+                      if (!parsed.accounts?.length) {
+                        throw new Error("Tệp không đúng định dạng chứa danh sách accounts");
+                      }
+                      const result = await importAccountsBackup({ accounts: parsed.accounts });
+                      await onRefresh();
+                      await dialog.alert({
+                        title: "Import thành công",
+                        message:
+                          `Đã nhập: +${result.created} · bỏ qua trùng lặp: ${result.skipped}` +
+                          (result.errors?.length ? `\nLỗi: ${result.errors.join("; ")}` : ""),
+                        tone: result.errors?.length ? "danger" : "success",
+                      });
+                    } catch (err) {
+                      onError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-ghost danger"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                disabled={loading}
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    const disk = await fetchDiskInfo();
+                    const preview = await cleanupOutputs({ olderThanDays: 30, dryRun: true });
+                    const ok = await dialog.confirm({
+                      title: "Dọn dẹp ổ đĩa?",
+                      message:
+                        `Ổ đĩa trống: ${disk.disk_free_gb} GB · Tổng dung lượng ảnh/video đã tạo: ~${disk.output_total_mb} MB\n` +
+                        `Số lượng tệp quá 30 ngày sẽ dọn dẹp: ${preview.matched_files} tệp. Bạn có chắc chắn?`,
+                      confirmLabel: "Xóa sạch",
+                      cancelLabel: "Hủy",
+                      tone: "danger",
+                    });
+                    if (!ok) return;
+                    const done = await cleanupOutputs({ olderThanDays: 30, dryRun: false });
+                    await dialog.alert({
+                      title: "Đã hoàn tất",
+                      message: `Đã dọn dẹp xong ${done.removed_files} tệp tin · giải phóng ~${done.freed_mb} MB dung lượng`,
+                      tone: "success",
+                    });
+                  } catch (err) {
+                    onError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                <Trash2 size={14} />
+                Dọn tệp đã tạo quá 30 ngày
+              </button>
+            </div>
+          </section>
 
-      <section className="panel-card">
-        <h2>Chạy bài test</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          Pytest nội bộ (không gọi Google/Grok). Smoke nhanh · API qua TestClient · All = đầy đủ.
-          CLI: <code>./test.sh</code> hoặc <code>npm test</code>.
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            Suite
-            <select
-              value={testSuite}
-              onChange={(e) => setTestSuite(e.target.value as TestSuite)}
-              disabled={testRunning}
-            >
-              <option value="all">All</option>
-              <option value="smoke">Smoke</option>
-              <option value="api">API</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={testRunning}
-            onClick={async () => {
-              try {
-                setTestRunning(true);
-                setTestResult(null);
-                const result = await runProjectTests(testSuite, false);
-                setTestResult(result);
-                if (!result.ok) {
-                  onError(`Tests FAIL: ${result.summary}`);
-                }
-              } catch (e) {
-                onError(e instanceof Error ? e.message : String(e));
-              } finally {
-                setTestRunning(false);
-              }
-            }}
-          >
-            {testRunning ? "Đang chạy…" : "Chạy tests"}
-          </button>
-        </div>
-        {testResult && (
-          <div style={{ marginTop: 14 }}>
-            <p
-              style={{
-                margin: "0 0 8px",
-                fontWeight: 600,
-                color: testResult.ok ? "var(--success, #4ade80)" : "var(--danger, #f87171)",
-              }}
-            >
-              {testResult.ok ? "PASS" : "FAIL"} — {testResult.summary}
-              {typeof testResult.passed === "number"
-                ? ` · ${testResult.passed} passed / ${testResult.failed} failed`
-                : ""}
+          {/* Project tests */}
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Play size={18} style={{ color: "var(--green)" }} />
+              <h2 style={{ margin: 0 }}>Chạy bài kiểm tra tự động (Unit test)</h2>
+            </div>
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px" }}>
+              Kích hoạt chạy Pytest nội bộ trên hệ thống backend (không thực hiện cuộc gọi thực tế tới Google/Grok).
             </p>
-            <pre
-              className="code-block"
-              style={{
-                maxHeight: 280,
-                overflow: "auto",
-                fontSize: 12,
-                margin: 0,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {testResult.output || "(no output)"}
-            </pre>
-          </div>
-        )}
-      </section>
-
-      <section className="panel-card">
-        <h2>Danh sách tài khoản ({accounts.length})</h2>
-        <div className="account-list">
-          {accounts.length === 0 && <p className="muted">Chưa có tài khoản nào.</p>}
-          {accounts.map((account) => (
-            <article
-              key={account.id}
-              className={`account-card${account.in_cooldown ? " account-card--cooldown" : ""}${!account.enabled ? " account-card--off" : ""}`}
-            >
-              <div>
-                <strong>{account.label}</strong>
-                <p>
-                  {PROVIDER_LABELS[account.provider]}
-                  {account.email && account.email !== account.label
-                    ? ` · session: ${account.email}`
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 14 }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: "13.5px" }}>
+                Chế độ test
+                <select
+                  value={testSuite}
+                  onChange={(e) => setTestSuite(e.target.value as TestSuite)}
+                  disabled={testRunning}
+                  style={{ padding: "4px 8px" }}
+                >
+                  <option value="all">Tất cả (All)</option>
+                  <option value="smoke">Khói (Smoke - Nhanh)</option>
+                  <option value="api">Giao diện kết nối (API)</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+                disabled={testRunning}
+                onClick={async () => {
+                  try {
+                    setTestRunning(true);
+                    setTestResult(null);
+                    const result = await runProjectTests(testSuite, false);
+                    setTestResult(result);
+                    if (!result.ok) {
+                      onError(`Tests FAIL: ${result.summary}`);
+                    }
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setTestRunning(false);
+                  }
+                }}
+              >
+                <Play size={14} />
+                {testRunning ? "Đang chạy kiểm tra..." : "Chạy kiểm tra"}
+              </button>
+            </div>
+            {testResult && (
+              <div style={{ marginTop: 14 }}>
+                <p
+                  style={{
+                    margin: "0 0 8px",
+                    fontWeight: 600,
+                    color: testResult.ok ? "var(--green)" : "var(--red)",
+                    fontSize: "14px"
+                  }}
+                >
+                  Kết quả: {testResult.ok ? "HOÀN TẤT THÀNH CÔNG (PASS)" : "THẤT BẠI (FAIL)"} — {testResult.summary}
+                  {typeof testResult.passed === "number"
+                    ? ` · Đạt: ${testResult.passed} / Lỗi: ${testResult.failed}`
                     : ""}
                 </p>
-                <small>
-                  {account.enabled ? "Đang bật" : "Tắt"} ·
-                  {account.has_credentials ? " Đã cấu hình" : " Chưa cấu hình"}
-                  {account.image_enabled ? " · Ảnh" : ""}
-                  {account.video_enabled ? " · Video" : ""}
-                  {account.in_cooldown
-                    ? ` · Cooldown ${formatCooldown(account.cooldown_left_sec)}`
-                    : ""}
-                  {account.auth_hint ? ` · ${account.auth_hint}` : ""}
-                </small>
-                {account.last_error && (
-                  <p className="account-error" title={account.last_error}>
-                    Lỗi gần nhất: {account.last_error.slice(0, 120)}
-                    {account.last_error.length > 120 ? "…" : ""}
-                  </p>
-                )}
-              </div>
-              <div className="account-card-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => handleToggle(account)}
-                  disabled={loading}
-                  title={account.enabled ? "Tắt khỏi vòng xoay" : "Bật lại"}
+                <pre
+                  className="code-block"
+                  style={{
+                    maxHeight: 280,
+                    overflow: "auto",
+                    fontSize: 12,
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    background: "rgba(0,0,0,0.2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: 12
+                  }}
                 >
-                  {account.enabled ? "Tắt" : "Bật"}
-                </button>
-                {account.in_cooldown && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => handleClearCooldown(account)}
-                    disabled={loading}
-                    title="Xóa cooldown, thử lại ngay"
-                  >
-                    Bỏ cooldown
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost danger btn-sm"
-                  onClick={() => handleDeleteAccount(account.id)}
-                  disabled={loading}
-                >
-                  Xóa
-                </button>
+                  {testResult.output || "(Không có phản hồi logs)"}
+                </pre>
               </div>
-            </article>
-          ))}
+            )}
+          </section>
         </div>
-      </section>
+      )}
     </div>
   );
 }

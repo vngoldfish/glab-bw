@@ -2,7 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 
@@ -253,3 +253,184 @@ async def get_file(file_path: str) -> FileResponse:
     }
     media_type = media_types.get(file_path_resolved.suffix.lower(), "application/octet-stream")
     return FileResponse(file_path_resolved, media_type=media_type)
+
+
+# --- REMOTE CALLABLE WEBHOOK ENDPOINTS ---
+
+from typing import Any
+from pydantic import Field
+
+class RemoteWorkflowRunRequest(BaseModel):
+    async_mode: bool = True
+    project_id: str | None = None
+    node_overrides: dict[str, dict[str, Any]] | None = None  # e.g., {"n_prompt": {"prompt": "cinematic cat"}}
+
+
+@router.get("/webhook/workflows", dependencies=[Depends(verify_api_key)])
+async def list_remote_workflows() -> dict:
+    from app.services import workflow_store as store
+    # Expose metadata only
+    return {"workflows": store.list_workflows()}
+
+
+@router.post("/webhook/workflows/{workflow_id}/run", dependencies=[Depends(verify_api_key)])
+async def run_remote_workflow(workflow_id: str, body: RemoteWorkflowRunRequest) -> dict:
+    from app.services import workflow_store as store
+    from app.services.workflow_runner import run_workflow, start_workflow_background
+    
+    doc = store.get_workflow(workflow_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail={"error": f"Workflow {workflow_id} not found"})
+    
+    # Clone nodes to avoid mutating the saved workflow file
+    import copy
+    nodes = copy.deepcopy(doc.get("nodes", []))
+    
+    # Apply node overrides if provided
+    if body.node_overrides:
+        for node in nodes:
+            nid = str(node.get("id"))
+            if nid in body.node_overrides:
+                node["data"] = {**node.get("data", {}), **body.node_overrides[nid]}
+                
+    graph = {
+        "id": workflow_id,
+        "name": doc.get("name", "Untitled"),
+        "nodes": nodes,
+        "edges": doc.get("edges", []),
+    }
+    
+    if body.async_mode:
+        run = start_workflow_background(graph, project_id=body.project_id)
+        return {
+            "run_id": run["run_id"],
+            "status": run["status"],
+            "message": "Workflow started in background",
+            "poll_url": f"/api/webhook/workflows/runs/{run['run_id']}"
+        }
+    else:
+        run = await run_workflow(graph, project_id=body.project_id)
+        return run
+
+
+@router.get("/webhook/workflows/runs/{run_id}", dependencies=[Depends(verify_api_key)])
+async def get_remote_workflow_run(run_id: str) -> dict:
+    from app.services.workflow_runner import get_run
+    run = get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail={"error": f"Run {run_id} not found"})
+    return run
+
+
+class RemoteClipIn(BaseModel):
+    path: str | None = None
+    url: str | None = None
+    trim_start: float | None = None
+    trim_end: float | None = None
+    title: str | None = None
+
+
+class RemoteAudioIn(BaseModel):
+    path: str | None = None
+    url: str | None = None
+    start: float = 0
+    trim_start: float | None = None
+    trim_end: float | None = None
+    volume: float = 1.0
+    title: str | None = None
+
+
+class RemoteTextIn(BaseModel):
+    text: str = ""
+    start: float = 0
+    end: float = 3
+    style: str = "subtitle"
+    color: str = "white"
+    font_size: int | None = None
+    x_pct: float | None = None
+    y_pct: float | None = None
+
+
+class RemoteAssembleRequest(BaseModel):
+    clips: list[RemoteClipIn] = Field(min_length=1, max_length=80)
+    audios: list[RemoteAudioIn] = Field(default_factory=list, max_length=20)
+    texts: list[RemoteTextIn] = Field(default_factory=list, max_length=40)
+    project_id: str | None = None
+    output_folder: str | None = None
+    filename: str | None = None
+    reencode: bool = True
+
+
+@router.post("/webhook/video/assemble", dependencies=[Depends(verify_api_key)])
+async def remote_assemble_video(body: RemoteAssembleRequest) -> dict:
+    from app.services import video_assemble
+    clips = [c.model_dump(exclude_none=True) for c in body.clips]
+    audios = [a.model_dump(exclude_none=True) for a in body.audios]
+    texts = [t.model_dump(exclude_none=True) for t in body.texts]
+    
+    try:
+        if audios or texts:
+            result = video_assemble.assemble_timeline(
+                clips,
+                audios=audios,
+                texts=texts,
+                project_id=body.project_id,
+                output_folder=body.output_folder,
+                filename=body.filename,
+                reencode=body.reencode,
+            )
+        else:
+            result = video_assemble.assemble_clips(
+                clips,
+                project_id=body.project_id,
+                output_folder=body.output_folder,
+                filename=body.filename,
+                reencode=body.reencode,
+            )
+        return result
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)}) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)}) from exc
+
+
+@router.get("/webhook/accounts", dependencies=[Depends(verify_api_key)])
+async def list_remote_accounts() -> dict:
+    from app.services.account_store import account_store
+    from app.providers.registry import account_to_dict
+    accounts = account_store.list_accounts()
+    return {"accounts": [account_to_dict(a) for a in accounts]}
+
+
+@router.post("/webhook/upload", dependencies=[Depends(verify_api_key)])
+async def remote_upload_file(file: UploadFile = File(...)) -> dict:
+    import secrets
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail={"error": "Empty file"})
+        
+    dest_dir = settings.data_dir / "G-Labs BW" / "webhook_uploads"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    
+    suffix = Path(file.filename or "upload.bin").suffix
+    name = f"{secrets.token_hex(8)}{suffix}"
+    dest_path = dest_dir / name
+    
+    try:
+        dest_path.write_bytes(data)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail={"error": f"Failed to write file: {exc}"})
+        
+    from app.services.output_storage import file_url_from_path
+    rel = dest_path.resolve().relative_to(settings.data_dir.resolve()).as_posix()
+    return {
+        "ok": True,
+        "filename": file.filename or name,
+        "path": rel,
+        "url": file_url_from_path(dest_path),
+        "bytes": len(data),
+    }

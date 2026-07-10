@@ -65,6 +65,7 @@ Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 | Pipeline Ảnh→Video | Flow Ảnh → **Ảnh→Video** |
 | Tách frame video | Flow Video → **Tách frame** / **Frame từ KQ** |
 | **Workflow + Project** | Menu **Workflow** — project lưu graph/nodes/preview; Tiếp tục / Tạo lại; chạy progressive |
+| **Dựng video (NLE)** | Menu **Dựng video** — timeline đa track (Video/Audio/Text), phụ đề nhiều kiểu, BGM, xuất MP4 FFmpeg |
 | Multi-account + Webhook + Auth Helper | (đã có) |
 
 ### Workflow (giống G-Labs)
@@ -119,3 +120,92 @@ g-labs-bw/
 
 - Không commit `data/accounts.json`, `data/api_key.txt`, `data/ai_settings.json`, output, `.env`
 - Export + secrets chỉ lưu local an toàn
+
+## Hướng dẫn Gọi API từ xa (Remote API & Webhook Integration)
+
+Ứng dụng hỗ trợ gọi từ các công cụ tự động hóa như **n8n**, **Make.com**, hoặc lệnh `curl` từ xa. Máy chủ tự động lắng nghe trên mọi giao diện mạng (`0.0.0.0`) sau khi chạy `./start.sh`.
+
+### 1. Xác thực (Authentication)
+Mọi yêu cầu gửi đến API từ xa cần đính kèm API Key (được lưu tại `data/api_key.txt`) thông qua Header:
+```http
+X-API-Key: <MÃ_API_KEY_CỦA_BẠN>
+```
+
+### 2. Các API Quản lý & Chạy Workflow từ xa
+
+#### a) Lấy danh sách Workflow đã lưu
+- **Endpoint:** `GET /api/webhook/workflows`
+- **Lệnh mẫu:**
+  ```bash
+  curl -H "X-API-Key: <API_KEY>" http://<IP_MÁY_CHỦ>:8765/api/webhook/workflows
+  ```
+
+#### b) Kích hoạt chạy Workflow (Run Workflow)
+- **Endpoint:** `POST /api/webhook/workflows/{workflow_id}/run`
+- **Body JSON:**
+  - `async_mode` (boolean, mặc định: `true`): Trả về `run_id` ngay lập tức để poll trạng thái, hoặc chạy đồng bộ đợi kết quả hoàn thành nếu đặt là `false`.
+  - `project_id` (string, tùy chọn): Chỉ định project lưu trữ output.
+  - `node_overrides` (object, tùy chọn): Ghi đè dữ liệu đầu vào của các nút (ví dụ: đổi prompt tạo ảnh/video).
+- **Lệnh mẫu (ghi đè prompt của nút `n_prompt`):**
+  ```bash
+  curl -X POST -H "X-API-Key: <API_KEY>" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "async_mode": true,
+      "node_overrides": {
+        "n_prompt": {
+          "prompt": "A beautiful majestic flying dragon in clouds, cinematic 4k"
+        }
+      }
+    }' \
+    http://<IP_MÁY_CHỦ>:8765/api/webhook/workflows/workflows_sample_id/run
+  ```
+- **Phản hồi:** Trả về mã chạy `run_id` và URL kiểm tra trạng thái (`poll_url`).
+
+#### c) Kiểm tra trạng thái chạy Workflow (Poll Run Status)
+- **Endpoint:** `GET /api/webhook/workflows/runs/{run_id}`
+- **Lệnh mẫu:**
+  ```bash
+  curl -H "X-API-Key: <API_KEY>" http://<IP_MÁY_CHỦ>:8765/api/webhook/workflows/runs/<RUN_ID>
+  ```
+- **Phản hồi:** Chi tiết trạng thái của từng Node (`node_results`) cùng log thực thi trực tiếp và liên kết tệp tin kết quả.
+
+### 3. Tải lên tệp Media & Ghép Video từ xa
+
+#### a) Upload tệp tin lên Server (Upload Asset)
+Sử dụng API này để tải lên các tệp tin âm thanh, hình ảnh tham chiếu hoặc video gốc trước khi chạy ghép nối.
+- **Endpoint:** `POST /api/webhook/upload` (dạng multipart/form-data)
+- **Lệnh mẫu:**
+  ```bash
+  curl -X POST -H "X-API-Key: <API_KEY>" \
+    -F "file=@/path/to/sound.mp3" \
+    http://<IP_MÁY_CHỦ>:8765/api/webhook/upload
+  ```
+- **Phản hồi:** Trả về đường dẫn cục bộ (`path`) và URL tải về của tệp tin vừa upload trên máy chủ (ví dụ: `/api/files/G-Labs BW/webhook_uploads/abc.mp3`).
+
+#### b) Ghép nối video & lồng nhạc, phụ đề từ xa (Assemble Video)
+- **Endpoint:** `POST /api/webhook/video/assemble`
+- **Body JSON:** Nhận cấu trúc giống như tính năng dựng video tại giao diện UI, hỗ trợ nhiều clip, nhạc nền và các lớp phụ đề dạng timeline.
+- **Lệnh mẫu:**
+  ```bash
+  curl -X POST -H "X-API-Key: <API_KEY>" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "clips": [
+        { "url": "/api/files/G-Labs BW/video_output/clip1.mp4" },
+        { "url": "/api/files/G-Labs BW/video_output/clip2.mp4" }
+      ],
+      "audios": [
+        { "url": "/api/files/G-Labs BW/webhook_uploads/background_music.mp3", "start": 0, "volume": 0.5 }
+      ],
+      "texts": [
+        { "text": "Intro G-Labs", "start": 0, "end": 2, "style": "title" }
+      ]
+    }' \
+    http://<IP_MÁY_CHỦ>:8765/api/webhook/video/assemble
+  ```
+
+### 4. Kiểm tra trạng thái tài khoản tự động (Check Account Health)
+- **Endpoint:** `GET /api/webhook/accounts`
+- Trả về danh sách tài khoản liên kết (Flow / Grok), trạng thái hoạt động và thời gian cooldown nếu có để bộ điều phối ngoài chủ động xoay vòng tài khoản.
+

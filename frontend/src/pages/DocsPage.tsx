@@ -13,6 +13,7 @@ const SECTIONS = [
   { id: "assets-ai", title: "Ảnh có sẵn & AI prompt" },
   { id: "run", title: "Chạy, tiếp tục & phím tắt" },
   { id: "media", title: "Media project" },
+  { id: "grok-flow-mechanisms", title: "Cơ chế Grok, Flow & Meta AI" },
 ] as const;
 
 function Dot({ color, label }: { color: string; label: string }) {
@@ -529,6 +530,74 @@ Phải:
                 Quản lý đầy đủ hơn tại <Link to={NAV_ROUTES.projects}>Projects</Link>
               </li>
             </ul>
+          </section>
+
+          {/* —— Grok & Google Flow Mechanisms —— */}
+          <section id="grok-flow-mechanisms" className="panel-card docs-section" style={{ borderLeft: "4px solid var(--purple-bright)" }}>
+            <h2>Cơ chế hoạt động: Grok, Flow &amp; Meta AI</h2>
+            <p className="muted">
+              Ứng dụng G-Labs BW hoạt động dựa trên sự kết hợp giữa Backend dịch vụ Python và các Chrome Extension để thực hiện các tác vụ tạo tài nguyên tự động vượt rào chống bot.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 16 }}>
+              <div>
+                <h3 style={{ color: "var(--purple-bright)", margin: "0 0 8px 0" }}>1. Cơ chế tự động hóa Google Flow (Veo)</h3>
+                <p className="muted" style={{ fontSize: "13px", lineHeight: "1.6" }}>
+                  Google Flow sử dụng một hệ thống xác thực chặt chẽ dựa trên tài khoản Google và các cơ chế chống bot bằng reCAPTCHA Enterprise:
+                </p>
+                <ul className="docs-bullets" style={{ fontSize: "13px" }}>
+                  <li>
+                    <strong>Quản lý Cookie &amp; Session:</strong> Khi người dùng mở trình duyệt đăng nhập Google Flow, ứng dụng G-Labs sẽ trích xuất token session an toàn và lưu vào tệp <code>accounts.json</code> để backend sử dụng.
+                  </li>
+                  <li>
+                    <strong>Vượt rào reCAPTCHA Enterprise:</strong> Mỗi khi backend gửi lệnh gen, Google yêu cầu giải mã reCAPTCHA. Ứng dụng sẽ ủy thác tác vụ giải mã này cho Chrome extension <strong>G-Labs Automation - Auth Helper</strong>. Extension này tự động tiêm tập lệnh giải mã và gọi thư viện <code>grecaptcha.enterprise</code> của Google trong ngữ cảnh tab thật để lấy Token giải mã hợp lệ gửi về cho backend.
+                  </li>
+                  <li>
+                    <strong>Xoay vòng tài khoản (Rotating Queue):</strong> Nếu một tài khoản bị lỗi (quá hạn ngạch gen, phản hồi lỗi 503), backend sẽ tự động tạm dừng tài khoản đó trong thời gian chờ (cooldown) và xoay vòng sang tài khoản Google tiếp theo trong hàng đợi, đảm bảo gen liên tục không bị gián đoạn.
+                  </li>
+                </ul>
+              </div>
+
+              <hr style={{ border: "0", borderTop: "1px dashed var(--border)", margin: "10px 0" }} />
+
+              <div>
+                <h3 style={{ color: "#fdba74", margin: "0 0 8px 0" }}>2. Cơ chế vượt rào chống bot Grok (grok.com)</h3>
+                <p className="muted" style={{ fontSize: "13px", lineHeight: "1.6" }}>
+                  Grok.com chặn bot bằng Cloudflare và cơ chế mã token động <code>x-statsig-id</code> sinh ra từ dấu vân tay thiết bị (DOM-fingerprint) của trình duyệt. Ứng dụng sử dụng cơ chế vượt rào song song:
+                </p>
+                <ul className="docs-bullets" style={{ fontSize: "13px" }}>
+                  <li>
+                    <strong>Đăng nhập kép (Dual Auth):</strong> Hỗ trợ sử dụng xAI API chính thức (cần API Key trả phí) hoặc sử dụng Session Web miễn phí trực tiếp từ tab Grok của bạn (qua cookies sso/sso-rw).
+                  </li>
+                  <li>
+                    <strong>Tự động tạo mã chống bot (Statsig Minting Bypass):</strong> Ứng dụng tích hợp bộ <em>Statsig Mint Recipe</em>. Khi chạy tác vụ gen, backend gửi công thức cấu hình Turbopack (module ID 13530089) xuống cho Extension. Extension sẽ truy cập trực tiếp vào nhân quản lý module Turbopack của tab <code>grok.com/imagine</code> đang chạy, kích hoạt hàm middleware của Grok để tự sinh ra mã <code>x-statsig-id</code> mới và stamp thẳng vào request. Bạn không cần phải click gen ảnh bằng tay trên web để "đánh hơi" mã nữa.
+                  </li>
+                  <li>
+                    <strong>WebSocket inside MAIN world:</strong> Đối với tạo ảnh, Extension mở một kết nối WebSocket trực tiếp đến <code>wss://grok.com/ws/imagine/listen</code> ngay bên trong trang Grok của bạn. Bằng cách này, request thừa hưởng toàn bộ thông số cookie, User-Agent và IP của trình duyệt thực tế, bypass 100% Cloudflare và tải ảnh chất lượng gốc về máy.
+                  </li>
+                </ul>
+              </div>
+
+              <hr style={{ border: "0", borderTop: "1px dashed var(--border)", margin: "10px 0" }} />
+
+              <div>
+                <h3 style={{ color: "#3498db", margin: "0 0 8px 0" }}>3. Cơ chế hoạt động của Meta AI (Vibes AI)</h3>
+                <p className="muted" style={{ fontSize: "13px", lineHeight: "1.6" }}>
+                  Meta AI (hoạt động thông qua cổng Vibes.ai) sử dụng session xác thực từ Cookie để thực hiện các yêu cầu sinh ảnh và video miễn phí bằng các mô hình của Meta:
+                </p>
+                <ul className="docs-bullets" style={{ fontSize: "13px" }}>
+                  <li>
+                    <strong>Đăng nhập thông qua Cookie meta_session:</strong> Tương tự như cơ chế của Flow, Vibes AI xác thực người dùng bằng cookie <code>meta_session</code>. Cookie này có thể được xuất dễ dàng từ trình duyệt Chrome khi bạn truy cập và đăng nhập vào trang <code>vibes.ai</code> bằng tài khoản của mình.
+                  </li>
+                  <li>
+                    <strong>Tương tác qua REST API trực tiếp:</strong> Sau khi cấu hình cookie trong phần Cài đặt, Backend sẽ thực hiện gửi các yêu cầu HTTP POST/GET trực tiếp đến API của Vibes AI (<code>/api/v1/meta/generate</code> hoặc <code>/api/v1/meta/video/generate</code>) kèm theo cookie xác thực để tạo nội dung một cách tự động, không cần tương tác thủ công trên giao diện web.
+                  </li>
+                  <li>
+                    <strong>Hỗ trợ đa dạng tỷ lệ và Mô hình:</strong> Hỗ trợ các tỷ lệ màn hình 1:1, 9:16, 16:9 cho ảnh và video với các mô hình <code>midjen-base</code> và <code>midjen-short</code> của Meta, cũng như tải kết xuất video 480p chất lượng cao trực tiếp về máy.
+                  </li>
+                </ul>
+              </div>
+            </div>
           </section>
         </div>
       </div>

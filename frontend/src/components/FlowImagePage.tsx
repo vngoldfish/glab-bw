@@ -23,7 +23,9 @@ import {
   buildNamedReferencesPayload,
   validatePromptMentions,
 } from "../referenceUtils";
+import { useUiDialog } from "./UiDialog";
 import {
+  META_IMAGE_MODELS,
   ASPECT_RATIOS,
   GROK_IMAGE_MODELS,
   IMAGE_MODELS,
@@ -48,11 +50,11 @@ const DEFAULT_CONFIG: ImageConfig = {
 };
 
 function modelsForEngine(engine: MediaEngine) {
-  return engine === "grok" ? GROK_IMAGE_MODELS : IMAGE_MODELS;
+  return engine === "grok" ? GROK_IMAGE_MODELS : engine === "meta" ? META_IMAGE_MODELS : IMAGE_MODELS;
 }
 
 function defaultModelForEngine(engine: MediaEngine): string {
-  return engine === "grok" ? GROK_IMAGE_MODELS[0].value : IMAGE_MODELS[0].value;
+  return engine === "grok" ? GROK_IMAGE_MODELS[0].value : engine === "meta" ? META_IMAGE_MODELS[0].value : IMAGE_MODELS[0].value;
 }
 
 function emptyRow(): QueueRow {
@@ -73,14 +75,23 @@ function emptyRow(): QueueRow {
   };
 }
 
-function confirmRerun(targetRows: QueueRow[]): boolean {
+async function confirmRerun(
+  dialog: { confirm: (opts: { title?: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: "danger" | "default" }) => Promise<boolean> },
+  targetRows: QueueRow[],
+): Promise<boolean> {
   const completedCount = targetRows.filter((r) => r.status === "completed").length;
   if (completedCount === 0) return true;
   const message =
     completedCount === 1
       ? "Prompt này đã hoàn thành. Bạn có chắc muốn chạy lại?"
       : `${completedCount} prompt đã hoàn thành. Bạn có chắc muốn chạy lại?`;
-  return window.confirm(message);
+  return dialog.confirm({
+    title: "Chạy lại?",
+    message,
+    confirmLabel: "Chạy lại",
+    cancelLabel: "Hủy",
+    tone: "default",
+  });
 }
 
 function statusLabel(status: RowStatus): string {
@@ -137,6 +148,7 @@ interface FlowImagePageProps {
 }
 
 export default function FlowImagePage({ activeCount, onError }: FlowImagePageProps) {
+  const dialog = useUiDialog();
   const navigate = useNavigate();
   const { library: referenceLibrary } = useReferenceLibrary();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
@@ -238,23 +250,27 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
         const namedRefs = buildNamedReferencesPayload(prompt, referenceLibrary);
         const isGrok = config.engine === "grok";
+        const isMeta = config.engine === "meta";
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          upscale: isGrok ? [] : config.upscale,
+          upscale: (isGrok || isMeta) ? [] : config.upscale,
           count: config.imagesPerPrompt,
           save_mode: config.saveMode,
           output_folder: isGrok
             ? config.outputFolder.replace("image_output", "grok_output") || "G-Labs BW/grok_output"
+            : isMeta
+            ? config.outputFolder.replace("image_output", "meta_output") || "G-Labs BW/meta_output"
             : config.outputFolder,
           ...(isGrok ? { mode: "t2i" } : {}),
+          ...(isMeta ? { mode: "t2i" } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
           ...(!namedRefs.length && row.referenceImage
             ? { reference_images: [row.referenceImage] }
             : {}),
         };
         const result = await submitBatch(
-          [{ prompt, provider: isGrok ? "grok" : "image", params }],
+          [{ prompt, provider: isGrok ? "grok" : isMeta ? "meta" : "image", params }],
           1,
         );
         const item = result.results[0];
@@ -284,14 +300,14 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     setRunning(false);
   }
 
-  function runSelected() {
+  async function runSelected() {
     const selected = rows.filter((r) => r.selected && r.prompt.trim());
     if (selected.length === 0) {
       onError("Chọn ít nhất một dòng có prompt");
       return;
     }
-    if (!confirmRerun(selected)) return;
-    runRows(selected);
+    if (!(await confirmRerun(dialog, selected))) return;
+    void runRows(selected);
   }
 
   function importCsvFile(file: File) {
@@ -336,7 +352,13 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       onError("Chọn ít nhất một dòng có prompt");
       return;
     }
-    if (!confirm(`Chạy pipeline Ảnh→Video cho ${selected.length} dòng? (lâu hơn gen ảnh)`)) return;
+    const ok = await dialog.confirm({
+      title: "Chạy pipeline Ảnh → Video?",
+      message: `Sẽ chạy pipeline cho ${selected.length} dòng (lâu hơn gen ảnh).`,
+      confirmLabel: "Chạy pipeline",
+      cancelLabel: "Hủy",
+    });
+    if (!ok) return;
     setRunning(true);
     try {
       await runWithConcurrency(
@@ -388,13 +410,13 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     }
   }
 
-  function runSingle(row: QueueRow) {
+  async function runSingle(row: QueueRow) {
     if (!row.prompt.trim()) {
       onError("Dòng này chưa có prompt");
       return;
     }
-    if (!confirmRerun([row])) return;
-    runRows([row]);
+    if (!(await confirmRerun(dialog, [row]))) return;
+    void runRows([row]);
   }
 
   const displayRows = useMemo(() => {
@@ -598,10 +620,15 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     setRows((prev) => prev.map((row) => ({ ...row, selected: false })));
   }
 
-  function clearQueueTable() {
-    if (!window.confirm("Xóa toàn bộ bảng prompt? Hành động này không thể hoàn tác.")) {
-      return;
-    }
+  async function clearQueueTable() {
+    const ok = await dialog.confirm({
+      title: "Xóa toàn bộ bảng?",
+      message: "Toàn bộ prompt trong bảng sẽ bị xóa. Hành động này không thể hoàn tác.",
+      confirmLabel: "Xóa hết",
+      cancelLabel: "Hủy",
+      tone: "danger",
+    });
+    if (!ok) return;
     setRows([]);
     clearFlowImageSnapshot();
     saveFlowImageSnapshot({
@@ -631,9 +658,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     <div className="flow-page">
       <header className="flow-page-top">
         <div className="flow-page-top-main">
-          <h1>{config.engine === "grok" ? "Grok Image" : "Flow Image"}</h1>
-          <span className={`pill ${config.engine === "grok" ? "pill-purple" : "pill-purple"}`}>
-            {config.engine === "grok" ? "Grok · Auth Helper" : "Google Flow"}
+          <h1>{config.engine === "grok" ? "Grok Image" : config.engine === "meta" ? "Meta Image" : "Flow Image"}</h1>
+          <span className={`pill ${config.engine === "grok" ? "pill-purple" : config.engine === "meta" ? "pill-purple" : "pill-purple"}`}>
+            {config.engine === "grok" ? "Grok · Auth Helper" : config.engine === "meta" ? "Meta AI · Vibes" : "Google Flow"}
           </span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
         </div>
@@ -676,6 +703,8 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                     outputFolder:
                       engine === "grok"
                         ? "G-Labs BW/grok_output"
+                        : engine === "meta"
+                        ? "G-Labs BW/meta_output"
                         : "G-Labs BW/image_output",
                   }));
                 }}
@@ -688,6 +717,8 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 {(MEDIA_ENGINES.find((m) => m.value === (config.engine || "flow")) || MEDIA_ENGINES[0]).hint}
                 {config.engine === "grok"
                   ? " · Grok = nick login trên tab grok.com (không dùng list account Flow). Flow = cookie trong Cài đặt."
+                  : config.engine === "meta"
+                  ? " · Meta = cookie meta_session trong Cài đặt."
                   : " · Flow = cookie/session trong Cài đặt (email thật sau khi refresh session)."}
               </small>
             </label>

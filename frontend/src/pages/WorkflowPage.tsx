@@ -37,6 +37,7 @@ import {
   fetchWorkflowRun,
   listProjects,
   mapReferenceRecord,
+  mediaUrl,
   normalizeFileUrl,
   openProjectFolder,
   rewritePromptAi,
@@ -47,6 +48,7 @@ import {
   type WorkflowAiNodeContext,
   type WorkflowRunResult,
 } from "../api";
+import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
 
@@ -1177,6 +1179,7 @@ function layoutWorkflowNodes(
 }
 
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
+  const dialog = useUiDialog();
   const [searchParams] = useSearchParams();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -1866,7 +1869,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   async function handleNewProject() {
-    if (dirty && !confirm("Project hiện tại chưa lưu. Tạo project trống?")) return;
+    if (dirty) {
+      const ok = await dialog.confirm({
+        title: "Tạo project trống?",
+        message: "Project hiện tại chưa lưu. Thay đổi chưa lưu sẽ mất.",
+        confirmLabel: "Tạo mới",
+        cancelLabel: "Hủy",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     setProjectId(null);
     setName("Project mới");
     setDescription("");
@@ -1878,7 +1890,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   async function handleOpenProject(id: string) {
-    if (dirty && !confirm("Có thay đổi chưa lưu. Mở project khác?")) return;
+    if (dirty) {
+      const ok = await dialog.confirm({
+        title: "Mở project khác?",
+        message: "Có thay đổi chưa lưu. Tiếp tục sẽ mất thay đổi hiện tại.",
+        confirmLabel: "Mở project",
+        cancelLabel: "Hủy",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     try {
       const doc = await fetchProject(id);
       setProjectId(doc.id);
@@ -2251,11 +2272,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             style={{ padding: "4px 8px" }}
             title="Hướng dẫn nối node, chạy pipeline"
             onClick={(e) => {
-              if (dirty) {
-                if (!window.confirm("Bạn có các thay đổi chưa lưu trên workflow. Bạn có chắc chắn muốn rời đi?")) {
-                  e.preventDefault();
-                }
-              }
+              if (!dirty) return;
+              e.preventDefault();
+              void (async () => {
+                const ok = await dialog.confirm({
+                  title: "Rời workflow?",
+                  message: "Có thay đổi chưa lưu. Rời trang sẽ mất thay đổi nếu chưa lưu.",
+                  confirmLabel: "Rời đi",
+                  cancelLabel: "Ở lại",
+                  tone: "danger",
+                });
+                if (ok) window.location.assign(NAV_ROUTES.docs);
+              })();
             }}
           >
             Document
@@ -2424,7 +2452,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       type="button"
                       className="wf-project-del-btn"
                       onClick={async () => {
-                        if (!confirm(`Xóa project “${p.name}”?`)) return;
+                        const ok = await dialog.confirm({
+                          title: "Xóa project?",
+                          message: `“${p.name}” sẽ bị xóa khỏi danh sách workflow.`,
+                          confirmLabel: "Xóa",
+                          cancelLabel: "Hủy",
+                          tone: "danger",
+                        });
+                        if (!ok) return;
                         await deleteProject(p.id);
                         if (projectId === p.id) {
                           setProjectId(null);
@@ -2469,7 +2504,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 type="button"
                 className="wf-preset-btn"
                 onClick={async () => {
-                  if (dirty && !confirm("Thay graph hiện tại bằng mẫu?")) return;
+                  if (dirty) {
+                    const ok = await dialog.confirm({
+                      title: "Áp dụng mẫu?",
+                      message: "Graph hiện tại sẽ bị thay bằng mẫu Ảnh→Video.",
+                      confirmLabel: "Áp dụng",
+                      cancelLabel: "Hủy",
+                      tone: "danger",
+                    });
+                    if (!ok) return;
+                  }
                   const s = await fetchSampleWorkflow();
                   setName(s.name || "Mẫu Ảnh→Video");
                   setNodes(attachHandlers((s.nodes as Node[]) || []));
@@ -2487,7 +2531,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
                 onClick={async () => {
                   try {
-                    if (dirty && !confirm("Thay graph hiện tại bằng mẫu?")) return;
+                    if (dirty) {
+                      const ok = await dialog.confirm({
+                        title: "Áp dụng mẫu?",
+                        message: "Graph hiện tại sẽ bị thay bằng mẫu nối video.",
+                        confirmLabel: "Áp dụng",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
+                    }
                     const s = await fetchSampleVideoChain();
                     setName(s.name || "Mẫu nối video");
                     setNodes(attachHandlers((s.nodes as Node[]) || []));
@@ -2735,17 +2788,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>
           {isVideoUrl(lightbox) ? (
             <video
-              src={lightbox}
+              src={mediaUrl(lightbox)}
               controls
               autoPlay
-              style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12 }}
+              playsInline
+              style={{ maxWidth: "92vw", maxHeight: "90vh", borderRadius: 12, background: "#000" }}
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
             <img
-              src={lightbox}
+              src={mediaUrl(lightbox)}
               alt=""
-              style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }}
+              style={{ maxWidth: "92vw", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }}
               onClick={(e) => e.stopPropagation()}
             />
           )}

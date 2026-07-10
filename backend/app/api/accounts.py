@@ -88,6 +88,7 @@ async def create_account(body: AccountCreate) -> dict:
         try:
             from app.services.flow_client import google_flow_client
             from app.services.flow_session import flow_session_manager
+            from app.services.session_health import session_health
 
             await flow_session_manager.ensure_session(
                 account,
@@ -95,9 +96,37 @@ async def create_account(body: AccountCreate) -> dict:
                 force_refresh=True,
             )
             account = account_store.get(account.id) or account
-        except Exception:
-            # Keep account even if offline; label may stay user-typed until first gen
-            pass
+            session_health.mark_flow_ok()
+            if account.id in session_health.stale_account_ids:
+                session_health.stale_account_ids.discard(account.id)
+        except Exception as exc:
+            # Delete invalid account and raise error
+            account_store.delete(account.id)
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Session-token Flow không hợp lệ: {exc}"},
+            )
+
+    # Meta AI: validate token immediately
+    if body.provider == "meta" and credentials.get("cookie"):
+        try:
+            from app.services.meta_client import MetaClient
+            client = MetaClient(credentials)
+            status = await client.check_token()
+            if not status.get("ok"):
+                # Delete invalid account
+                account_store.delete(account.id)
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": f"Cookie Meta không hợp lệ: {status.get('error')}"},
+                )
+        except Exception as exc:
+            account_store.delete(account.id)
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Lỗi xác thực Meta AI: {exc}"},
+            )
+
     return {"account": account_to_dict(account)}
 
 
@@ -114,9 +143,63 @@ async def update_account(account_id: str, body: AccountUpdate) -> dict:
         updates["clear_cooldown"] = True
     # Drop Nones so we don't wipe fields
     updates = {k: v for k, v in updates.items() if v is not None}
+
+    existing = account_store.get(account_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail={"error": "Account not found"})
+
+    label = body.label or existing.label
+    creds = body.credentials
+    if creds is not None:
+        label, creds = _normalize_credentials(existing.provider, label, creds)
+        updates["label"] = label
+        updates["credentials"] = creds
+
     account = account_store.update(account_id, **updates)
     if not account:
         raise HTTPException(status_code=404, detail={"error": "Account not found"})
+
+    # Validate new Flow token
+    if account.provider == "flow" and creds and creds.get("session_token"):
+        try:
+            from app.services.flow_client import google_flow_client
+            from app.services.flow_session import flow_session_manager
+            from app.services.session_health import session_health
+
+            await flow_session_manager.ensure_session(
+                account,
+                google_flow_client,
+                force_refresh=True,
+            )
+            account = account_store.get(account.id) or account
+            session_health.mark_flow_ok()
+            if account.id in session_health.stale_account_ids:
+                session_health.stale_account_ids.discard(account.id)
+        except Exception as exc:
+            from app.services.session_health import session_health
+            session_health.mark_flow_stale(str(exc), account.id)
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Cập nhật thất bại. Session-token Flow không hợp lệ: {exc}"},
+            )
+
+    # Validate new Meta cookie
+    if account.provider == "meta" and creds and creds.get("cookie"):
+        try:
+            from app.services.meta_client import MetaClient
+            client = MetaClient(creds)
+            status = await client.check_token()
+            if not status.get("ok"):
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": f"Cập nhật thất bại. Cookie Meta không hợp lệ: {status.get('error')}"},
+                )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Lỗi xác thực Meta AI: {exc}"},
+            )
+
     return {"account": account_to_dict(account)}
 
 

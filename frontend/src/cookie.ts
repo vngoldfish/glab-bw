@@ -134,3 +134,42 @@ export function parseFlowCookieInput(raw: string): { session_token: string; emai
     "Dán JSON cookie labs.google (có __Secure-next-auth.session-token) hoặc session token (eyJ...)",
   );
 }
+
+export function parseMetaCookieInput(raw: string): string {
+  const text = raw.trim();
+  if (!text) {
+    throw new Error("Chưa nhập cookie vibes.ai");
+  }
+
+  if (text.startsWith("[")) {
+    let cookies: CookieItem[];
+    try {
+      cookies = JSON.parse(text) as CookieItem[];
+    } catch {
+      throw new Error("Cookie JSON không hợp lệ (không parse được mảng)");
+    }
+    if (!Array.isArray(cookies)) {
+      throw new Error("Cookie JSON phải là mảng [ {...}, ... ]");
+    }
+
+    const parts = cookies
+      .map((c) => {
+        if (c.name && c.value) {
+          return `${c.name}=${c.value}`;
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (!parts.some((p) => p.startsWith("meta_session="))) {
+      throw new Error("Cookie JSON thiếu meta_session (đăng nhập vibes.ai rồi export lại)");
+    }
+    return parts.join("; ");
+  }
+
+  if (text.includes("meta_session=")) {
+    return text;
+  }
+
+  throw new Error("Cookie vibes.ai phải dạng JSON array hoặc chuỗi header chứa meta_session=...");
+}

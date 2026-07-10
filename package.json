@@ -11,7 +11,7 @@
     "stop": "bash ./stop.sh",
     "status": "bash ./status.sh",
     "build": "npm --prefix frontend run build",
-    "dev:frontend": "npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173",
+    "dev:frontend": "npm --prefix frontend run dev -- --host 0.0.0.0 --port 5173",
     "test": "bash ./test.sh all",
     "test:smoke": "bash ./test.sh smoke",
     "test:api": "bash ./test.sh api",

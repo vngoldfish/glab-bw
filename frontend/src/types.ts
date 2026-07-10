@@ -5,6 +5,7 @@ export type NavPage =
   | "references"
   | "prompt-hub"
   | "workflow"
+  | "video-editor"
   | "projects"
   | "docs"
   | "grok"
@@ -46,7 +47,7 @@ export interface QueueRow {
 }
 
 /** Engine backend: Google Flow (labs) or Grok (Auth Helper / web) */
-export type MediaEngine = "flow" | "grok";
+export type MediaEngine = "flow" | "grok" | "meta";
 
 export interface ImageConfig {
   /** flow = Google Flow · grok = Grok via Auth Helper */
@@ -77,6 +78,11 @@ export const GROK_IMAGE_MODELS = [
   { value: "grok-3", label: "Grok Imagine (web · Auth Helper)" },
   { value: "grok-imagine-image", label: "Grok Imagine API (cần key xAI)" },
   { value: "grok-imagine-image-quality", label: "Grok Imagine Quality API" },
+] as const;
+
+export const META_IMAGE_MODELS = [
+  { value: "midjen-base", label: "Meta Imagine Base (web · cookie)" },
+  { value: "midjen-short", label: "Meta Imagine Short (web · cookie)" },
 ] as const;
 
 export const ASPECT_RATIOS = [
@@ -122,6 +128,10 @@ export const GROK_VIDEO_MODELS = [
   { value: "grok-imagine-video-1.5", label: "Grok Video 1.5 API" },
 ] as const;
 
+export const META_VIDEO_MODELS = [
+  { value: "meta-video", label: "Meta Video 480p (web · cookie)" },
+] as const;
+
 export const MEDIA_ENGINES: { value: MediaEngine; label: string; hint: string }[] = [
   {
     value: "flow",
@@ -132,6 +142,11 @@ export const MEDIA_ENGINES: { value: MediaEngine; label: string; hint: string }[
     value: "grok",
     label: "Grok",
     hint: "grok.com/imagine · Auth Helper gfetch (cùng extension Flow)",
+  },
+  {
+    value: "meta",
+    label: "Meta AI",
+    hint: "vibes.ai · cookie meta_session nhập trong Cài đặt",
   },
 ];
 

@@ -63,8 +63,10 @@ export interface BatchResult {
   results: BatchItemResult[];
 }
 
-const BACKEND_HINT =
-  "Backend chưa chạy — mở PowerShell tại thư mục dự án và chạy .\\start-backend.ps1 (giữ cửa sổ mở)";
+const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.userAgent);
+const BACKEND_HINT = isMac
+  ? "Backend chưa chạy — hãy mở Terminal và chạy ./start.sh hoặc npm start"
+  : "Backend chưa chạy — hãy mở PowerShell và chạy .\\start-backend.ps1 (giữ cửa sổ mở)";
 
 async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
@@ -86,7 +88,9 @@ async function readJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   if (!text.trim()) {
     throw new Error(
-      "Backend không phản hồi — hãy chạy .\\start-backend.ps1 và giữ cửa sổ PowerShell mở",
+      isMac
+        ? "Backend không phản hồi — hãy chạy ./start.sh hoặc npm start"
+        : "Backend không phản hồi — hãy chạy .\\start-backend.ps1 và giữ cửa sổ PowerShell mở",
     );
   }
   try {
@@ -94,7 +98,11 @@ async function readJson<T>(res: Response): Promise<T> {
   } catch {
     const preview = text.trim().slice(0, 80);
     if (preview.toLowerCase().startsWith("<!doctype") || preview.startsWith("<html")) {
-      throw new Error("Backend chưa chạy hoặc proxy lỗi — hãy chạy .\\start-backend.ps1");
+      throw new Error(
+        isMac
+          ? "Backend chưa chạy hoặc proxy lỗi — hãy chạy ./start.sh hoặc npm start"
+          : "Backend chưa chạy hoặc proxy lỗi — hãy chạy .\\start-backend.ps1",
+      );
     }
     throw new Error(`Phản hồi không phải JSON: ${preview || "(rỗng)"}`);
   }
@@ -131,12 +139,38 @@ export function normalizeFileUrl(url: string): string {
   try {
     const parsed = new URL(url);
     if (parsed.pathname.startsWith("/api/files/")) {
-      return parsed.pathname;
+      return parsed.pathname + (parsed.search || "");
     }
   } catch {
     if (url.startsWith("/api/files/")) return url;
   }
   return url;
+}
+
+/**
+ * Safe media URL for <video>/<img> src.
+ * Encodes path segments so spaces in "G-Labs BW/..." work through Vite proxy.
+ */
+export function mediaUrl(url: string): string {
+  const raw = normalizeFileUrl(url || "");
+  if (!raw) return raw;
+  if (!raw.startsWith("/api/files/")) return raw;
+  try {
+    const rest = raw.slice("/api/files/".length);
+    const encoded = rest
+      .split("/")
+      .map((seg) => {
+        try {
+          return encodeURIComponent(decodeURIComponent(seg));
+        } catch {
+          return encodeURIComponent(seg);
+        }
+      })
+      .join("/");
+    return `/api/files/${encoded}`;
+  } catch {
+    return raw.replace(/ /g, "%20");
+  }
 }
 
 export async function fetchAppInfo(): Promise<AppInfo> {
@@ -1040,6 +1074,240 @@ export async function clearProjectAssets(
 export async function openProjectFolder(id: string): Promise<void> {
   const res = await apiFetch(`/api/projects/${id}/open-folder`, { method: "POST" });
   await ensureOk(res, "Không mở thư mục project");
+}
+
+/* —— Video Editor (dựng / ghép clip, G-Labs parity) —— */
+
+export interface VideoEditorClipIn {
+  path?: string;
+  url?: string;
+  trim_start?: number | null;
+  trim_end?: number | null;
+  title?: string;
+}
+
+export interface VideoEditorAudioIn {
+  path?: string;
+  url?: string;
+  start?: number;
+  trim_start?: number | null;
+  trim_end?: number | null;
+  volume?: number;
+  title?: string;
+}
+
+export interface VideoEditorTextIn {
+  text: string;
+  start: number;
+  end: number;
+  style?: string;
+  color?: string;
+  font_size?: number | null;
+  /** 0–100, center of text on frame */
+  x_pct?: number | null;
+  y_pct?: number | null;
+}
+
+export interface VideoAssembleResult {
+  ok: boolean;
+  path: string;
+  url: string;
+  name: string;
+  bytes?: number;
+  mb?: number;
+  duration?: number | null;
+  width?: number | null;
+  height?: number | null;
+  clip_count?: number;
+  audio_count?: number;
+  text_count?: number;
+  folder?: string;
+}
+
+export async function fetchVideoEditorStatus(): Promise<{
+  ffmpeg: boolean;
+  ffprobe: boolean;
+  ready: boolean;
+  message: string;
+  text_styles?: string[];
+}> {
+  const res = await apiFetch("/api/video-editor/status");
+  await ensureOk(res, "Không kiểm tra video editor");
+  return readJson(res);
+}
+
+export async function assembleVideoClips(payload: {
+  clips: VideoEditorClipIn[];
+  audios?: VideoEditorAudioIn[];
+  texts?: VideoEditorTextIn[];
+  /** Workflow project (legacy) — prefer edit_project_id */
+  project_id?: string | null;
+  /** Project dựng video (riêng, không dùng chung workflow) */
+  edit_project_id?: string | null;
+  output_folder?: string | null;
+  filename?: string | null;
+  reencode?: boolean;
+}): Promise<VideoAssembleResult> {
+  const res = await apiFetch("/api/video-editor/assemble", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clips: payload.clips,
+      audios: payload.audios ?? [],
+      texts: payload.texts ?? [],
+      project_id: payload.project_id ?? null,
+      edit_project_id: payload.edit_project_id ?? null,
+      output_folder: payload.output_folder ?? null,
+      filename: payload.filename ?? null,
+      reencode: payload.reencode !== false,
+    }),
+  });
+  await ensureOk(res, "Dựng video thất bại");
+  return readJson(res);
+}
+
+/* —— Edit projects (dựng video — tách khỏi Workflow) —— */
+
+export interface EditProjectMeta {
+  id: string;
+  name: string;
+  description?: string;
+  clip_count?: number;
+  updated_at?: number;
+  created_at?: number;
+  output_folder?: string;
+  last_export_name?: string | null;
+}
+
+export interface EditProjectClip {
+  id?: string;
+  path: string;
+  url: string;
+  name: string;
+  duration?: number | null;
+}
+
+export interface EditProjectDoc {
+  id: string;
+  name: string;
+  description?: string;
+  clips: EditProjectClip[];
+  filename?: string;
+  last_export?: VideoAssembleResult | Record<string, unknown> | null;
+  created_at?: number;
+  updated_at?: number;
+  output_folder?: string;
+}
+
+export type MediaInsertSource = "workflow" | "flow_video" | "flow_image";
+
+export async function listEditProjects(): Promise<EditProjectMeta[]> {
+  const res = await apiFetch("/api/video-editor/edit-projects");
+  await ensureOk(res, "Không tải project dựng video");
+  const data = await readJson<{ projects: EditProjectMeta[] }>(res);
+  return data.projects || [];
+}
+
+export async function fetchEditProject(id: string): Promise<EditProjectDoc> {
+  const res = await apiFetch(`/api/video-editor/edit-projects/${id}`);
+  await ensureOk(res, "Không mở project dựng video");
+  const data = await readJson<{ project: EditProjectDoc }>(res);
+  return data.project;
+}
+
+export async function saveEditProject(
+  doc: {
+    name: string;
+    description?: string;
+    clips?: EditProjectClip[];
+    filename?: string;
+    last_export?: Record<string, unknown> | null;
+  },
+  id?: string | null,
+): Promise<EditProjectDoc> {
+  const res = await apiFetch(
+    id ? `/api/video-editor/edit-projects/${id}` : "/api/video-editor/edit-projects",
+    {
+      method: id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(doc),
+    },
+  );
+  await ensureOk(res, "Không lưu project dựng video");
+  const data = await readJson<{ project: EditProjectDoc }>(res);
+  return data.project;
+}
+
+export async function deleteEditProject(id: string, deleteFiles = false): Promise<void> {
+  const q = deleteFiles ? "?delete_files=true" : "";
+  const res = await apiFetch(`/api/video-editor/edit-projects/${id}${q}`, {
+    method: "DELETE",
+  });
+  await ensureOk(res, "Không xóa project dựng video");
+}
+
+export async function fetchMediaSources(): Promise<{
+  sources: Array<{
+    id: MediaInsertSource | string;
+    label: string;
+    description: string;
+    needs_project: boolean;
+  }>;
+  workflow_projects: Array<{ id: string; name: string; updated_at?: number }>;
+}> {
+  const res = await apiFetch("/api/video-editor/media-sources");
+  await ensureOk(res, "Không tải nguồn media");
+  return readJson(res);
+}
+
+export async function browseInsertMedia(opts: {
+  source: MediaInsertSource | string;
+  workflow_project_id?: string | null;
+  kind?: "video" | "image" | "all" | null;
+}): Promise<{ assets: ProjectAsset[]; count: number; source: string }> {
+  const params = new URLSearchParams();
+  params.set("source", opts.source);
+  if (opts.workflow_project_id) params.set("workflow_project_id", opts.workflow_project_id);
+  if (opts.kind) params.set("kind", opts.kind);
+  const res = await apiFetch(`/api/video-editor/media-browse?${params}`);
+  await ensureOk(res, "Không tải media");
+  return readJson(res);
+}
+
+export async function probeVideoClips(
+  sources: string[],
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  const res = await apiFetch("/api/video-editor/probe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sources }),
+  });
+  await ensureOk(res, "Không probe clip");
+  return readJson(res);
+}
+
+export async function uploadEditorAudio(
+  file: File,
+  projectId?: string | null,
+): Promise<{ path: string; url: string; name: string; mb?: number }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (projectId) fd.append("project_id", projectId);
+  const res = await apiFetch("/api/video-editor/upload-audio", {
+    method: "POST",
+    body: fd,
+  });
+  await ensureOk(res, "Upload audio thất bại");
+  return readJson(res);
+}
+
+export async function listEditorAudioLibrary(
+  projectId?: string | null,
+): Promise<{ items: Array<{ path: string; url: string; name: string; mb?: number; mtime?: number }> }> {
+  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  const res = await apiFetch(`/api/video-editor/audio-library${q}`);
+  await ensureOk(res, "Không tải audio library");
+  return readJson(res);
 }
 
 export async function deleteProjectFull(id: string, deleteFiles = false): Promise<void> {

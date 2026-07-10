@@ -7,6 +7,7 @@ import {
   usePrompt,
   type HubPrompt,
 } from "../api";
+import { useUiDialog } from "../components/UiDialog";
 
 interface PromptHubPageProps {
   onError: (msg: string) => void;
@@ -14,6 +15,7 @@ interface PromptHubPageProps {
 }
 
 export default function PromptHubPage({ onError }: PromptHubPageProps) {
+  const dialog = useUiDialog();
   const [prompts, setPrompts] = useState<HubPrompt[]>([]);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("all");
@@ -128,60 +130,70 @@ export default function PromptHubPage({ onError }: PromptHubPageProps) {
         {prompts.length === 0 ? (
           <p className="muted">Chưa có prompt — thêm ở trên.</p>
         ) : (
-          <div className="account-list">
+          <div className="prompt-list">
             {prompts.map((p) => (
-              <article key={p.id} className="account-card">
-                <div style={{ flex: 1 }}>
-                  <strong>{p.title}</strong>
-                  <p>
-                    {p.kind} · dùng {p.use_count ?? 0} lần
-                  </p>
-                  <small style={{ whiteSpace: "pre-wrap" }}>{p.text.slice(0, 240)}{p.text.length > 240 ? "…" : ""}</small>
+              <article key={p.id} className="prompt-card">
+                <div className="prompt-card-header">
+                  <h3 className="prompt-card-title">{p.title}</h3>
+                  <span className={`prompt-card-kind-badge ${p.kind || "any"}`}>
+                    {p.kind}
+                  </span>
                 </div>
-                <div className="account-card-actions">
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    title="Copy prompt"
-                    onClick={async () => {
-                      try {
-                        await usePrompt(p.id);
-                        await navigator.clipboard.writeText(p.text);
-                        await load();
-                      } catch (e) {
-                        onError(e instanceof Error ? e.message : String(e));
-                      }
-                    }}
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => {
-                      setEditId(p.id);
-                      setTitle(p.title);
-                      setText(p.text);
-                      setNewKind(p.kind || "any");
-                    }}
-                  >
-                    Sửa
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost danger btn-sm"
-                    onClick={async () => {
-                      if (!confirm("Xóa prompt này?")) return;
-                      try {
-                        await deletePrompt(p.id);
-                        await load();
-                      } catch (e) {
-                        onError(e instanceof Error ? e.message : String(e));
-                      }
-                    }}
-                  >
-                    Xóa
-                  </button>
+                <p className="prompt-card-content">{p.text}</p>
+                <div className="prompt-card-footer">
+                  <span className="prompt-card-use-count">Dùng {p.use_count ?? 0} lần</span>
+                  <div className="account-card-actions" style={{ marginTop: 0 }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      title="Copy prompt"
+                      onClick={async () => {
+                        try {
+                          await usePrompt(p.id);
+                          await navigator.clipboard.writeText(p.text);
+                          await load();
+                        } catch (e) {
+                          onError(e instanceof Error ? e.message : String(e));
+                        }
+                      }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setEditId(p.id);
+                        setTitle(p.title);
+                        setText(p.text);
+                        setNewKind(p.kind || "any");
+                      }}
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost danger btn-sm"
+                      onClick={async () => {
+                        const ok = await dialog.confirm({
+                          title: "Xóa prompt?",
+                          message: "Prompt này sẽ bị xóa khỏi Hub.",
+                          confirmLabel: "Xóa",
+                          cancelLabel: "Hủy",
+                          tone: "danger",
+                        });
+                        if (!ok) return;
+                        try {
+                          await deletePrompt(p.id);
+                          await load();
+                        } catch (e) {
+                          onError(e instanceof Error ? e.message : String(e));
+                        }
+                      }}
+                    >
+                      Xóa
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}

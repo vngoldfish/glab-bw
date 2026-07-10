@@ -18,12 +18,14 @@ def project_root(project_id: str) -> Path:
     (root / "videos").mkdir(parents=True, exist_ok=True)
     (root / "frames").mkdir(parents=True, exist_ok=True)
     (root / "runs").mkdir(parents=True, exist_ok=True)
+    (root / "exports").mkdir(parents=True, exist_ok=True)
+    (root / "audio").mkdir(parents=True, exist_ok=True)
     return root
 
 
 def project_output_folder(project_id: str, kind: str) -> str:
     """Relative folder under data/ for generation save."""
-    kind = kind if kind in {"images", "videos", "frames"} else "images"
+    kind = kind if kind in {"images", "videos", "frames", "exports"} else "images"
     return f"G-Labs BW/projects/{project_id}/{kind}"
 
 

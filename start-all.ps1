@@ -43,7 +43,7 @@ foreach ($p in 8765, 18923, 5173) { Stop-Port $p }
 Start-Sleep -Seconds 1
 
 Write-Host "[2/4] Backend :8765 + Auth :18923 ..."
-$backendCmd = "`$env:PYTHONPATH='$Backend'; Set-Location '$Backend'; Write-Host 'G-Labs BW BACKEND - giu cua so nay mo' -ForegroundColor Green; python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload"
+$backendCmd = "`$env:PYTHONPATH='$Backend'; Set-Location '$Backend'; Write-Host 'G-Labs BW BACKEND - giu cua so nay mo' -ForegroundColor Green; python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload"
 Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
@@ -67,7 +67,7 @@ if (-not $ok) {
 Write-Host "  Backend OK" -ForegroundColor Green
 
 Write-Host "[3/4] Frontend :5173 ..."
-$frontCmd = "Set-Location '$Frontend'; Write-Host 'G-Labs BW FRONTEND - giu cua so nay mo' -ForegroundColor Green; npm run dev -- --host 127.0.0.1 --port 5173"
+$frontCmd = "Set-Location '$Frontend'; Write-Host 'G-Labs BW FRONTEND - giu cua so nay mo' -ForegroundColor Green; npm run dev -- --host 0.0.0.0 --port 5173"
 Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
