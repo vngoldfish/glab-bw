@@ -889,6 +889,81 @@ export async function fetchWorkflowRun(runId: string): Promise<WorkflowRunResult
   return readJson(res);
 }
 
+/* —— Workflow Projects —— */
+
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  description?: string;
+  updated_at?: number;
+  created_at?: number;
+  node_count?: number;
+  edge_count?: number;
+  thumbnail?: string | null;
+  tags?: string[];
+}
+
+export interface ProjectDoc {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  viewport?: { x: number; y: number; zoom: number };
+  node_states?: Record<string, unknown>;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export async function listProjects(): Promise<ProjectMeta[]> {
+  const res = await apiFetch("/api/projects");
+  await ensureOk(res, "Không tải projects");
+  const data = await readJson<{ projects: ProjectMeta[] }>(res);
+  return data.projects;
+}
+
+export async function fetchProject(id: string): Promise<ProjectDoc> {
+  const res = await apiFetch(`/api/projects/${id}`);
+  await ensureOk(res, "Không mở project");
+  const data = await readJson<{ project: ProjectDoc }>(res);
+  return data.project;
+}
+
+export async function saveProject(
+  doc: {
+    name: string;
+    description?: string;
+    tags?: string[];
+    nodes: Array<Record<string, unknown>>;
+    edges: Array<Record<string, unknown>>;
+    viewport?: { x: number; y: number; zoom: number };
+    node_states?: Record<string, unknown>;
+  },
+  id?: string | null,
+): Promise<ProjectDoc> {
+  const res = await apiFetch(id ? `/api/projects/${id}` : "/api/projects", {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(doc),
+  });
+  await ensureOk(res, "Không lưu project");
+  const data = await readJson<{ project: ProjectDoc }>(res);
+  return data.project;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const res = await apiFetch(`/api/projects/${id}`, { method: "DELETE" });
+  await ensureOk(res, "Không xóa project");
+}
+
+export async function duplicateProject(id: string): Promise<ProjectDoc> {
+  const res = await apiFetch(`/api/projects/${id}/duplicate`, { method: "POST" });
+  await ensureOk(res, "Không nhân bản project");
+  const data = await readJson<{ project: ProjectDoc }>(res);
+  return data.project;
+}
+
 export async function runSavedWorkflow(
   id: string,
   opts: WorkflowRunOptions = {},

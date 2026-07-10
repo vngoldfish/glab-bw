@@ -64,7 +64,7 @@ Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 | Import CSV prompts | Flow Ảnh / Flow Video → **Import CSV** |
 | Pipeline Ảnh→Video | Flow Ảnh → **Ảnh→Video** |
 | Tách frame video | Flow Video → **Tách frame** / **Frame từ KQ** |
-| **Workflow node editor** | Menu **Workflow** — kéo node Prompt/Ảnh/Video/Frame, nối cạnh, Lưu/Chạy |
+| **Workflow + Project** | Menu **Workflow** — project lưu graph/nodes/preview; Tiếp tục / Tạo lại; chạy progressive |
 | Multi-account + Webhook + Auth Helper | (đã có) |
 
 ### Workflow (giống G-Labs)

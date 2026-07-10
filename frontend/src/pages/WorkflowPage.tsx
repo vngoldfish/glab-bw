@@ -26,16 +26,17 @@ import {
   type ReactNode,
 } from "react";
 import {
-  deleteWorkflow,
+  deleteProject,
+  duplicateProject,
+  fetchProject,
   fetchSampleVideoChain,
   fetchSampleWorkflow,
-  fetchWorkflow,
   fetchWorkflowRun,
-  listWorkflows,
+  listProjects,
   normalizeFileUrl,
   runWorkflowGraph,
-  saveWorkflow,
-  type WorkflowMeta,
+  saveProject,
+  type ProjectMeta,
   type WorkflowRunResult,
 } from "../api";
 
@@ -565,14 +566,17 @@ function sleep(ms: number) {
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [name, setName] = useState("Untitled workflow");
-  const [workflowId, setWorkflowId] = useState<string | null>(null);
-  const [savedList, setSavedList] = useState<WorkflowMeta[]>([]);
+  const [name, setName] = useState("Project mới");
+  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [projectFilter, setProjectFilter] = useState("");
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
+  const [dirty, setDirty] = useState(false);
   const rf = useRef<ReactFlowInstance | null>(null);
   const nodesRef = useRef<Node[]>([]);
   const pollStop = useRef(false);
@@ -623,9 +627,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     [openPreview, patchNode],
   );
 
-  const refreshList = useCallback(async () => {
+  const refreshProjects = useCallback(async () => {
     try {
-      setSavedList(await listWorkflows());
+      setProjects(await listProjects());
     } catch {
       /* ignore */
     }
@@ -634,20 +638,52 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   useEffect(() => {
     void (async () => {
       try {
-        const sample = await fetchSampleWorkflow();
-        setName(sample.name || "Sample");
-        setNodes(attachHandlers((sample.nodes as Node[]) || []));
-        setEdges((sample.edges as Edge[]) || []);
-        await refreshList();
+        await refreshProjects();
+        // Prefer last project if any; else sample
+        const list = await listProjects();
+        if (list.length > 0) {
+          const last = list[0];
+          const doc = await fetchProject(last.id);
+          setProjectId(doc.id);
+          setName(doc.name || "Project");
+          setDescription(doc.description || "");
+          setNodes(attachHandlers((doc.nodes as Node[]) || []));
+          setEdges((doc.edges as Edge[]) || []);
+          setDirty(false);
+        } else {
+          const sample = await fetchSampleWorkflow();
+          setProjectId(null);
+          setName(sample.name || "Project mới");
+          setDescription("");
+          setNodes(attachHandlers((sample.nodes as Node[]) || []));
+          setEdges((sample.edges as Edge[]) || []);
+          setDirty(true);
+        }
         requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [attachHandlers, onError, refreshList, setEdges, setNodes]);
+  }, [attachHandlers, onError, refreshProjects, setEdges, setNodes]);
+
+  // mark dirty when graph edits
+  const onNodesChangeTracked: typeof onNodesChange = useCallback(
+    (changes) => {
+      onNodesChange(changes);
+      setDirty(true);
+    },
+    [onNodesChange],
+  );
+  const onEdgesChangeTracked: typeof onEdgesChange = useCallback(
+    (changes) => {
+      onEdgesChange(changes);
+      setDirty(true);
+    },
+    [onEdgesChange],
+  );
 
   const onConnect: OnConnect = useCallback(
-    (params: Connection) =>
+    (params: Connection) => {
       setEdges((eds) =>
         addEdge(
           {
@@ -657,7 +693,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           },
           eds,
         ),
-      ),
+      );
+      setDirty(true);
+    },
     [setEdges],
   );
 
@@ -697,18 +735,33 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       ...nds,
       { id, type, position: pos, data: baseData },
     ]);
+    setDirty(true);
   }
 
-  function stripNodeData(data: WNodeData): Record<string, unknown> {
+  // auto-save after successful run (debounced light)
+  // (manual save still primary)
+
+  function stripNodeData(data: WNodeData, { keepRuntime = true } = {}): Record<string, unknown> {
     const {
       onChange: _c,
       onPreview: _p,
-      runStatus: _s,
-      runError: _e,
-      // keep resultUrls so reopen still shows previews if user saved after run
+      onRerun: _r,
+      runError,
+      runStatus,
+      reused,
       ...rest
     } = data;
-    return rest as Record<string, unknown>;
+    if (!keepRuntime) {
+      const { resultUrls: _u, frames: _f, folder: _fo, ...clean } = rest as WNodeData;
+      return clean as Record<string, unknown>;
+    }
+    // Persist previews + status so project can resume work
+    return {
+      ...rest,
+      runStatus,
+      runError,
+      reused,
+    } as Record<string, unknown>;
   }
 
   function graphPayload() {
@@ -731,28 +784,80 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     };
   }
 
-  async function handleSave() {
+  function projectPayload() {
+    const g = graphPayload();
+    return {
+      name: name.trim() || "Project mới",
+      description: description.trim(),
+      nodes: g.nodes,
+      edges: g.edges,
+      viewport: g.viewport,
+      node_states: buildPriorResults(nodes),
+    };
+  }
+
+  async function handleSaveProject(asNew = false) {
     try {
-      const doc = await saveWorkflow(graphPayload(), workflowId);
-      setWorkflowId(doc.id || null);
+      const doc = await saveProject(projectPayload(), asNew ? null : projectId);
+      setProjectId(doc.id);
       setName(doc.name);
-      await refreshList();
-      setSaveHint("Đã lưu");
-      setTimeout(() => setSaveHint(""), 2000);
+      setDescription(doc.description || "");
+      setDirty(false);
+      await refreshProjects();
+      setSaveHint(asNew ? "Đã tạo project" : "Đã lưu project");
+      setTimeout(() => setSaveHint(""), 2200);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function handleLoad(id: string) {
+  async function handleNewProject() {
+    if (dirty && !confirm("Project hiện tại chưa lưu. Tạo project trống?")) return;
+    setProjectId(null);
+    setName("Project mới");
+    setDescription("");
+    setNodes([]);
+    setEdges([]);
+    setRunResult(null);
+    setProgressLabel("");
+    setDirty(true);
+  }
+
+  async function handleOpenProject(id: string) {
+    if (dirty && !confirm("Có thay đổi chưa lưu. Mở project khác?")) return;
     try {
-      const doc = await fetchWorkflow(id);
-      setWorkflowId(doc.id || id);
-      setName(doc.name);
+      const doc = await fetchProject(id);
+      setProjectId(doc.id);
+      setName(doc.name || "Project");
+      setDescription(doc.description || "");
       setNodes(attachHandlers((doc.nodes as Node[]) || []));
       setEdges((doc.edges as Edge[]) || []);
       setRunResult(null);
+      setProgressLabel("");
+      setDirty(false);
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleDuplicateProject() {
+    if (!projectId) {
+      onError("Lưu project trước khi nhân bản");
+      return;
+    }
+    try {
+      await handleSaveProject(false);
+      const doc = await duplicateProject(projectId);
+      setProjectId(doc.id);
+      setName(doc.name);
+      setDescription(doc.description || "");
+      setNodes(attachHandlers((doc.nodes as Node[]) || []));
+      setEdges((doc.edges as Edge[]) || []);
+      setDirty(false);
+      await refreshProjects();
+      setSaveHint("Đã nhân bản");
+      setTimeout(() => setSaveHint(""), 2000);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }
@@ -1021,18 +1126,38 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       <header className="page-header" style={{ flexShrink: 0 }}>
         <div className="page-title-group">
           <h1>Workflow</h1>
-          <span className="pill pill-purple">NODE EDITOR</span>
+          <span className="pill pill-purple">PROJECT</span>
+          {dirty && <span className="pill" style={{ opacity: 0.85 }}>chưa lưu</span>}
           {running && <span className="pill pill-green">Đang chạy…</span>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              setDirty(true);
+            }}
             style={{ minWidth: 160 }}
-            placeholder="Tên workflow"
+            placeholder="Tên project"
           />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleSave()}>
-            Lưu{saveHint ? ` · ${saveHint}` : ""}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void handleSaveProject(false)}
+            title="Lưu project (nodes + preview + trạng thái)"
+          >
+            💾 Lưu{saveHint ? ` · ${saveHint}` : ""}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void handleSaveProject(true)}
+            title="Lưu thành project mới"
+          >
+            Lưu như…
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleNewProject()}>
+            + Project
           </button>
           <button
             type="button"
@@ -1106,76 +1231,137 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             </div>
           </div>
           <div className="panel-card" style={{ padding: 12, margin: 0, flex: 1 }}>
-            <strong style={{ fontSize: 13 }}>Đã lưu</strong>
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              {savedList.length === 0 && (
+            <strong style={{ fontSize: 13 }}>Projects</strong>
+            <input
+              placeholder="Tìm project…"
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              style={{ width: "100%", marginTop: 8, marginBottom: 6, fontSize: 11 }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflow: "auto" }}>
+              {projects.filter((p) =>
+                !projectFilter.trim()
+                  ? true
+                  : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
+              ).length === 0 && (
                 <span className="muted" style={{ fontSize: 12 }}>
-                  Chưa có
+                  Chưa có project — bấm 💾 Lưu
                 </span>
               )}
-              {savedList.map((w) => (
-                <div key={w.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    style={{ flex: 1, textAlign: "left", fontSize: 11 }}
-                    onClick={() => void handleLoad(w.id)}
-                  >
-                    {w.name}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost danger btn-sm"
-                    style={{ fontSize: 11, padding: "2px 6px" }}
-                    onClick={async () => {
-                      if (!confirm("Xóa workflow?")) return;
-                      await deleteWorkflow(w.id);
-                      if (workflowId === w.id) setWorkflowId(null);
-                      await refreshList();
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {projects
+                .filter((p) =>
+                  !projectFilter.trim()
+                    ? true
+                    : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
+                )
+                .map((p) => (
+                  <div key={p.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        flex: 1,
+                        textAlign: "left",
+                        fontSize: 11,
+                        borderColor: projectId === p.id ? "rgba(99,102,241,0.5)" : undefined,
+                      }}
+                      onClick={() => void handleOpenProject(p.id)}
+                      title={p.description || p.name}
+                    >
+                      {p.name}
+                      <span className="muted" style={{ display: "block", fontSize: 10 }}>
+                        {p.node_count ?? 0} node
+                        {p.updated_at
+                          ? ` · ${new Date(p.updated_at * 1000).toLocaleDateString()}`
+                          : ""}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost danger btn-sm"
+                      style={{ fontSize: 11, padding: "2px 6px" }}
+                      onClick={async () => {
+                        if (!confirm(`Xóa project “${p.name}”?`)) return;
+                        await deleteProject(p.id);
+                        if (projectId === p.id) {
+                          setProjectId(null);
+                          setName("Project mới");
+                          setNodes([]);
+                          setEdges([]);
+                          setDirty(true);
+                        }
+                        await refreshProjects();
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
             </div>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               style={{ marginTop: 8, width: "100%" }}
-              onClick={async () => {
-                const s = await fetchSampleWorkflow();
-                setWorkflowId(null);
-                setName(s.name);
-                setNodes(attachHandlers((s.nodes as Node[]) || []));
-                setEdges((s.edges as Edge[]) || []);
-                setRunResult(null);
-                requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
-              }}
+              disabled={!projectId}
+              onClick={() => void handleDuplicateProject()}
             >
-              Mẫu: Ảnh→Video
+              Nhân bản project
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ marginTop: 6, width: "100%" }}
-              title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
-              onClick={async () => {
-                try {
-                  const s = await fetchSampleVideoChain();
-                  setWorkflowId(null);
-                  setName(s.name);
+            <label className="muted" style={{ display: "block", marginTop: 10, fontSize: 11 }}>
+              Mô tả
+              <textarea
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setDirty(true);
+                }}
+                rows={2}
+                placeholder="Ghi chú project…"
+                style={{ width: "100%", marginTop: 4, fontSize: 11 }}
+              />
+            </label>
+            <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8 }}>
+              <span className="muted" style={{ fontSize: 11 }}>Mẫu graph</span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop: 6, width: "100%" }}
+                onClick={async () => {
+                  if (dirty && !confirm("Thay graph hiện tại bằng mẫu?")) return;
+                  const s = await fetchSampleWorkflow();
+                  setName(s.name || "Mẫu Ảnh→Video");
                   setNodes(attachHandlers((s.nodes as Node[]) || []));
                   setEdges((s.edges as Edge[]) || []);
                   setRunResult(null);
-                  requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
-                } catch (e) {
-                  onError(e instanceof Error ? e.message : String(e));
-                }
-              }}
-            >
-              Mẫu: Nối video (frame cuối)
-            </button>
+                  setDirty(true);
+                  requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
+                }}
+              >
+                Mẫu: Ảnh→Video
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ marginTop: 6, width: "100%" }}
+                title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
+                onClick={async () => {
+                  try {
+                    if (dirty && !confirm("Thay graph hiện tại bằng mẫu?")) return;
+                    const s = await fetchSampleVideoChain();
+                    setName(s.name || "Mẫu nối video");
+                    setNodes(attachHandlers((s.nodes as Node[]) || []));
+                    setEdges((s.edges as Edge[]) || []);
+                    setRunResult(null);
+                    setDirty(true);
+                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                Mẫu: Nối video (frame cuối)
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -1192,8 +1378,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
+            onNodesChange={onNodesChangeTracked}
+            onEdgesChange={onEdgesChangeTracked}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
             onInit={(instance) => {

@@ -42,6 +42,7 @@ data/browser_profiles/
 data/temp/
 data/G-Labs BW/extracted_frames/
 data/workflows/
+data/projects/
 *.tmp
 data/output/
 data/flow_media_cache.json
