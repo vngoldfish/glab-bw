@@ -1723,8 +1723,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     if (type === "frame_extract") baseData.positions = "start,middle,end";
     if (type === "reference") baseData.image = "";
 
+    let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    if (canvasWrapRef.current) {
+      const rect = canvasWrapRef.current.getBoundingClientRect();
+      screenPos = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }
     const pos = rf.current
-      ? rf.current.screenToFlowPosition({ x: 320, y: 200 })
+      ? rf.current.screenToFlowPosition(screenPos)
       : { x: 140 + Math.random() * 60, y: 120 + Math.random() * 60 };
 
     setNodes((nds) => [
@@ -2483,6 +2491,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 rf.current = instance;
               }}
               fitView
+              minZoom={0.05}
+              maxZoom={4}
               colorMode="dark"
               deleteKeyCode={["Backspace", "Delete"]}
               proOptions={{ hideAttribution: true }}
