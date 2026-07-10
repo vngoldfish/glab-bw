@@ -1213,6 +1213,27 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     projectIdRef.current = projectId;
   }, [projectId]);
 
+  useEffect(() => {
+    (window as any).workflowDirty = dirty;
+    return () => {
+      (window as any).workflowDirty = false;
+    };
+  }, [dirty]);
+
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = "Bạn có thay đổi chưa lưu. Bạn có chắc chắn muốn rời đi?";
+        return e.returnValue;
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [dirty]);
+
   // Measure canvas wrapper — RF needs non-zero width/height before first paint
   useEffect(() => {
     const el = canvasWrapRef.current;
@@ -2229,6 +2250,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             className="wf-btn wf-btn-secondary"
             style={{ padding: "4px 8px" }}
             title="Hướng dẫn nối node, chạy pipeline"
+            onClick={(e) => {
+              if (dirty) {
+                if (!window.confirm("Bạn có các thay đổi chưa lưu trên workflow. Bạn có chắc chắn muốn rời đi?")) {
+                  e.preventDefault();
+                }
+              }
+            }}
           >
             Document
           </Link>

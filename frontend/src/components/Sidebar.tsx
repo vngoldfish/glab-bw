@@ -49,6 +49,16 @@ export default function Sidebar({
           <NavLink
             key={item.id}
             to={NAV_ROUTES[item.id]}
+            onClick={(e) => {
+              if ((window as any).workflowDirty && item.id !== "workflow") {
+                const leave = window.confirm(
+                  "Bạn có các thay đổi chưa lưu trên workflow. Bạn có chắc chắn muốn rời đi mà không lưu?"
+                );
+                if (!leave) {
+                  e.preventDefault();
+                }
+              }
+            }}
             className={({ isActive }) =>
               [
                 "sidebar-link",
