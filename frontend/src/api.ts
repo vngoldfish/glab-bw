@@ -798,6 +798,15 @@ export interface WorkflowRunResult {
   error?: string | null;
   started_at?: number;
   finished_at?: number | null;
+  progress?: { done?: number; total?: number; current?: string | null };
+  mode?: { skip_completed?: boolean; only_node_ids?: string[] | null };
+}
+
+export interface WorkflowRunOptions {
+  async_mode?: boolean;
+  skip_completed?: boolean;
+  only_node_ids?: string[];
+  prior_results?: Record<string, unknown>;
 }
 
 export async function listWorkflows(): Promise<WorkflowMeta[]> {
@@ -853,7 +862,10 @@ export async function deleteWorkflow(id: string): Promise<void> {
   await ensureOk(res, "Không xóa workflow");
 }
 
-export async function runWorkflowGraph(doc: WorkflowDoc): Promise<WorkflowRunResult> {
+export async function runWorkflowGraph(
+  doc: WorkflowDoc,
+  opts: WorkflowRunOptions = {},
+): Promise<WorkflowRunResult> {
   const res = await apiFetch("/api/workflows/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -861,14 +873,36 @@ export async function runWorkflowGraph(doc: WorkflowDoc): Promise<WorkflowRunRes
       name: doc.name,
       nodes: doc.nodes,
       edges: doc.edges,
+      async_mode: opts.async_mode !== false,
+      skip_completed: Boolean(opts.skip_completed),
+      only_node_ids: opts.only_node_ids ?? null,
+      prior_results: opts.prior_results ?? null,
     }),
   });
   await ensureOk(res, "Chạy workflow thất bại");
   return readJson(res);
 }
 
-export async function runSavedWorkflow(id: string): Promise<WorkflowRunResult> {
-  const res = await apiFetch(`/api/workflows/${id}/run`, { method: "POST" });
+export async function fetchWorkflowRun(runId: string): Promise<WorkflowRunResult> {
+  const res = await apiFetch(`/api/workflows/runs/${runId}`);
+  await ensureOk(res, "Không lấy được tiến độ workflow");
+  return readJson(res);
+}
+
+export async function runSavedWorkflow(
+  id: string,
+  opts: WorkflowRunOptions = {},
+): Promise<WorkflowRunResult> {
+  const res = await apiFetch(`/api/workflows/${id}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      async_mode: opts.async_mode !== false,
+      skip_completed: Boolean(opts.skip_completed),
+      only_node_ids: opts.only_node_ids ?? null,
+      prior_results: opts.prior_results ?? null,
+    }),
+  });
   await ensureOk(res, "Chạy workflow thất bại");
   return readJson(res);
 }

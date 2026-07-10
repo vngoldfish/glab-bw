@@ -30,6 +30,7 @@ import {
   fetchSampleVideoChain,
   fetchSampleWorkflow,
   fetchWorkflow,
+  fetchWorkflowRun,
   listWorkflows,
   normalizeFileUrl,
   runWorkflowGraph,
@@ -54,10 +55,15 @@ type WNodeData = {
   positions?: string;
   /** Preview media after run (image/video URLs) */
   resultUrls?: string[];
+  /** frame_extract meta for continue/reuse */
+  frames?: Array<{ position: string; url: string; path?: string }>;
+  folder?: string;
   runStatus?: RunStatus;
   runError?: string;
+  reused?: boolean;
   onChange?: (id: string, patch: Partial<WNodeData>) => void;
   onPreview?: (url: string) => void;
+  onRerun?: (id: string) => void;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -166,6 +172,9 @@ function Shell({
   selected,
   runStatus = "idle",
   runError,
+  showRerun,
+  onRerun,
+  reused,
 }: {
   type: string;
   title: string;
@@ -173,6 +182,9 @@ function Shell({
   selected?: boolean;
   runStatus?: RunStatus;
   runError?: string;
+  showRerun?: boolean;
+  onRerun?: () => void;
+  reused?: boolean;
 }) {
   const color = NODE_COLORS[type] || "#888";
   const st = STATUS_META[runStatus] || STATUS_META.idle;
@@ -222,6 +234,9 @@ function Shell({
           {title}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {reused && runStatus === "completed" ? (
+            <span style={{ fontSize: 9, color: "#94a3b8", opacity: 0.9 }}>giữ</span>
+          ) : null}
           {st.label ? (
             <span
               style={{
@@ -255,6 +270,30 @@ function Shell({
           >
             {runError}
           </div>
+        ) : null}
+        {showRerun && (runStatus === "completed" || runStatus === "failed") ? (
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRerun?.();
+            }}
+            style={{
+              marginTop: 8,
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.06)",
+              color: "#e2e8f0",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {runStatus === "failed" ? "↻ Thử lại" : "↻ Tạo lại"}
+          </button>
         ) : null}
       </div>
     </div>
@@ -360,6 +399,9 @@ function GenerateNode({ id, data, selected }: NodeProps) {
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
+      showRerun
+      reused={d.reused}
+      onRerun={() => d.onRerun?.(id)}
     >
       <Handle type="target" position={Position.Left} id="prompt" style={{ top: "28%", background: "#6366f1" }} />
       <Handle type="target" position={Position.Left} id="image" style={{ top: "55%", background: "#14b8a6" }} />
@@ -407,6 +449,9 @@ function VideoNode({ id, data, selected }: NodeProps) {
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
+      showRerun
+      reused={d.reused}
+      onRerun={() => d.onRerun?.(id)}
     >
       <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
       <Handle type="target" position={Position.Left} id="start_image" style={{ top: "48%", background: "#22c55e" }} />
@@ -450,6 +495,9 @@ function FrameNode({ id, data, selected }: NodeProps) {
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
+      showRerun
+      reused={d.reused}
+      onRerun={() => d.onRerun?.(id)}
     >
       <Handle type="target" position={Position.Left} id="video" style={{ background: "#f59e0b" }} />
       <Handle type="source" position={Position.Right} id="image" style={{ top: "40%", background: "#22c55e" }} />
@@ -502,6 +550,10 @@ function extractUrlsFromNodeResult(raw: unknown): string[] {
   return urls;
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -510,13 +562,22 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [savedList, setSavedList] = useState<WorkflowMeta[]>([]);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
+  const [progressLabel, setProgressLabel] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
   const rf = useRef<ReactFlowInstance | null>(null);
+  const nodesRef = useRef<Node[]>([]);
+  const pollStop = useRef(false);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   const openPreview = useCallback((url: string) => {
     setLightbox(normalizeFileUrl(url));
   }, []);
+
+  const rerunRef = useRef<(id: string) => void>(() => undefined);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<WNodeData>) => {
@@ -530,6 +591,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   ...patch,
                   onChange: patchNode,
                   onPreview: openPreview,
+                  onRerun: (nid: string) => rerunRef.current(nid),
                 },
               }
             : n,
@@ -547,6 +609,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           ...(n.data as object),
           onChange: patchNode,
           onPreview: openPreview,
+          onRerun: (nid: string) => rerunRef.current(nid),
         },
       })),
     [openPreview, patchNode],
@@ -687,85 +750,227 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
   }
 
-  function applyRunToNodes(result: WorkflowRunResult) {
+  function applyRunToNodes(result: WorkflowRunResult, opts?: { keepMissing?: boolean }) {
     const nr = result.node_results || {};
     setNodes((nds) =>
       nds.map((n) => {
         const raw = nr[n.id] as
-          | { status?: string; error?: string; results?: string[]; frames?: Array<{ url: string }> }
+          | {
+              status?: string;
+              error?: string;
+              results?: string[];
+              frames?: Array<{ position?: string; url: string; path?: string }>;
+              reused?: boolean;
+              folder?: string;
+              prompt?: string;
+            }
           | undefined;
         if (!raw) {
+          if (opts?.keepMissing) return n;
           return {
             ...n,
             data: {
               ...n.data,
-              runStatus: "idle" as RunStatus,
               onChange: patchNode,
               onPreview: openPreview,
+              onRerun: (nid: string) => rerunRef.current(nid),
             },
           };
         }
         const status = (raw.status || "idle") as RunStatus;
         const urls = extractUrlsFromNodeResult(raw);
+        const frames = (raw.frames || []).map((f) => ({
+          position: String(f.position || ""),
+          url: normalizeFileUrl(f.url),
+          path: f.path,
+        }));
         return {
           ...n,
           data: {
             ...n.data,
             runStatus: status,
             runError: raw.error || undefined,
-            resultUrls: urls.length ? urls : (n.data as WNodeData).resultUrls,
-            // reference: sync image field if we got output
+            reused: Boolean(raw.reused),
+            folder: raw.folder,
+            resultUrls: urls.length
+              ? urls
+              : status === "running" || status === "pending"
+                ? (n.data as WNodeData).resultUrls
+                : status === "completed"
+                  ? (n.data as WNodeData).resultUrls
+                  : (n.data as WNodeData).resultUrls,
+            ...(urls.length ? { resultUrls: urls } : {}),
+            ...(frames.length ? { frames } : {}),
             ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
             onChange: patchNode,
             onPreview: openPreview,
+            onRerun: (nid: string) => rerunRef.current(nid),
           },
         };
       }),
     );
   }
 
-  async function handleRun() {
+  function buildPriorResults(list: Node[]): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const n of list) {
+      const d = n.data as WNodeData;
+      if (d.runStatus !== "completed") continue;
+      const entry: Record<string, unknown> = {
+        status: "completed",
+        type: n.type,
+      };
+      if (d.resultUrls?.length) entry.results = d.resultUrls;
+      if (d.frames?.length) entry.frames = d.frames;
+      if (d.folder) entry.folder = d.folder;
+      if (n.type === "prompt" && d.prompt) entry.prompt = d.prompt;
+      if (n.type === "reference" && d.image) entry.image = d.image;
+      out[n.id] = entry;
+    }
+    return out;
+  }
+
+  async function pollUntilDone(runId: string): Promise<WorkflowRunResult> {
+    pollStop.current = false;
+    let last: WorkflowRunResult | null = null;
+    for (let i = 0; i < 3600; i++) {
+      if (pollStop.current) break;
+      const snap = await fetchWorkflowRun(runId);
+      last = snap;
+      setRunResult(snap);
+      applyRunToNodes(snap, { keepMissing: true });
+      const done = snap.progress?.done ?? 0;
+      const total = snap.progress?.total ?? 0;
+      const cur = snap.progress?.current;
+      setProgressLabel(
+        total
+          ? `${done}/${total}${cur ? ` · ${cur}` : ""}${snap.status === "running" ? " …" : ""}`
+          : snap.status,
+      );
+      if (snap.status === "completed" || snap.status === "failed") {
+        applyRunToNodes(snap);
+        return snap;
+      }
+      await sleep(900);
+    }
+    return last || { run_id: runId, status: "failed", error: "Timeout poll" };
+  }
+
+  async function startRun(opts: {
+    skipCompleted?: boolean;
+    onlyNodeIds?: string[];
+    markPendingAll?: boolean;
+  }) {
     try {
       setRunning(true);
-      setRunResult(null);
-      // mark all media nodes pending for feedback
-      setNodes((nds) =>
-        nds.map((n) => ({
-          ...n,
-          data: {
-            ...n.data,
-            runStatus: "pending" as RunStatus,
-            runError: undefined,
-            onChange: patchNode,
-            onPreview: openPreview,
-          },
-        })),
-      );
-
-      const result = await runWorkflowGraph(graphPayload());
-      setRunResult(result);
-      applyRunToNodes(result);
-      if (result.status !== "completed") {
-        onError(result.error || "Workflow failed");
+      setProgressLabel("Đang xếp hàng…");
+      if (opts.markPendingAll !== false && !opts.onlyNodeIds?.length) {
+        setNodes((nds) =>
+          nds.map((n) => {
+            const d = n.data as WNodeData;
+            const keep =
+              opts.skipCompleted && d.runStatus === "completed"
+                ? {
+                    runStatus: "completed" as RunStatus,
+                    resultUrls: d.resultUrls,
+                    frames: d.frames,
+                    reused: true,
+                  }
+                : {
+                    runStatus: "pending" as RunStatus,
+                    runError: undefined,
+                    reused: false,
+                  };
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                ...keep,
+                onChange: patchNode,
+                onPreview: openPreview,
+                onRerun: (nid: string) => rerunRef.current(nid),
+              },
+            };
+          }),
+        );
       }
+      if (opts.onlyNodeIds?.length) {
+        const setIds = new Set(opts.onlyNodeIds);
+        setNodes((nds) =>
+          nds.map((n) =>
+            setIds.has(n.id)
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    runStatus: "pending" as RunStatus,
+                    runError: undefined,
+                    reused: false,
+                    onChange: patchNode,
+                    onPreview: openPreview,
+                    onRerun: (nid: string) => rerunRef.current(nid),
+                  },
+                }
+              : n,
+          ),
+        );
+      }
+
+      const prior = buildPriorResults(nodesRef.current);
+      const started = await runWorkflowGraph(graphPayload(), {
+        async_mode: true,
+        skip_completed: Boolean(opts.skipCompleted),
+        only_node_ids: opts.onlyNodeIds,
+        prior_results: Object.keys(prior).length ? prior : undefined,
+      });
+      setRunResult(started);
+      applyRunToNodes(started, { keepMissing: true });
+      const final = await pollUntilDone(started.run_id);
+      setRunResult(final);
+      if (final.status !== "completed") {
+        onError(final.error || "Workflow failed");
+      }
+      setProgressLabel(
+        final.status === "completed"
+          ? `Xong ${final.progress?.done ?? ""}/${final.progress?.total ?? ""}`
+          : `Lỗi · ${final.error || final.status}`,
+      );
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
-      setNodes((nds) =>
-        nds.map((n) => ({
-          ...n,
-          data: {
-            ...n.data,
-            runStatus: "failed" as RunStatus,
-            runError: e instanceof Error ? e.message : String(e),
-            onChange: patchNode,
-            onPreview: openPreview,
-          },
-        })),
-      );
+      setProgressLabel("Lỗi");
     } finally {
       setRunning(false);
     }
   }
+
+  async function handleRun() {
+    await startRun({ skipCompleted: false, markPendingAll: true });
+  }
+
+  async function handleContinue() {
+    const incomplete = nodesRef.current.filter((n) => {
+      const s = (n.data as WNodeData).runStatus;
+      return s !== "completed";
+    });
+    if (incomplete.length === 0) {
+      onError("Tất cả node đã xong — thêm node mới hoặc bấm Tạo lại trên node");
+      return;
+    }
+    await startRun({ skipCompleted: true, markPendingAll: true });
+  }
+
+  async function handleRerunNode(nodeId: string) {
+    await startRun({
+      skipCompleted: true,
+      onlyNodeIds: [nodeId],
+      markPendingAll: false,
+    });
+  }
+
+  rerunRef.current = (id: string) => {
+    if (running) return;
+    void handleRerunNode(id);
+  };
 
   function clearPreviews() {
     setNodes((nds) =>
@@ -837,13 +1042,28 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           >
             Fit view
           </button>
+          {progressLabel ? (
+            <span className="muted" style={{ fontSize: 12, maxWidth: 200 }}>
+              {progressLabel}
+            </span>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary btn-sm"
             disabled={running || nodes.length === 0}
             onClick={() => void handleRun()}
+            title="Chạy lại toàn bộ từ đầu"
           >
-            {running ? "Đang chạy…" : "▶ Chạy workflow"}
+            {running ? "Đang chạy…" : "▶ Chạy hết"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={running || nodes.length === 0}
+            onClick={() => void handleContinue()}
+            title="Giữ node đã OK — chỉ chạy node mới / chưa xong / lỗi"
+          >
+            ⏭ Tiếp tục
           </button>
         </div>
       </header>
@@ -994,7 +1214,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             <strong style={{ fontSize: 13 }}>Kết quả / log</strong>
             {!runResult && (
               <p className="muted" style={{ fontSize: 12 }}>
-                Ảnh/video hiện <strong>trên từng node</strong> sau khi chạy. Click ảnh để phóng to.
+                Mỗi node xong sẽ <strong>hiện ảnh ngay</strong> (poll tiến độ). Node OK có nút{" "}
+                <strong>Tạo lại</strong>. Thêm node mới → <strong>Tiếp tục</strong>.
               </p>
             )}
             {runResult && (
