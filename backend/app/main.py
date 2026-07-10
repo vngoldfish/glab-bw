@@ -11,7 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import accounts, ai, auth_bridge, batch, maintenance, references, webhook
+from app.api import (
+    accounts,
+    ai,
+    auth_bridge,
+    batch,
+    dashboard,
+    maintenance,
+    media,
+    pipeline,
+    prompts,
+    references,
+    webhook,
+)
 from app.core.config import PROJECT_ROOT, settings
 from app.core.logging_setup import setup_logging
 from app.core.task_queue import task_queue
@@ -151,6 +163,10 @@ app.include_router(batch.router, prefix="/api")
 app.include_router(references.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(maintenance.router, prefix="/api")
+app.include_router(prompts.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
+app.include_router(pipeline.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
 

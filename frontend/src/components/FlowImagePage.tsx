@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { normalizeFileUrl, openOutputFolder, rewritePromptAi, rewritePromptsAi, submitBatch } from "../api";
+import {
+  normalizeFileUrl,
+  openOutputFolder,
+  parsePromptCsv,
+  rewritePromptAi,
+  rewritePromptsAi,
+  runImageThenVideoPipeline,
+  submitBatch,
+} from "../api";
 import {
   clearFlowImageSnapshot,
   loadFlowImageSnapshot,
@@ -282,6 +290,100 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     }
     if (!confirmRerun(selected)) return;
     runRows(selected);
+  }
+
+  function importCsvFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result || "");
+        const prompts = parsePromptCsv(text);
+        if (prompts.length === 0) {
+          onError("File không có prompt (CSV/TSV/TXT, cột đầu hoặc mỗi dòng 1 prompt)");
+          return;
+        }
+        setRows((prev) => {
+          const next = [...prev];
+          // fill empty rows first
+          let i = 0;
+          for (const p of prompts) {
+            while (i < next.length && next[i].prompt.trim()) i += 1;
+            if (i < next.length) {
+              next[i] = { ...next[i], prompt: p, selected: true };
+              i += 1;
+            } else {
+              next.push({ ...emptyRow(), prompt: p, selected: true });
+            }
+          }
+          return next;
+        });
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function runPipelineSelected() {
+    if (config.engine !== "flow") {
+      onError("Pipeline Ảnh→Video chỉ hỗ trợ engine Google Flow");
+      return;
+    }
+    const selected = rows.filter((r) => r.selected && r.prompt.trim());
+    if (selected.length === 0) {
+      onError("Chọn ít nhất một dòng có prompt");
+      return;
+    }
+    if (!confirm(`Chạy pipeline Ảnh→Video cho ${selected.length} dòng? (lâu hơn gen ảnh)`)) return;
+    setRunning(true);
+    try {
+      await runWithConcurrency(
+        selected.map((row) => async () => {
+          updateRow(row.id, { status: "running", error: null });
+          try {
+            const result = await runImageThenVideoPipeline({
+              prompt: row.prompt.trim(),
+              image_params: {
+                model: config.model,
+                aspect_ratio: config.aspectRatio,
+                upscale: config.upscale,
+                count: config.imagesPerPrompt,
+                save_mode: config.saveMode,
+                output_folder: config.outputFolder,
+              },
+              video_params: {
+                model: "veo_31_fast",
+                aspect_ratio: "16:9",
+                mode: "start_image",
+                save_mode: "task",
+                output_folder: "G-Labs BW/video_output",
+              },
+            });
+            if (result.status === "completed") {
+              const urls = [
+                ...(result.image_urls || []).map(normalizeFileUrl),
+                ...(result.video_urls || []).map(normalizeFileUrl),
+              ];
+              updateRow(row.id, {
+                status: "completed",
+                results: urls,
+                savedFolder: result.video_folder || result.image_folder || null,
+              });
+            } else {
+              updateRow(row.id, {
+                status: "failed",
+                error: result.error || "Pipeline thất bại",
+              });
+            }
+          } catch (err) {
+            updateRow(row.id, { status: "failed", error: String(err) });
+          }
+        }),
+        Math.min(config.concurrency, 2),
+      );
+    } finally {
+      setRunning(false);
+    }
   }
 
   function runSingle(row: QueueRow) {
@@ -855,6 +957,29 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => void runPipelineSelected()}
+                    disabled={running || selectedCount === 0 || config.engine !== "flow"}
+                    title="Pipeline G-Labs: gen ảnh rồi video (start frame = ảnh vừa tạo)"
+                  >
+                    Ảnh→Video
+                  </button>
+                  <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer", margin: 0 }}>
+                    Import CSV
+                    <input
+                      type="file"
+                      accept=".csv,.tsv,.txt,text/csv,text/plain"
+                      hidden
+                      disabled={running}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) importCsvFile(f);
+                      }}
+                    />
+                  </label>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"

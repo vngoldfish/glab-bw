@@ -11,11 +11,14 @@ import {
   fetchAiSettings,
   fetchDiskInfo,
   importAccountsBackup,
+  fetchLoginBrowserStatus,
   runProjectTests,
   saveAiApiSettings,
   savePromptSettings,
+  startLoginBrowser,
   testAiApi,
   updateAccount,
+  type LoginBrowserJob,
   type TestRunResult,
   type TestSuite,
 } from "../api";
@@ -192,6 +195,9 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [testSuite, setTestSuite] = useState<TestSuite>("all");
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<TestRunResult | null>(null);
+  const [loginJob, setLoginJob] = useState<LoginBrowserJob | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginLabel, setLoginLabel] = useState("");
 
   const flowAccounts = accounts.filter((a) => a.provider === "flow");
   const flowReady = flowAccounts.filter((a) => a.enabled && a.has_credentials && !a.in_cooldown);
@@ -515,6 +521,60 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           <li>Gen: tab Flow phải login cùng account mà app đang pick (hoặc tắt account không dùng)</li>
           <li>Hết quota: cooldown ~1h; account khác còn bật sẽ được thử</li>
         </ol>
+      </section>
+
+      <section className="panel-card">
+        <h2>Login browser (giống G-Labs)</h2>
+        <p className="muted" style={{ marginTop: 0, lineHeight: 1.5 }}>
+          Mở Chrome do app điều khiển → bạn đăng nhập Google Flow → app tự lấy{" "}
+          <code>session-token</code> và thêm account. Cần cài Playwright + Chromium trên máy backend.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            placeholder="Label (tuỳ chọn, vd email)"
+            value={loginLabel}
+            onChange={(e) => setLoginLabel(e.target.value)}
+            style={{ minWidth: 200 }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={loginBusy}
+            onClick={async () => {
+              try {
+                setLoginBusy(true);
+                const job = await startLoginBrowser(loginLabel.trim());
+                setLoginJob(job);
+                const id = job.job_id;
+                for (let i = 0; i < 200; i++) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  const st = await fetchLoginBrowserStatus(id);
+                  setLoginJob(st);
+                  if (["completed", "failed", "cancelled"].includes(st.status)) {
+                    if (st.status === "completed") {
+                      await onRefresh();
+                    } else if (st.error) {
+                      onError(st.error);
+                    }
+                    break;
+                  }
+                }
+              } catch (e) {
+                onError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setLoginBusy(false);
+              }
+            }}
+          >
+            {loginBusy ? "Đang login…" : "Mở Chrome login Flow"}
+          </button>
+        </div>
+        {loginJob && (
+          <p className="muted" style={{ marginTop: 10 }}>
+            Job <code>{loginJob.job_id}</code> · {loginJob.status} — {loginJob.message}
+            {loginJob.account_id ? ` · account ${loginJob.account_id}` : ""}
+          </p>
+        )}
       </section>
 
       <section className="panel-card">

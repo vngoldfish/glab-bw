@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { normalizeFileUrl, openOutputFolder, rewritePromptAi, rewritePromptsAi, submitBatch } from "../api";
+import {
+  extractFramesFromPath,
+  extractFramesUpload,
+  fileAsDataUrl,
+  normalizeFileUrl,
+  openOutputFolder,
+  parsePromptCsv,
+  rewritePromptAi,
+  rewritePromptsAi,
+  submitBatch,
+} from "../api";
 import {
   clearFlowVideoSnapshot,
   loadFlowVideoSnapshot,
@@ -482,6 +492,97 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     }
     if (!confirmRerun(selected)) return;
     runRows(selected);
+  }
+
+  function importCsvFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const prompts = parsePromptCsv(String(reader.result || ""));
+        if (prompts.length === 0) {
+          onError("File không có prompt");
+          return;
+        }
+        setRows((prev) => {
+          const next = [...prev];
+          let i = 0;
+          for (const p of prompts) {
+            while (i < next.length && next[i].prompt.trim()) i += 1;
+            if (i < next.length) {
+              next[i] = { ...next[i], prompt: p, selected: true };
+              i += 1;
+            } else {
+              next.push({ ...emptyRow(), prompt: p, selected: true });
+            }
+          }
+          return next;
+        });
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  async function extractFramesForRow(row: QueueRow) {
+    const videoUrl = row.results.find((u) => /\.mp4($|\?)/i.test(u) || u.includes("video"));
+    if (!videoUrl) {
+      onError("Dòng này chưa có video kết quả để tách frame");
+      return;
+    }
+    try {
+      updateRow(row.id, { status: "running", error: null });
+      const frames = await extractFramesFromPath(videoUrl, ["start", "middle", "end"]);
+      if (!frames.length) throw new Error("Không tách được frame");
+      const startPath = frames.find((f) => f.position === "start") || frames[0];
+      const endPath = frames.find((f) => f.position === "end") || frames[frames.length - 1];
+      const startData = await fileAsDataUrl(startPath.path);
+      const endData = await fileAsDataUrl(endPath.path);
+      updateRow(row.id, {
+        status: "completed",
+        startFrameImage: startData,
+        startFrameName: `frame_${startPath.position}`,
+        endFrameImage: endData,
+        endFrameName: `frame_${endPath.position}`,
+        error: null,
+      });
+    } catch (e) {
+      updateRow(row.id, {
+        status: "failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function extractFramesFromUpload(file: File) {
+    try {
+      const frames = await extractFramesUpload(file);
+      if (!frames.length) throw new Error("Không tách được frame");
+      const start = frames.find((f) => f.position === "start") || frames[0];
+      const end = frames.find((f) => f.position === "end") || frames[frames.length - 1];
+      const startData = await fileAsDataUrl(start.path);
+      const endData = await fileAsDataUrl(end.path);
+      // apply to first selected empty-ish row or add new
+      setRows((prev) => {
+        const next = [...prev];
+        const idx = next.findIndex((r) => r.selected);
+        const target = idx >= 0 ? idx : 0;
+        if (!next[target]) next.push(emptyRow());
+        const i = idx >= 0 ? idx : next.length - 1;
+        next[i] = {
+          ...next[i],
+          startFrameImage: startData,
+          startFrameName: `upload_${start.position}`,
+          endFrameImage: endData,
+          endFrameName: `upload_${end.position}`,
+          selected: true,
+        };
+        return next;
+      });
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   function runSingle(row: QueueRow) {
@@ -1194,6 +1295,54 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     disabled={running || selectedCount === 0}
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
+                  </button>
+                  <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer", margin: 0 }}>
+                    Import CSV
+                    <input
+                      type="file"
+                      accept=".csv,.tsv,.txt,text/csv,text/plain"
+                      hidden
+                      disabled={running}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) importCsvFile(f);
+                      }}
+                    />
+                  </label>
+                  <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer", margin: 0 }} title="Upload video → tách frame đầu/cuối gán dòng">
+                    Tách frame
+                    <input
+                      type="file"
+                      accept="video/mp4,video/*,.mp4"
+                      hidden
+                      disabled={running}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void extractFramesFromUpload(f);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={running || selectedCount === 0}
+                    title="Tách frame từ video kết quả của dòng đã chọn"
+                    onClick={() => {
+                      const selected = rows.filter((r) => r.selected && r.results.length);
+                      if (!selected.length) {
+                        onError("Chọn dòng đã có video kết quả");
+                        return;
+                      }
+                      void (async () => {
+                        for (const row of selected) {
+                          await extractFramesForRow(row);
+                        }
+                      })();
+                    }}
+                  >
+                    Frame từ KQ
                   </button>
                   <button
                     type="button"

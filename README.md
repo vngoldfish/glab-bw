@@ -54,6 +54,25 @@ Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 
 > Dùng **127.0.0.1** (tránh lỗi IPv6 `localhost` trên macOS).
 
+## Chức năng giống G-Labs
+
+| Tính năng | Nơi dùng |
+|-----------|----------|
+| Login browser → auto cookie | Settings → **Mở Chrome login Flow** |
+| Dashboard stats | Menu **Dashboard** |
+| Prompt Hub | Menu **Prompt Hub** |
+| Import CSV prompts | Flow Ảnh / Flow Video → **Import CSV** |
+| Pipeline Ảnh→Video | Flow Ảnh → **Ảnh→Video** |
+| Tách frame video | Flow Video → **Tách frame** / **Frame từ KQ** |
+| Multi-account + Webhook + Auth Helper | (đã có) |
+
+Playwright (login browser):
+
+```bash
+cd backend && source .venv/bin/activate
+pip install playwright && playwright install chromium
+```
+
 ## Ổn định vận hành (v0.2)
 
 - Scripts start/stop/status + watchdog

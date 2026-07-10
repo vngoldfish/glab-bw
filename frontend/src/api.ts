@@ -594,3 +594,199 @@ export async function fetchExtensionStatus(): Promise<ExtensionStatus> {
   await ensureOk(res, "Extension status failed");
   return readJson<ExtensionStatus>(res);
 }
+
+/* —— G-Labs feature parity APIs —— */
+
+export interface LoginBrowserJob {
+  job_id: string;
+  status: string;
+  message: string;
+  email?: string | null;
+  account_id?: string | null;
+  error?: string | null;
+}
+
+export async function startLoginBrowser(label = ""): Promise<LoginBrowserJob> {
+  const res = await apiFetch("/api/accounts/login/browser", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label, timeout_sec: 600 }),
+  });
+  await ensureOk(res, "Không mở được browser login");
+  return readJson(res);
+}
+
+export async function fetchLoginBrowserStatus(jobId: string): Promise<LoginBrowserJob> {
+  const res = await apiFetch(`/api/accounts/login/browser/${jobId}`);
+  await ensureOk(res, "Không lấy được trạng thái login");
+  return readJson(res);
+}
+
+export interface HubPrompt {
+  id: string;
+  title: string;
+  text: string;
+  kind: string;
+  tags: string[];
+  created_at?: number;
+  updated_at?: number;
+  use_count?: number;
+}
+
+export async function fetchPrompts(opts?: {
+  kind?: string;
+  q?: string;
+}): Promise<HubPrompt[]> {
+  const params = new URLSearchParams();
+  if (opts?.kind) params.set("kind", opts.kind);
+  if (opts?.q) params.set("q", opts.q);
+  const qs = params.toString();
+  const res = await apiFetch(`/api/prompts${qs ? `?${qs}` : ""}`);
+  await ensureOk(res, "Không tải Prompt Hub");
+  const data = await readJson<{ prompts: HubPrompt[] }>(res);
+  return data.prompts;
+}
+
+export async function createPrompt(payload: {
+  title: string;
+  text: string;
+  kind?: string;
+  tags?: string[];
+}): Promise<HubPrompt> {
+  const res = await apiFetch("/api/prompts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Không lưu prompt");
+  const data = await readJson<{ prompt: HubPrompt }>(res);
+  return data.prompt;
+}
+
+export async function updatePrompt(
+  id: string,
+  payload: Partial<{ title: string; text: string; kind: string; tags: string[] }>,
+): Promise<HubPrompt> {
+  const res = await apiFetch(`/api/prompts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Không cập nhật prompt");
+  const data = await readJson<{ prompt: HubPrompt }>(res);
+  return data.prompt;
+}
+
+export async function deletePrompt(id: string): Promise<void> {
+  const res = await apiFetch(`/api/prompts/${id}`, { method: "DELETE" });
+  await ensureOk(res, "Không xóa prompt");
+}
+
+export async function usePrompt(id: string): Promise<HubPrompt> {
+  const res = await apiFetch(`/api/prompts/${id}/use`, { method: "POST" });
+  await ensureOk(res, "Không dùng prompt");
+  const data = await readJson<{ prompt: HubPrompt }>(res);
+  return data.prompt;
+}
+
+export interface ExtractedFrame {
+  position: string;
+  path: string;
+  url: string;
+}
+
+export async function extractFramesFromPath(
+  filePathOrUrl: string,
+  positions: string[] = ["start", "middle", "end"],
+): Promise<ExtractedFrame[]> {
+  const body =
+    filePathOrUrl.includes("/api/files/") || filePathOrUrl.startsWith("http")
+      ? { file_url: filePathOrUrl, positions }
+      : { file_path: filePathOrUrl, positions };
+  const res = await apiFetch("/api/media/extract-frames", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  await ensureOk(res, "Tách frame thất bại");
+  const data = await readJson<{ frames: ExtractedFrame[] }>(res);
+  return data.frames;
+}
+
+export async function extractFramesUpload(
+  file: File,
+  positions = "start,middle,end",
+): Promise<ExtractedFrame[]> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("positions", positions);
+  const res = await apiFetch("/api/media/extract-frames/upload", {
+    method: "POST",
+    body: form,
+  });
+  await ensureOk(res, "Upload/tách frame thất bại");
+  const data = await readJson<{ frames: ExtractedFrame[] }>(res);
+  return data.frames;
+}
+
+export async function fileAsDataUrl(filePath: string): Promise<string> {
+  const res = await apiFetch("/api/media/file-as-data-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_path: filePath }),
+  });
+  await ensureOk(res, "Không đọc file");
+  const data = await readJson<{ data_url: string }>(res);
+  return data.data_url;
+}
+
+export interface PipelineResult {
+  job_id: string;
+  status: string;
+  step?: string;
+  image_urls?: string[];
+  video_urls?: string[];
+  image_folder?: string | null;
+  video_folder?: string | null;
+  error?: string | null;
+}
+
+export async function runImageThenVideoPipeline(payload: {
+  prompt: string;
+  video_prompt?: string;
+  image_params?: Record<string, unknown>;
+  video_params?: Record<string, unknown>;
+}): Promise<PipelineResult> {
+  const res = await apiFetch("/api/pipeline/image-then-video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Pipeline thất bại");
+  return readJson(res);
+}
+
+export async function fetchDashboard(): Promise<Record<string, unknown>> {
+  const res = await apiFetch("/api/dashboard");
+  await ensureOk(res, "Không tải dashboard");
+  return readJson(res);
+}
+
+/** Parse CSV/TSV/TXT lines into prompt strings (first column or whole line). */
+export function parsePromptCsv(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    // CSV: take first column if comma-separated; strip quotes
+    let cell = trimmed;
+    if (cell.includes("\t")) cell = cell.split("\t")[0] ?? cell;
+    else if (cell.includes(",") && !cell.startsWith('"')) {
+      cell = cell.split(",")[0] ?? cell;
+    }
+    cell = cell.replace(/^["']|["']$/g, "").trim();
+    if (cell && cell.toLowerCase() !== "prompt") out.push(cell);
+  }
+  return out;
+}

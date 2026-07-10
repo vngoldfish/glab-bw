@@ -37,6 +37,10 @@ data/api_key.txt
 data/tasks.db
 data/logs/
 data/run/
+data/prompt_hub.json
+data/browser_profiles/
+data/temp/
+data/G-Labs BW/extracted_frames/
 *.tmp
 data/output/
 data/flow_media_cache.json

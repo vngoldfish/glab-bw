@@ -10,9 +10,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { id: "dashboard", label: "Dashboard", icon: "◫" },
   { id: "flow-image", label: "Flow Ảnh", icon: "◈" },
   { id: "references", label: "Ảnh tham chiếu", icon: "▣" },
   { id: "flow-video", label: "Flow Video", icon: "▶" },
+  { id: "prompt-hub", label: "Prompt Hub", icon: "✎" },
   { id: "webhook", label: "Webhook", icon: "⬡" },
   { id: "extension", label: "Auth Helper", icon: "◎" },
   { id: "settings", label: "Cài Đặt", icon: "⚙" },

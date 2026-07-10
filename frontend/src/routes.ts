@@ -1,9 +1,11 @@
 import type { NavPage } from "./types";
 
 export const NAV_ROUTES: Record<NavPage, string> = {
+  dashboard: "/dashboard",
   "flow-image": "/flow-image",
   references: "/references",
   "flow-video": "/flow-video",
+  "prompt-hub": "/prompt-hub",
   grok: "/grok",
   webhook: "/webhook",
   extension: "/extension",

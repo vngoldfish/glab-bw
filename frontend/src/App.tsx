@@ -12,7 +12,9 @@ import {
 import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
+import DashboardPage from "./pages/DashboardPage";
 import ExtensionPage from "./pages/ExtensionPage";
+import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
 import WebhookPage from "./pages/WebhookPage";
@@ -224,6 +226,22 @@ export default function App() {
               <Route path="/" element={<Navigate to={DEFAULT_ROUTE} replace />} />
               <Route path={NAV_ROUTES["flow-image"]} element={null} />
               <Route path={NAV_ROUTES["flow-video"]} element={null} />
+              <Route
+                path={NAV_ROUTES.dashboard}
+                element={
+                  <div className="page-panel">
+                    <DashboardPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES["prompt-hub"]}
+                element={
+                  <div className="page-panel">
+                    <PromptHubPage onError={setError} />
+                  </div>
+                }
+              />
               <Route
                 path={NAV_ROUTES.references}
                 element={

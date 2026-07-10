@@ -1,7 +1,9 @@
 export type NavPage =
+  | "dashboard"
   | "flow-image"
   | "flow-video"
   | "references"
+  | "prompt-hub"
   | "grok"
   | "webhook"
   | "settings"

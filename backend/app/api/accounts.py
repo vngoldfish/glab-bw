@@ -127,6 +127,46 @@ async def delete_account(account_id: str) -> dict:
     return {"ok": True}
 
 
+class LoginBrowserRequest(BaseModel):
+    label: str = ""
+    timeout_sec: int = 600
+
+
+@router.post("/login/browser")
+async def start_login_browser(body: LoginBrowserRequest | None = None) -> dict:
+    """Mở Chrome headed — user login Flow → auto lưu cookie account."""
+    from app.services.login_browser import login_browser_service
+
+    req = body or LoginBrowserRequest()
+    job = await login_browser_service.start(
+        label=req.label,
+        timeout_sec=max(60, min(req.timeout_sec, 1800)),
+        headless=False,
+    )
+    return login_browser_service.to_dict(job)
+
+
+@router.get("/login/browser/{job_id}")
+async def login_browser_status(job_id: str) -> dict:
+    from app.services.login_browser import login_browser_service
+
+    job = login_browser_service.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail={"error": "Job not found"})
+    return login_browser_service.to_dict(job)
+
+
+@router.post("/login/browser/{job_id}/cancel")
+async def login_browser_cancel(job_id: str) -> dict:
+    from app.services.login_browser import login_browser_service
+
+    ok = login_browser_service.cancel(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail={"error": "Cannot cancel"})
+    job = login_browser_service.get(job_id)
+    return login_browser_service.to_dict(job) if job else {"ok": True}
+
+
 @router.get("/export/backup")
 async def export_accounts(include_secrets: bool = False) -> dict:
     """Export accounts for backup. Secrets (cookies/keys) off by default."""
