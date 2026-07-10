@@ -1413,16 +1413,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </div>
         </aside>
 
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            borderRadius: 12,
-            overflow: "hidden",
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#0c0e12",
-          }}
-        >
+        <div className="workflow-canvas-wrap">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -1619,21 +1610,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       </div>
 
       {lightbox && (
-        <div
-          role="dialog"
-          onClick={() => setLightbox(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.82)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 24,
-            cursor: "zoom-out",
-          }}
-        >
+        <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>
           {isVideoUrl(lightbox) ? (
             <video
               src={lightbox}
