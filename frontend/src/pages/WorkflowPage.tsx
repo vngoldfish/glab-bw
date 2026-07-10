@@ -30,10 +30,12 @@ import {
   duplicateProject,
   fetchProject,
   fetchProjectAssets,
+  fetchReferenceLibrary,
   fetchSampleVideoChain,
   fetchSampleWorkflow,
   fetchWorkflowRun,
   listProjects,
+  mapReferenceRecord,
   normalizeFileUrl,
   openProjectFolder,
   runWorkflowGraph,
@@ -43,12 +45,15 @@ import {
   type WorkflowRunResult,
 } from "../api";
 import { useSearchParams } from "react-router-dom";
+import type { NamedReference } from "../types";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
 }
 
 type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
+
+type ImageField = "image" | "start_image" | "end_image";
 
 type WNodeData = {
   title: string;
@@ -57,6 +62,9 @@ type WNodeData = {
   aspect_ratio?: string;
   mode?: string;
   image?: string;
+  /** Video start/end attached on node (no edge required) */
+  start_image?: string;
+  end_image?: string;
   positions?: string;
   /** Preview media after run (image/video URLs) */
   resultUrls?: string[];
@@ -69,6 +77,7 @@ type WNodeData = {
   onChange?: (id: string, patch: Partial<WNodeData>) => void;
   onPreview?: (url: string) => void;
   onRerun?: (id: string) => void;
+  onPickImage?: (id: string, field: ImageField) => void;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -287,6 +296,99 @@ function fieldStyle(): CSSProperties {
   };
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Không đọc được file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Attach existing image: upload / library / project */
+function ImageAttachBar({
+  nodeId,
+  field,
+  value,
+  onChange,
+  onPick,
+  onPreview,
+  label = "Ảnh có sẵn",
+}: {
+  nodeId: string;
+  field: ImageField;
+  value?: string;
+  onChange?: (id: string, patch: Partial<WNodeData>) => void;
+  onPick?: (id: string, field: ImageField) => void;
+  onPreview?: (url: string) => void;
+  label?: string;
+}) {
+  const has = Boolean(value);
+  return (
+    <div className="nodrag nopan node-attach-bar">
+      <div className="node-attach-head">
+        <span>{label}</span>
+        {has ? (
+          <button
+            type="button"
+            className="node-attach-clear"
+            onClick={() =>
+              onChange?.(nodeId, {
+                [field]: undefined,
+                ...(field === "image" ? { resultUrls: undefined } : {}),
+              } as Partial<WNodeData>)
+            }
+          >
+            Gỡ
+          </button>
+        ) : null}
+      </div>
+      {has ? (
+        <button
+          type="button"
+          className="node-attach-thumb"
+          onClick={() => value && onPreview?.(normalizeFileUrl(value))}
+          title="Xem ảnh"
+        >
+          <img src={normalizeFileUrl(value!)} alt="" />
+        </button>
+      ) : (
+        <div className="node-attach-actions">
+          <label className="node-attach-btn">
+            ⬆ Upload
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                try {
+                  const url = await readFileAsDataUrl(f);
+                  onChange?.(nodeId, {
+                    [field]: url,
+                    ...(field === "image" ? { resultUrls: [url] } : {}),
+                  } as Partial<WNodeData>);
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="node-attach-btn"
+            onClick={() => onPick?.(nodeId, field)}
+          >
+            📂 Chọn có sẵn
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PromptNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   return (
@@ -312,56 +414,39 @@ function PromptNode({ id, data, selected }: NodeProps) {
 
 function ReferenceNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
-  const preview = d.resultUrls?.length
-    ? d.resultUrls
-    : d.image && (d.image.startsWith("data:") || d.image.includes("/api/files/") || d.image.startsWith("http"))
-      ? [d.image]
+  const preview = d.image
+    ? [d.image]
+    : d.resultUrls?.length
+      ? d.resultUrls
       : [];
   return (
     <Shell
       type="reference"
-      title={d.title || "Ảnh tham chiếu"}
+      title={d.title || "Ảnh có sẵn"}
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
     >
       <Handle type="source" position={Position.Right} id="image" style={{ background: "#14b8a6" }} />
+      <ImageAttachBar
+        nodeId={id}
+        field="image"
+        value={d.image}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Gắn ảnh có sẵn"
+      />
+      {preview.length > 0 && !d.image ? (
+        <MediaPreview urls={preview} onPreview={d.onPreview} max={1} label="Preview" />
+      ) : null}
       <input
         className="nodrag"
-        value={d.image || ""}
-        onChange={(e) => d.onChange?.(id, { image: e.target.value, resultUrls: undefined })}
-        placeholder="URL /api/files/... hoặc data:"
-        style={fieldStyle()}
+        value={d.image?.startsWith("data:") ? "(đã gắn file local)" : d.image || ""}
+        onChange={(e) => d.onChange?.(id, { image: e.target.value, resultUrls: e.target.value ? [e.target.value] : undefined })}
+        placeholder="Hoặc dán URL /api/files/..."
+        style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
       />
-      <label
-        className="nodrag"
-        style={{
-          display: "inline-block",
-          marginTop: 6,
-          fontSize: 11,
-          cursor: "pointer",
-          color: "#5eead4",
-        }}
-      >
-        ⬆ Upload ảnh
-        <input
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (!f) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-              const url = String(reader.result || "");
-              d.onChange?.(id, { image: url, resultUrls: [url] });
-            };
-            reader.readAsDataURL(f);
-          }}
-        />
-      </label>
-      <MediaPreview urls={preview} onPreview={d.onPreview} max={1} label="Ảnh tham chiếu" />
     </Shell>
   );
 }
@@ -382,47 +467,47 @@ function GenerateNode({ id, data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
       <Handle type="target" position={Position.Left} id="image" style={{ top: "42%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="image" style={{ background: "#22c55e" }} />
-      {!d.resultUrls?.length ? (
-        <>
-          <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-            Model
-            <select
-              value={d.model || "nano_banana_2_lite"}
-              onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-              style={{ ...fieldStyle(), marginTop: 2 }}
-            >
-              <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
-              <option value="nano_banana_2">Nano Banana 2</option>
-              <option value="nano_banana_pro">Nano Banana Pro</option>
-            </select>
-          </label>
-          <label className="nodrag" style={{ display: "block" }}>
-            Tỷ lệ
-            <select
-              value={d.aspect_ratio || "16:9"}
-              onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
-              style={{ ...fieldStyle(), marginTop: 2 }}
-            >
-              <option value="1:1">1:1</option>
-              <option value="16:9">16:9</option>
-              <option value="9:16">9:16</option>
-            </select>
-          </label>
-          <div className="node-media-empty">
-            {d.runStatus === "running" || d.runStatus === "pending"
-              ? "Đang tạo ảnh…"
-              : "Ảnh kết quả hiện ở đây"}
-          </div>
-        </>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Model
+        <select
+          value={d.model || "nano_banana_2_lite"}
+          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
+          <option value="nano_banana_2">Nano Banana 2</option>
+          <option value="nano_banana_pro">Nano Banana Pro</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Tỷ lệ
+        <select
+          value={d.aspect_ratio || "16:9"}
+          onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="1:1">1:1</option>
+          <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+        </select>
+      </label>
+      <ImageAttachBar
+        nodeId={id}
+        field="image"
+        value={d.image}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Ảnh ref (có sẵn)"
+      />
+      {d.resultUrls?.length ? (
+        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả gen" />
       ) : (
-        <>
-          <div className="node-config-compact nodrag">
-            <span>{d.model || "nano_banana_2_lite"}</span>
-            <span>·</span>
-            <span>{d.aspect_ratio || "16:9"}</span>
-          </div>
-          <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả" />
-        </>
+        <div className="node-media-empty">
+          {d.runStatus === "running" || d.runStatus === "pending"
+            ? "Đang tạo ảnh…"
+            : "Ảnh kết quả gen hiện ở đây"}
+        </div>
       )}
     </Shell>
   );
@@ -445,47 +530,56 @@ function VideoNode({ id, data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} id="start_image" style={{ top: "48%", background: "#22c55e" }} />
       <Handle type="target" position={Position.Left} id="end_image" style={{ top: "72%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
-      {!d.resultUrls?.length ? (
-        <>
-          <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-            Model
-            <select
-              value={d.model || "veo_31_fast"}
-              onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-              style={{ ...fieldStyle(), marginTop: 2 }}
-            >
-              <option value="veo_31_fast">Veo 3.1 Fast</option>
-              <option value="veo_31_quality">Veo 3.1 Quality</option>
-              <option value="omni_flash">Omni Flash</option>
-            </select>
-          </label>
-          <label className="nodrag" style={{ display: "block" }}>
-            Mode
-            <select
-              value={d.mode || "start_image"}
-              onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
-              style={{ ...fieldStyle(), marginTop: 2 }}
-            >
-              <option value="text_to_video">Text→Video</option>
-              <option value="start_image">Start image</option>
-              <option value="start_end_image">Start+End</option>
-            </select>
-          </label>
-          <div className="node-media-empty">
-            {d.runStatus === "running" || d.runStatus === "pending"
-              ? "Đang tạo video…"
-              : "Video kết quả hiện ở đây"}
-          </div>
-        </>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Model
+        <select
+          value={d.model || "veo_31_fast"}
+          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="veo_31_fast">Veo 3.1 Fast</option>
+          <option value="veo_31_quality">Veo 3.1 Quality</option>
+          <option value="omni_flash">Omni Flash</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Mode
+        <select
+          value={d.mode || "start_image"}
+          onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="text_to_video">Text→Video</option>
+          <option value="start_image">Start image</option>
+          <option value="start_end_image">Start+End</option>
+        </select>
+      </label>
+      <ImageAttachBar
+        nodeId={id}
+        field="start_image"
+        value={d.start_image}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Khung đầu (ảnh có sẵn)"
+      />
+      <ImageAttachBar
+        nodeId={id}
+        field="end_image"
+        value={d.end_image}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Khung cuối (ảnh có sẵn)"
+      />
+      {d.resultUrls?.length ? (
+        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả video" />
       ) : (
-        <>
-          <div className="node-config-compact nodrag">
-            <span>{d.model || "veo_31_fast"}</span>
-            <span>·</span>
-            <span>{d.mode || "start_image"}</span>
-          </div>
-          <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả" />
-        </>
+        <div className="node-media-empty">
+          {d.runStatus === "running" || d.runStatus === "pending"
+            ? "Đang tạo video…"
+            : "Video kết quả hiện ở đây"}
+        </div>
       )}
     </Shell>
   );
@@ -591,6 +685,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [saveHint, setSaveHint] = useState("");
   const [dirty, setDirty] = useState(false);
   const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
+  const [picker, setPicker] = useState<{ nodeId: string; field: ImageField } | null>(null);
+  const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
+  const [library, setLibrary] = useState<NamedReference[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const rf = useRef<ReactFlowInstance | null>(null);
   const nodesRef = useRef<Node[]>([]);
   const pollStop = useRef(false);
@@ -622,6 +720,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }, []);
 
   const rerunRef = useRef<(id: string) => void>(() => undefined);
+  const pickImageRef = useRef<(id: string, field: ImageField) => void>(() => undefined);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<WNodeData>) => {
@@ -636,11 +735,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   onChange: patchNode,
                   onPreview: openPreview,
                   onRerun: (nid: string) => rerunRef.current(nid),
+                  onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
                 },
               }
             : n,
         ),
       );
+      setDirty(true);
     },
     [openPreview, setNodes],
   );
@@ -654,10 +755,59 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           onChange: patchNode,
           onPreview: openPreview,
           onRerun: (nid: string) => rerunRef.current(nid),
+          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
         },
       })),
     [openPreview, patchNode],
   );
+
+  pickImageRef.current = (id: string, field: ImageField) => {
+    setPicker({ nodeId: id, field });
+    setPickerTab(projectIdRef.current ? "project" : "library");
+  };
+
+  useEffect(() => {
+    if (!picker) return;
+    setPickerLoading(true);
+    void (async () => {
+      try {
+        if (pickerTab === "library") {
+          const data = await fetchReferenceLibrary();
+          setLibrary(data.references.map(mapReferenceRecord));
+        } else if (projectIdRef.current) {
+          const data = await fetchProjectAssets(projectIdRef.current, "image");
+          setProjectAssets(data.assets);
+        }
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setPickerLoading(false);
+      }
+    })();
+  }, [picker, pickerTab, onError]);
+
+  function applyPickedImage(url: string) {
+    if (!picker) return;
+    const { nodeId, field } = picker;
+    const patch: Partial<WNodeData> = { [field]: url };
+    if (field === "image") {
+      patch.resultUrls = [url];
+    }
+    // video mode auto when attaching start
+    if (field === "start_image" || field === "end_image") {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (node?.type === "video_generate") {
+        const d = node.data as WNodeData;
+        if (field === "end_image" || d.end_image) {
+          patch.mode = "start_end_image";
+        } else {
+          patch.mode = "start_image";
+        }
+      }
+    }
+    patchNode(nodeId, patch);
+    setPicker(null);
+  }
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -736,7 +886,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   function addNode(type: string) {
     const titles: Record<string, string> = {
       prompt: "Prompt",
-      reference: "Ảnh tham chiếu",
+      reference: "Ảnh có sẵn",
       generate: "Tạo ảnh",
       video_generate: "Tạo video",
       frame_extract: "Tách frame",
@@ -747,6 +897,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       runStatus: "idle",
       onChange: patchNode,
       onPreview: openPreview,
+      onRerun: (nid: string) => rerunRef.current(nid),
+      onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
     };
     if (type === "prompt") baseData.prompt = "";
     if (type === "generate") {
@@ -1152,6 +1304,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           runError: undefined,
           onChange: patchNode,
           onPreview: openPreview,
+          onRerun: (nid: string) => rerunRef.current(nid),
+          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
         },
       })),
     );
@@ -1274,7 +1428,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               {(
                 [
                   ["prompt", "Prompt"],
-                  ["reference", "Ảnh tham chiếu"],
+                  ["reference", "Ảnh có sẵn"],
                   ["generate", "Tạo ảnh"],
                   ["video_generate", "Tạo video"],
                   ["frame_extract", "Tách frame"],
@@ -1616,6 +1770,100 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </p>
         </aside>
       </div>
+
+      {picker && (
+        <div className="ui-lightbox node-picker-overlay" onClick={() => setPicker(null)}>
+          <div className="node-picker-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="node-picker-head">
+              <strong>Chọn ảnh có sẵn</strong>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPicker(null)}>
+                Đóng
+              </button>
+            </div>
+            <div className="projects-tabs" style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                className={`projects-tab${pickerTab === "project" ? " active" : ""}`}
+                onClick={() => setPickerTab("project")}
+                disabled={!projectIdRef.current}
+              >
+                Project media
+              </button>
+              <button
+                type="button"
+                className={`projects-tab${pickerTab === "library" ? " active" : ""}`}
+                onClick={() => setPickerTab("library")}
+              >
+                Thư viện @ref
+              </button>
+            </div>
+            {pickerLoading ? (
+              <p className="muted">Đang tải…</p>
+            ) : pickerTab === "library" ? (
+              <div className="node-picker-grid">
+                {library.length === 0 && (
+                  <p className="muted">Thư viện trống — thêm ảnh ở trang Ảnh tham chiếu.</p>
+                )}
+                {library.map((ref) => (
+                  <button
+                    key={ref.id}
+                    type="button"
+                    className="node-picker-item"
+                    onClick={() => applyPickedImage(ref.image)}
+                    title={ref.name}
+                  >
+                    <img src={ref.image} alt={ref.name} />
+                    <span>{ref.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="node-picker-grid">
+                {!projectIdRef.current && (
+                  <p className="muted">Lưu project trước để chọn media project.</p>
+                )}
+                {projectIdRef.current &&
+                  projectAssets.filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name)).length ===
+                    0 && <p className="muted">Chưa có ảnh trong project.</p>}
+                {projectAssets
+                  .filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name))
+                  .map((a) => (
+                    <button
+                      key={a.path}
+                      type="button"
+                      className="node-picker-item"
+                      onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
+                      title={a.name}
+                    >
+                      <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      <span>{a.name}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}>
+              <label className="btn btn-primary btn-sm" style={{ cursor: "pointer" }}>
+                ⬆ Upload từ máy
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    try {
+                      applyPickedImage(await readFileAsDataUrl(f));
+                    } catch (err) {
+                      onError(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
 
       {lightbox && (
         <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>

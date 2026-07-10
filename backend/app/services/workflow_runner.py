@@ -184,7 +184,17 @@ async def _execute_node(
         prompt = prompt or str(data.get("prompt") or "").strip()
         if not prompt:
             raise ValueError("Generate needs prompt")
+        # Edge inputs + optional images attached on the node itself
         refs = list(inputs.get("image") or [])
+        for key in ("image", "ref_image", "reference_image"):
+            val = data.get(key)
+            if val and val not in refs:
+                refs.append(val)
+        extra = data.get("reference_images") or data.get("images") or []
+        if isinstance(extra, list):
+            for val in extra:
+                if val and val not in refs:
+                    refs.append(val)
         ref_data: list[str] = []
         for r in refs[:3]:
             if str(r).startswith("data:"):
@@ -222,6 +232,17 @@ async def _execute_node(
             raise ValueError("Video needs prompt")
         start_refs = list(inputs.get("start_image") or inputs.get("image") or [])
         end_refs = list(inputs.get("end_image") or [])
+        # Node-attached images (pick from library / upload without edge)
+        for key in ("start_image", "image", "startImage"):
+            val = data.get(key)
+            if val and val not in start_refs:
+                start_refs.insert(0, val)
+                break
+        for key in ("end_image", "endImage"):
+            val = data.get(key)
+            if val and val not in end_refs:
+                end_refs.insert(0, val)
+                break
         mode = data.get("mode") or ("start_image" if start_refs else "text_to_video")
         params: dict[str, Any] = {
             "model": data.get("model") or "veo_31_fast",
