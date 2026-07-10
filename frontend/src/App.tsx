@@ -13,6 +13,7 @@ import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
+import DocsPage from "./pages/DocsPage";
 import ExtensionPage from "./pages/ExtensionPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import PromptHubPage from "./pages/PromptHubPage";
@@ -257,6 +258,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <ProjectsPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES.docs}
+                element={
+                  <div className="page-panel">
+                    <DocsPage />
                   </div>
                 }
               />

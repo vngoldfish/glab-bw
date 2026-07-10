@@ -8,6 +8,7 @@ export const NAV_ROUTES: Record<NavPage, string> = {
   "prompt-hub": "/prompt-hub",
   workflow: "/workflow",
   projects: "/projects",
+  docs: "/docs",
   grok: "/grok",
   webhook: "/webhook",
   extension: "/extension",

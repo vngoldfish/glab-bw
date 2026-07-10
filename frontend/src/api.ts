@@ -338,6 +338,10 @@ export interface WorkflowAiNodeContext {
   model?: string;
   mode?: string;
   has_image?: boolean;
+  /** graph distance from current (1 = direct neighbor) */
+  hop?: number;
+  /** short note: has results, frame positions, etc. */
+  note?: string;
   role: "upstream" | "current" | "downstream";
 }
 

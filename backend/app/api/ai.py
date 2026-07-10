@@ -44,6 +44,8 @@ class WorkflowNodeContext(BaseModel):
     model: str = ""
     mode: str = ""
     has_image: bool = False
+    hop: int | None = None  # graph distance from current (1 = closest)
+    note: str = ""  # e.g. has_2_output(s), frames:end
     role: str = "upstream"  # upstream | current | downstream
 
 

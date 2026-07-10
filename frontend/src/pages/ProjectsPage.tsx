@@ -30,7 +30,7 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
-  const [assetKind, setAssetKind] = useState<"all" | "image" | "video">("all");
+  const [assetKind, setAssetKind] = useState<"image" | "video">("image");
   const [stats, setStats] = useState<{
     images: number;
     videos: number;
@@ -58,10 +58,14 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
   }, [onError]);
 
   const loadAssets = useCallback(
-    async (id: string, kind: "all" | "image" | "video") => {
+    async (id: string, kind: "image" | "video") => {
       try {
-        const data = await fetchProjectAssets(id, kind === "all" ? undefined : kind);
-        setAssets(data.assets);
+        const data = await fetchProjectAssets(id, kind);
+        // Mới nhất trên, cũ dưới
+        const sorted = [...data.assets].sort(
+          (a, b) => Number(b.mtime || 0) - Number(a.mtime || 0),
+        );
+        setAssets(sorted);
         setStats(data.stats);
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
@@ -297,9 +301,8 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                 <div className="projects-tabs">
                   {(
                     [
-                      ["all", "Tất cả"],
-                      ["image", "Ảnh"],
-                      ["video", "Video"],
+                      ["image", `Ảnh${stats?.images != null ? ` (${stats.images})` : ""}`],
+                      ["video", `Video${stats?.videos != null ? ` (${stats.videos})` : ""}`],
                     ] as const
                   ).map(([k, label]) => (
                     <button
@@ -343,9 +346,9 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                 {assets.length === 0 && (
                   <div className="projects-empty-media">
                     <p className="muted">
-                      Chưa có ảnh/video.
+                      {assetKind === "video" ? "Chưa có video." : "Chưa có ảnh."}
                       <br />
-                      Mở Workflow → chạy gen → file sẽ hiện tại đây.
+                      Mở Workflow → chạy gen → file sẽ hiện tại đây (mới trên · cũ dưới).
                     </p>
                     <button
                       type="button"

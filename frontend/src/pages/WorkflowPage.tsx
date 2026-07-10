@@ -25,6 +25,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   deleteProject,
   duplicateProject,
@@ -46,7 +47,7 @@ import {
   type WorkflowAiNodeContext,
   type WorkflowRunResult,
 } from "../api";
-import { useSearchParams } from "react-router-dom";
+import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
 
 interface WorkflowPageProps {
@@ -409,16 +410,18 @@ function PromptNode({ id, data, selected }: NodeProps) {
   async function handleAiRewrite() {
     const source = (d.prompt || "").trim();
     if (!source) {
-      d.onError?.("Nhập prompt trước khi dùng AI");
+      d.onError?.("Nhập ý/prompt trên node này trước khi dùng AI");
       return;
     }
     if (aiBusy) return;
     setAiBusy(true);
     try {
+      // Always re-query graph so AI sees latest upstream/downstream nodes
       const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      const up = workflow_context.filter((c) => c.role === "upstream");
+      const down = workflow_context.filter((c) => c.role === "downstream");
       // Prefer pipeline-inferred kind: if only video downstream → video, etc.
       let kindUse: "image" | "video" = kind;
-      const down = workflow_context.filter((c) => c.role === "downstream");
       const hasVid = down.some((c) => c.type === "video_generate");
       const hasImg = down.some((c) => c.type === "generate");
       if (hasVid && !hasImg) kindUse = "video";
@@ -439,6 +442,11 @@ function PromptNode({ id, data, selected }: NodeProps) {
       d.onChange?.(id, { prompt: next, promptKind: kindUse });
       if (next === source) {
         d.onError?.("AI gần như không đổi prompt — thử model/style khác trong Cài đặt");
+      } else if (up.length > 0) {
+        // soft status: context was used
+        console.info(
+          `[AI prompt] rewritten with ${up.length} upstream + ${down.length} downstream node(s)`,
+        );
       }
     } catch (err) {
       d.onError?.(err instanceof Error ? err.message : String(err));
@@ -446,6 +454,19 @@ function PromptNode({ id, data, selected }: NodeProps) {
       setAiBusy(false);
     }
   }
+
+  // Live count for toolbar hint (graph may change while panel open)
+  const ctxHint = (() => {
+    try {
+      const ctx = d.getWorkflowContext?.(id) ?? [];
+      const up = ctx.filter((c) => c.role === "upstream").length;
+      const down = ctx.filter((c) => c.role === "downstream").length;
+      if (up === 0 && down === 0) return null;
+      return { up, down };
+    } catch {
+      return null;
+    }
+  })();
 
   return (
     <Shell
@@ -475,7 +496,11 @@ function PromptNode({ id, data, selected }: NodeProps) {
           className="node-ai-btn"
           disabled={aiBusy || !(d.prompt || "").trim()}
           onClick={() => void handleAiRewrite()}
-          title="AI đọc prompt này + các node trước/sau trên graph để viết lại cho khớp pipeline"
+          title={
+            ctxHint
+              ? `AI đọc prompt node này + ${ctxHint.up} node trước + ${ctxHint.down} node sau trên graph`
+              : "AI đọc prompt node này; nối graph để phân tích node trước/sau"
+          }
         >
           {aiBusy ? "AI…" : "✦ AI"}
         </button>
@@ -485,15 +510,27 @@ function PromptNode({ id, data, selected }: NodeProps) {
         rows={4}
         value={d.prompt || ""}
         onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-        placeholder="Nhập ý ngắn… AI sẽ đọc node trước/sau rồi viết prompt chuyên nghiệp"
+        placeholder="Nhập ý ngắn… AI đọc prompt này + node trước (ảnh/video/frame) rồi viết hợp lý"
         style={{ ...fieldStyle(), resize: "vertical" }}
         disabled={aiBusy}
       />
       {aiBusy ? (
-        <div className="node-ai-status">AI đang phân tích pipeline + viết lại prompt…</div>
+        <div className="node-ai-status">
+          AI đang đọc prompt hiện tại
+          {ctxHint ? ` + ${ctxHint.up} node trước` : ""}
+          {" → phân tích pipeline và viết lại…"}
+        </div>
       ) : (
         <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.35 }}>
-          ✦ AI xem prompt hiện tại + node phía trước/sau (ảnh, video, frame) để viết hợp lý
+          {ctxHint ? (
+            <>
+              ✦ Sẽ phân tích: prompt node này
+              {ctxHint.up > 0 ? ` · ${ctxHint.up} node trước` : ""}
+              {ctxHint.down > 0 ? ` · ${ctxHint.down} node sau` : ""}
+            </>
+          ) : (
+            <>✦ AI đọc prompt node này; nối sang Ảnh/Video (và node trước) để viết khớp pipeline</>
+          )}
         </div>
       )}
     </Shell>
@@ -784,12 +821,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [projectFilter, setProjectFilter] = useState("");
   const [running, setRunning] = useState(false);
-  const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
+  const [, setRunResult] = useState<WorkflowRunResult | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
   const [dirty, setDirty] = useState(false);
   const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
+  /** Sidebar media column: Image / Video tabs (newest first) */
+  const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
   const [picker, setPicker] = useState<{ nodeId: string; field: ImageField } | null>(null);
   const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
@@ -810,11 +849,33 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
     try {
       const data = await fetchProjectAssets(id);
-      setProjectAssets(data.assets.slice(0, 24));
+      // Backend already sorts mtime desc (mới → cũ); keep client sort as safety
+      const sorted = [...data.assets].sort(
+        (a, b) => Number(b.mtime || 0) - Number(a.mtime || 0),
+      );
+      setProjectAssets(sorted.slice(0, 120));
     } catch {
       /* ignore */
     }
   }, []);
+
+  const mediaSidebarAssets = useMemo(() => {
+    const filtered = projectAssets.filter((a) =>
+      mediaTab === "video" ? a.kind === "video" : a.kind !== "video",
+    );
+    // Mới nhất trên cùng, cũ hơn ở dưới
+    return [...filtered].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0));
+  }, [projectAssets, mediaTab]);
+
+  const mediaCounts = useMemo(() => {
+    let images = 0;
+    let videos = 0;
+    for (const a of projectAssets) {
+      if (a.kind === "video") videos += 1;
+      else images += 1;
+    }
+    return { images, videos };
+  }, [projectAssets]);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -832,83 +893,131 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     edgesRef.current = edges;
   }, [edges]);
 
-  /** Collect upstream + downstream nodes for context-aware AI rewrite */
+  /**
+   * Collect pipeline context for AI prompt rewrite:
+   * - current prompt node (full text)
+   * - upstream chain (BFS hop distance): siblings feeding same consumer + their ancestors
+   * - downstream consumers (image/video/frame)
+   */
   const getWorkflowContext = useCallback((nodeId: string): WorkflowAiNodeContext[] => {
     const nds = nodesRef.current;
     const eds = edgesRef.current;
     const byId = new Map(nds.map((n) => [n.id, n]));
 
-    const upstreamIds = new Set<string>();
-    const downstreamIds = new Set<string>();
+    const upstreamHop = new Map<string, number>();
+    const downstreamHop = new Map<string, number>();
 
-    // BFS backward (what feeds into this node / its consumers' ancestors)
-    const backQ = [nodeId];
+    // Direct ancestors of this node (rare for prompt, useful if ever wired)
+    const backQ: Array<{ id: string; hop: number }> = [{ id: nodeId, hop: 0 }];
     const backSeen = new Set<string>([nodeId]);
     while (backQ.length) {
-      const cur = backQ.pop()!;
+      const { id: cur, hop } = backQ.shift()!;
       for (const e of eds) {
         if (e.target === cur && !backSeen.has(e.source)) {
           backSeen.add(e.source);
-          upstreamIds.add(e.source);
-          backQ.push(e.source);
+          const h = hop + 1;
+          upstreamHop.set(e.source, Math.min(upstreamHop.get(e.source) ?? 99, h));
+          backQ.push({ id: e.source, hop: h });
         }
       }
     }
-    // BFS forward from this node
-    const fwdQ = [nodeId];
+
+    // Forward consumers
+    const fwdQ: Array<{ id: string; hop: number }> = [{ id: nodeId, hop: 0 }];
     const fwdSeen = new Set<string>([nodeId]);
     while (fwdQ.length) {
-      const cur = fwdQ.pop()!;
+      const { id: cur, hop } = fwdQ.shift()!;
       for (const e of eds) {
         if (e.source === cur && !fwdSeen.has(e.target)) {
           fwdSeen.add(e.target);
-          downstreamIds.add(e.target);
-          fwdQ.push(e.target);
+          const h = hop + 1;
+          downstreamHop.set(e.target, Math.min(downstreamHop.get(e.target) ?? 99, h));
+          fwdQ.push({ id: e.target, hop: h });
         }
       }
     }
-    // Also: nodes that share the same prompt output targets' other inputs (siblings via consumers)
+
+    // Siblings: other inputs into the same generate/video/frame that this prompt feeds
+    // + walk their full ancestor chain (e.g. PromptA→Ảnh→Video while this is PromptB→Video)
     for (const e of eds) {
-      if (e.source === nodeId) {
-        // consumers of this prompt
-        for (const e2 of eds) {
-          if (e2.target === e.target && e2.source !== nodeId) {
-            upstreamIds.add(e2.source); // other inputs into the same generate/video
+      if (e.source !== nodeId) continue;
+      for (const e2 of eds) {
+        if (e2.target !== e.target || e2.source === nodeId) continue;
+        if (!backSeen.has(e2.source)) {
+          backSeen.add(e2.source);
+          upstreamHop.set(e2.source, Math.min(upstreamHop.get(e2.source) ?? 99, 1));
+          // BFS ancestors of sibling
+          const sq: Array<{ id: string; hop: number }> = [{ id: e2.source, hop: 1 }];
+          while (sq.length) {
+            const { id: cur, hop } = sq.shift()!;
+            for (const e3 of eds) {
+              if (e3.target === cur && !backSeen.has(e3.source)) {
+                backSeen.add(e3.source);
+                const h = hop + 1;
+                upstreamHop.set(e3.source, Math.min(upstreamHop.get(e3.source) ?? 99, h));
+                sq.push({ id: e3.source, hop: h });
+              }
+            }
           }
         }
       }
     }
 
-    const pack = (n: Node, role: WorkflowAiNodeContext["role"]): WorkflowAiNodeContext => {
+    const pack = (
+      n: Node,
+      role: WorkflowAiNodeContext["role"],
+      hop = 0,
+    ): WorkflowAiNodeContext => {
       const d = n.data as WNodeData;
+      const hasMedia = Boolean(
+        d.image ||
+          d.start_image ||
+          d.end_image ||
+          (d.resultUrls && d.resultUrls.length) ||
+          d.hasStartImageInput ||
+          d.hasEndImageInput ||
+          (d.frames && d.frames.length),
+      );
+      const notes: string[] = [];
+      if (d.runStatus === "completed" && d.resultUrls?.length) {
+        notes.push(`has_${d.resultUrls.length}_output(s)`);
+      }
+      if (d.frames?.length) {
+        notes.push(`frames:${d.frames.map((f) => f.position).filter(Boolean).join(",") || d.frames.length}`);
+      }
+      if (d.mode) notes.push(`mode=${d.mode}`);
+      if (d.hasStartImageInput) notes.push("receives_start_image_from_edge");
+      if (d.hasEndImageInput) notes.push("receives_end_image_from_edge");
+      // Prompt nodes: keep more text so AI can continue the story
+      const promptLimit = n.type === "prompt" || role === "current" ? 1200 : 600;
       return {
         id: n.id,
         type: String(n.type || ""),
         title: d.title || "",
-        prompt: (d.prompt || "").slice(0, 500),
+        prompt: (d.prompt || "").slice(0, promptLimit),
         model: d.model || "",
         mode: d.mode || "",
-        has_image: Boolean(
-          d.image ||
-            d.start_image ||
-            d.end_image ||
-            (d.resultUrls && d.resultUrls.length) ||
-            d.hasStartImageInput,
-        ),
+        has_image: hasMedia,
+        hop,
+        note: notes.join("; ") || undefined,
         role,
       };
     };
 
     const out: WorkflowAiNodeContext[] = [];
     const self = byId.get(nodeId);
-    if (self) out.push(pack(self, "current"));
-    for (const uid of upstreamIds) {
+    if (self) out.push(pack(self, "current", 0));
+
+    // Closest upstream first (hop 1 = direct sibling into same consumer)
+    const upSorted = [...upstreamHop.entries()].sort((a, b) => a[1] - b[1]);
+    for (const [uid, hop] of upSorted) {
       const n = byId.get(uid);
-      if (n) out.push(pack(n, "upstream"));
+      if (n) out.push(pack(n, "upstream", hop));
     }
-    for (const did of downstreamIds) {
+    const downSorted = [...downstreamHop.entries()].sort((a, b) => a[1] - b[1]);
+    for (const [did, hop] of downSorted) {
       const n = byId.get(did);
-      if (n) out.push(pack(n, "downstream"));
+      if (n) out.push(pack(n, "downstream", hop));
     }
     return out;
   }, []);
@@ -1103,6 +1212,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             ...(startFlag ? { start_image: undefined } : {}),
             onChange: patchNode,
             onPreview: openPreview,
+            onError,
+            getWorkflowContext,
             onRerun: (nid: string) => rerunRef.current(nid),
             onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
           },
@@ -1110,7 +1221,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       });
       return changed ? next : nds;
     });
-  }, [edges, openPreview, patchNode, setNodes]);
+  }, [edges, getWorkflowContext, onError, openPreview, patchNode, setNodes]);
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
@@ -1143,6 +1254,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       runStatus: "idle",
       onChange: patchNode,
       onPreview: openPreview,
+      onError,
+      getWorkflowContext,
       onRerun: (nid: string) => rerunRef.current(nid),
       onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
     };
@@ -1181,6 +1294,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       onChange: _c,
       onPreview: _p,
       onRerun: _r,
+      onError: _e,
+      getWorkflowContext: _g,
+      onPickImage: _pi,
       runError,
       runStatus,
       reused,
@@ -1322,7 +1438,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               ...n.data,
               onChange: patchNode,
               onPreview: openPreview,
+              onError,
+              getWorkflowContext,
               onRerun: (nid: string) => rerunRef.current(nid),
+              onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
             },
           };
         }
@@ -1353,7 +1472,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
             onChange: patchNode,
             onPreview: openPreview,
+            onError,
+            getWorkflowContext,
             onRerun: (nid: string) => rerunRef.current(nid),
+            onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
           },
         };
       }),
@@ -1437,7 +1559,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 ...keep,
                 onChange: patchNode,
                 onPreview: openPreview,
+                onError,
+                getWorkflowContext,
                 onRerun: (nid: string) => rerunRef.current(nid),
+                onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
               },
             };
           }),
@@ -1457,7 +1582,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     reused: false,
                     onChange: patchNode,
                     onPreview: openPreview,
+                    onError,
+                    getWorkflowContext,
                     onRerun: (nid: string) => rerunRef.current(nid),
+                    onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
                   },
                 }
               : n,
@@ -1553,6 +1681,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           runError: undefined,
           onChange: patchNode,
           onPreview: openPreview,
+          onError,
+          getWorkflowContext,
           onRerun: (nid: string) => rerunRef.current(nid),
           onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
         },
@@ -1560,17 +1690,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     );
     setRunResult(null);
   }
-
-  const resultPreview = useMemo(() => {
-    if (!runResult?.node_results) return [];
-    const items: { node: string; urls: string[]; status: string }[] = [];
-    for (const [nidKey, raw] of Object.entries(runResult.node_results)) {
-      const r = raw as { status?: string; results?: string[]; frames?: Array<{ url: string }> };
-      const urls = extractUrlsFromNodeResult(r);
-      if (urls.length) items.push({ node: nidKey, urls, status: r.status || "" });
-    }
-    return items;
-  }, [runResult]);
 
   return (
     <div
@@ -1586,6 +1705,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         <div className="page-title-group">
           <h1>Workflow</h1>
           <span className="pill pill-purple">PROJECT</span>
+          <Link
+            to={NAV_ROUTES.docs}
+            className="btn btn-ghost btn-sm"
+            style={{ fontSize: 11, marginLeft: 4 }}
+            title="Hướng dẫn nối node, chạy pipeline"
+          >
+            Document
+          </Link>
           {dirty && <span className="pill" style={{ opacity: 0.85 }}>chưa lưu</span>}
           {running && <span className="pill pill-green">Đang chạy…</span>}
         </div>
@@ -1853,170 +1980,99 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </ReactFlow>
         </div>
 
-        <aside style={{ width: 260, flexShrink: 0, overflow: "auto" }}>
-          <div className="panel-card" style={{ padding: 12, margin: 0, marginBottom: 10 }}>
-            <strong style={{ fontSize: 13 }}>Media project</strong>
-            {!projectId ? (
-              <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
-                Lưu project hoặc chạy workflow — output vào folder project.
-              </p>
-            ) : (
-              <>
-                <p className="muted" style={{ fontSize: 10, margin: "6px 0" }}>
-                  <code>projects/{projectId.slice(0, 8)}…</code>
-                </p>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        <aside className="workflow-media-aside">
+          <div className="panel-card workflow-media-panel">
+            <div className="workflow-media-head">
+              <strong style={{ fontSize: 13 }}>Media project</strong>
+              {projectId && (
+                <div style={{ display: "flex", gap: 4 }}>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    style={{ fontSize: 10 }}
+                    style={{ fontSize: 10, padding: "2px 8px" }}
                     onClick={() => void openProjectFolder(projectId).catch((e) => onError(String(e)))}
                   >
-                    Mở folder
+                    Folder
                   </button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    style={{ fontSize: 10 }}
+                    style={{ fontSize: 10, padding: "2px 8px" }}
                     onClick={() => void refreshProjectAssets(projectId)}
                   >
                     Refresh
                   </button>
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 6,
-                    maxHeight: 200,
-                    overflow: "auto",
-                  }}
-                >
-                  {projectAssets.length === 0 && (
+              )}
+            </div>
+            {!projectId ? (
+              <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+                Lưu project hoặc chạy workflow — output hiện tại đây (tab Ảnh / Video).
+              </p>
+            ) : (
+              <>
+                <p className="muted" style={{ fontSize: 10, margin: "6px 0 8px" }}>
+                  <code>projects/{projectId.slice(0, 8)}…</code>
+                  {mediaSidebarAssets.length > 0
+                    ? ` · ${mediaSidebarAssets.length} file · mới trên`
+                    : ""}
+                </p>
+                <div className="projects-tabs workflow-media-tabs" style={{ marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    className={`projects-tab${mediaTab === "image" ? " active" : ""}`}
+                    onClick={() => setMediaTab("image")}
+                  >
+                    Ảnh{mediaCounts.images ? ` (${mediaCounts.images})` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    className={`projects-tab${mediaTab === "video" ? " active" : ""}`}
+                    onClick={() => setMediaTab("video")}
+                  >
+                    Video{mediaCounts.videos ? ` (${mediaCounts.videos})` : ""}
+                  </button>
+                </div>
+                <div className="workflow-media-grid workflow-media-grid--fill">
+                  {mediaSidebarAssets.length === 0 && (
                     <span className="muted" style={{ fontSize: 11, gridColumn: "1/-1" }}>
-                      Chưa có file — chạy workflow
+                      {projectAssets.length === 0
+                        ? "Chưa có file — chạy workflow"
+                        : mediaTab === "video"
+                          ? "Chưa có video trong project"
+                          : "Chưa có ảnh trong project"}
                     </span>
                   )}
-                  {projectAssets.slice(0, 12).map((a) => (
+                  {mediaSidebarAssets.map((a) => (
                     <button
                       key={a.path}
                       type="button"
+                      className="workflow-media-thumb"
                       onClick={() => setLightbox(normalizeFileUrl(a.url))}
-                      style={{
-                        padding: 0,
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 6,
-                        overflow: "hidden",
-                        background: "#000",
-                        cursor: "zoom-in",
-                      }}
-                      title={a.name}
+                      title={`${a.name}${a.mtime ? ` · ${new Date(a.mtime * 1000).toLocaleString()}` : ""}`}
                     >
                       {a.kind === "video" ? (
                         <video
                           src={normalizeFileUrl(a.url)}
                           muted
-                          style={{ width: "100%", height: 64, objectFit: "cover", display: "block" }}
+                          preload="metadata"
+                          className="workflow-media-thumb-media"
                         />
                       ) : (
                         <img
                           src={normalizeFileUrl(a.url)}
                           alt=""
-                          style={{ width: "100%", height: 64, objectFit: "cover", display: "block" }}
+                          loading="lazy"
+                          className="workflow-media-thumb-media"
                         />
                       )}
+                      {a.kind === "video" && <span className="workflow-media-badge">VIDEO</span>}
                     </button>
                   ))}
                 </div>
               </>
             )}
           </div>
-          <div className="panel-card" style={{ padding: 12, margin: 0 }}>
-            <strong style={{ fontSize: 13 }}>Kết quả / log</strong>
-            {!runResult && (
-              <p className="muted" style={{ fontSize: 12 }}>
-                Mỗi node xong sẽ <strong>hiện ảnh ngay</strong> (poll tiến độ). Node OK có nút{" "}
-                <strong>Tạo lại</strong>. Thêm node mới → <strong>Tiếp tục</strong>.
-              </p>
-            )}
-            {runResult && (
-              <>
-                <p style={{ fontSize: 12, margin: "8px 0" }}>
-                  <span
-                    style={{
-                      color: runResult.status === "completed" ? "#4ade80" : "#f87171",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {runResult.status}
-                  </span>{" "}
-                  · {runResult.run_id}
-                </p>
-                {runResult.error && (
-                  <p className="account-error" style={{ fontSize: 11 }}>
-                    {runResult.error}
-                  </p>
-                )}
-                <div style={{ maxHeight: 140, overflow: "auto", fontSize: 11 }} className="muted">
-                  {(runResult.logs || []).slice(-15).map((l, i) => (
-                    <div key={i}>{l.msg}</div>
-                  ))}
-                </div>
-                {resultPreview.map((block) => (
-                  <div key={block.node} style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>
-                      {block.node} · {block.status}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                      {block.urls.slice(0, 4).map((u) =>
-                        isVideoUrl(u) ? (
-                          <video
-                            key={u}
-                            src={u}
-                            controls
-                            style={{ width: "100%", maxHeight: 100, borderRadius: 6 }}
-                          />
-                        ) : (
-                          <button
-                            key={u}
-                            type="button"
-                            onClick={() => openPreview(u)}
-                            style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in" }}
-                          >
-                            <img
-                              src={u}
-                              alt=""
-                              style={{
-                                width: 72,
-                                height: 72,
-                                objectFit: "cover",
-                                borderRadius: 6,
-                                border: "1px solid rgba(255,255,255,0.1)",
-                              }}
-                            />
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-          <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
-            <strong>Nối video tiếp (frame cuối)</strong>
-            <br />
-            Ảnh → Video1 → <em>Tách frame</em> → chấm <code>end_image</code>
-            <br />
-            → Video2 chấm <code>start_image</code>
-            <br />
-            + Prompt2 → Video2. Dùng nút <em>Mẫu: Nối video</em>.
-            <br />
-            <br />
-            1) Prompt → Tạo ảnh → Video (start_image)
-            <br />
-            2) Chạy → preview trên node · Backspace xóa node
-          </p>
         </aside>
       </div>
 

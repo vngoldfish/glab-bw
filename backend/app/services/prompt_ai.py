@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 _MENTION_RE = re.compile(r"@([a-zA-Z][a-zA-Z0-9_]*)")
 
 
+def _extract_provider_error_detail(res: httpx.Response) -> str:
+    """Best-effort message from OpenAI-compatible / proxy error JSON."""
+    detail = (res.text or "")[:500]
+    try:
+        err = res.json()
+    except Exception:
+        return detail or f"HTTP {res.status_code}"
+    if not isinstance(err, dict):
+        return detail or f"HTTP {res.status_code}"
+    nested = err.get("error")
+    if isinstance(nested, dict):
+        msg = nested.get("message") or nested.get("detail")
+        if msg:
+            return str(msg)[:500]
+    for key in ("message", "detail", "error"):
+        val = err.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()[:500]
+    return detail or f"HTTP {res.status_code}"
+
+
 _STYLE_HINTS = {
     "light": (
         "Style level: LIGHT — clarify wording only, keep almost the same length, "
@@ -276,20 +297,13 @@ async def test_connection(
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     if res.status_code >= 400:
-        detail = res.text[:400]
-        try:
-            err = res.json()
-            detail = str(
-                err.get("error", {}).get("message")
-                or err.get("message")
-                or err.get("error")
-                or detail
-            )
-        except Exception:
-            pass
+        detail = _extract_provider_error_detail(res)
+        code = 502 if res.status_code >= 500 else (
+            res.status_code if 400 <= res.status_code <= 599 else 502
+        )
         raise ProviderError(
             f"API lỗi HTTP {res.status_code}: {detail}",
-            error_code=res.status_code if 400 <= res.status_code <= 599 else 502,
+            error_code=code,
         )
 
     try:
@@ -322,39 +336,69 @@ def _format_workflow_context(
     """Human-readable pipeline context for the LLM."""
     if not workflow_context:
         return ""
+
+    def _sort_key(n: dict[str, Any]) -> tuple[int, int]:
+        role = str(n.get("role") or "")
+        role_ord = 0 if role == "current" else 1 if role == "upstream" else 2
+        hop = int(n.get("hop") or 0)
+        return (role_ord, hop)
+
+    ordered = sorted(workflow_context, key=_sort_key)
     lines: list[str] = [
-        "WORKFLOW PIPELINE CONTEXT (use this so the rewritten prompt fits the graph):",
-        "Upstream = nodes that feed INTO this prompt's pipeline before/around it.",
-        "Downstream = nodes that CONSUME this prompt (what will be generated next).",
+        "WORKFLOW PIPELINE CONTEXT — analyze this BEFORE rewriting:",
+        "1) Read the CURRENT prompt node's idea (user intent on THIS node).",
+        "2) Read UPSTREAM nodes (previous prompts, images, videos, frames that already exist).",
+        "3) Read DOWNSTREAM nodes (what this prompt will drive next).",
+        "4) Write ONE coherent professional prompt that fits the whole chain.",
+        "",
+        "Role legend:",
+        "  current    = the Prompt node being rewritten (primary user idea)",
+        "  upstream   = nodes before / feeding the same pipeline (hop 1 = closest)",
+        "  downstream = nodes that consume this prompt",
         "",
     ]
-    for n in workflow_context:
+    for n in ordered:
         role = str(n.get("role") or "upstream")
         ntype = str(n.get("type") or "?")
         title = str(n.get("title") or n.get("id") or "")
         nid = str(n.get("id") or "")
-        mark = "← CURRENT PROMPT NODE" if (current_node_id and nid == current_node_id) or role == "current" else ""
-        lines.append(f"- [{role}] type={ntype} title={title!r} {mark}".strip())
+        hop = n.get("hop")
+        hop_s = f" hop={hop}" if hop is not None else ""
+        mark = ""
+        if (current_node_id and nid == current_node_id) or role == "current":
+            mark = "← CURRENT PROMPT NODE (rewrite THIS idea)"
+        lines.append(f"- [{role}] type={ntype} title={title!r}{hop_s} {mark}".strip())
         if n.get("prompt"):
-            lines.append(f"    existing_text: {str(n['prompt'])[:400]}")
+            # Upstream prompt text is critical for continuity analysis
+            limit = 1000 if role in ("current", "upstream") and ntype == "prompt" else 500
+            lines.append(f"    existing_text: {str(n['prompt'])[:limit]}")
         if n.get("model"):
             lines.append(f"    model: {n['model']}")
         if n.get("mode"):
             lines.append(f"    mode: {n['mode']}")
         if n.get("has_image"):
-            lines.append("    has_image_attached_or_from_previous_node: yes")
+            lines.append("    has_image_or_media: yes")
+        if n.get("note"):
+            lines.append(f"    note: {n['note']}")
+
     lines.append("")
     lines.append(
-        "Rules from pipeline:\n"
-        "- If downstream is IMAGE generate: write a strong still-image prompt "
-        "(composition, light, subject) — not camera motion.\n"
+        "ANALYSIS + REWRITE RULES:\n"
+        "- Always keep the user's idea on the CURRENT node as the main subject/action.\n"
+        "- Cross-check UPSTREAM: if previous prompt/image/video already established character, "
+        "outfit, location — STAY consistent; do not invent a different person/scene.\n"
+        "- If upstream has IMAGE (generate/reference) and this prompt feeds VIDEO: "
+        "write a MOTION/action prompt that CONTINUES from that still "
+        "(do not re-introduce a brand-new subject as if starting from scratch).\n"
+        "- If upstream is frame_extract / last-frame continue: keep continuity from previous "
+        "clip; describe what happens NEXT in the same scene/world.\n"
+        "- If upstream has another Prompt text: treat it as earlier story beat; "
+        "this node is the next beat or the motion layer — align tone and subject.\n"
+        "- If downstream is IMAGE generate: strong still-image language "
+        "(composition, light, subject) — not multi-second camera moves.\n"
         "- If downstream is VIDEO: emphasize motion, camera, temporal continuity.\n"
-        "- If upstream already has an IMAGE (generate/reference) and this prompt feeds VIDEO: "
-        "write a motion/action prompt that CONTINUES from that still (do not re-describe a brand-new subject).\n"
-        "- If upstream is frame_extract / last-frame continue: keep character/scene continuity "
-        "from previous clip; describe what happens NEXT.\n"
         "- If multiple downstream targets, prioritize the closest generate/video node.\n"
-        "- Keep the user's core idea; do not invent a different story."
+        "- Expand visual detail only when it fits the chain; do NOT invent a new story."
     )
     return "\n".join(lines)
 
@@ -410,27 +454,37 @@ async def rewrite_prompt(
     )
     if workflow_context:
         system += (
-            "\n\nYou also receive WORKFLOW PIPELINE CONTEXT. "
-            "Rewrite the prompt so it is consistent with upstream nodes "
-            "(previous images/videos/frames) and suitable for downstream generation nodes. "
-            "Prefer continuity over inventing a new scene when upstream media exists."
+            "\n\nYou receive WORKFLOW PIPELINE CONTEXT from the graph editor.\n"
+            "Thinking order (do this mentally, then output only the final prompt):\n"
+            "A) Parse the CURRENT node's original text (user intent on this node).\n"
+            "B) Query/understand UPSTREAM nodes: earlier prompts, generated images, "
+            "videos, frame extracts, reference images that already exist in the pipeline.\n"
+            "C) Note DOWNSTREAM target (image vs video generation).\n"
+            "D) Rewrite so the new prompt is coherent with A+B and suitable for C.\n"
+            "Prefer continuity with upstream media/prompts over inventing a new scene."
         )
     temp = 0.25 if style == "light" else 0.35 if style == "pro" else 0.45
 
     ctx_block = _format_workflow_context(workflow_context, current_node_id)
     user_content = (
-        f"The user wrote a short/casual idea on a workflow Prompt node. "
-        f"Analyze the idea AND the pipeline context, then rewrite as a professional "
+        f"Task: rewrite the Prompt-node text into a professional "
         f"{'VIDEO' if kind_key == 'video' else 'IMAGE'} generation prompt "
-        "(clear for Google Flow / generation AI).\n"
-        "Keep the SAME meaning and subject. Expand only visual detail that fits. "
-        "Do NOT invent a new scene. "
-        "If the original has no @name tokens, do NOT add any @name tokens.\n\n"
+        "(clear for Google Flow / generation AI).\n\n"
+        "Steps you must follow:\n"
+        "1) READ the original prompt on THIS node (user idea) — keep its meaning.\n"
+        "2) READ the workflow pipeline context below (upstream + downstream nodes).\n"
+        "3) ANALYZE how this node fits the chain (continue scene? motion from still? new still?).\n"
+        "4) WRITE one coherent professional prompt that fits steps 1–3.\n\n"
+        "Constraints: same subject/meaning; expand only visual detail that fits; "
+        "do NOT invent a new scene; if original has no @name tokens, do NOT add any.\n\n"
     )
     if ctx_block:
         user_content += ctx_block + "\n\n"
+    else:
+        user_content += "(No other pipeline nodes connected — rewrite from this prompt alone.)\n\n"
     user_content += (
-        f"Original (simple) prompt on THIS node:\n{prompt.strip()}\n\n"
+        f"=== ORIGINAL PROMPT ON CURRENT NODE ===\n{prompt.strip()}\n"
+        "=== END ORIGINAL ===\n\n"
         "Professional generation prompt (single prompt only, no explanation):"
     )
 
@@ -452,30 +506,41 @@ async def rewrite_prompt(
         "Content-Type": "application/json",
     }
 
-    logger.info("AI rewrite request url=%s model=%s prompt_len=%s", url, model, len(prompt))
+    logger.info(
+        "AI rewrite request url=%s model=%s prompt_len=%s ctx=%s",
+        url,
+        model,
+        len(prompt),
+        len(workflow_context or []),
+    )
 
+    # Connect fails fast; read capped so UI is not stuck forever when provider hangs
+    timeout = httpx.Timeout(connect=12.0, read=55.0, write=20.0, pool=10.0)
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             res = await client.post(url, headers=headers, json=payload)
+    except httpx.TimeoutException as exc:
+        raise ProviderError(
+            "API AI không phản hồi (timeout ~55s). Provider (api1.bawui.com / model) "
+            "có thể đang chậm hoặc lỗi — thử lại, đổi model, hoặc Test API trong Cài đặt.",
+            error_code=504,
+        ) from exc
     except httpx.HTTPError as exc:
         raise ProviderError(f"Không gọi được API AI: {exc}", error_code=502) from exc
 
     if res.status_code >= 400:
-        detail = res.text[:500]
-        try:
-            err = res.json()
-            detail = str(
-                err.get("error", {}).get("message")
-                or err.get("message")
-                or detail
-            )
-        except Exception:
-            pass
+        detail = _extract_provider_error_detail(res)
         logger.warning("AI rewrite HTTP %s: %s", res.status_code, detail[:200])
-        raise ProviderError(
-            f"API AI lỗi HTTP {res.status_code}: {detail}",
-            error_code=res.status_code,
-        )
+        # Map upstream 5xx → 502 so UI does not look like our backend crashed
+        code = 502 if res.status_code >= 500 else res.status_code
+        if res.status_code >= 500:
+            msg = (
+                f"Provider AI lỗi tạm thời (HTTP {res.status_code}): {detail}. "
+                "Thử lại sau hoặc đổi model/Base URL trong Cài đặt → Cấu hình AI."
+            )
+        else:
+            msg = f"API AI lỗi HTTP {res.status_code}: {detail}"
+        raise ProviderError(msg, error_code=code)
 
     try:
         data = res.json()
