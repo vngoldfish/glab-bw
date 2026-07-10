@@ -11,7 +11,8 @@ router = APIRouter(prefix="/batch", tags=["batch"])
 
 @router.post("/submit")
 async def submit_batch(body: BatchSubmitRequest) -> dict:
-    concurrency = max(1, min(body.concurrency, 20))
+    # Cap lower by default — high concurrency hammers Google Flow / captcha
+    concurrency = max(1, min(body.concurrency, 10))
     semaphore = asyncio.Semaphore(concurrency)
     results: list[dict] = []
 

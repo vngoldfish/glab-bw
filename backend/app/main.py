@@ -10,19 +10,37 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import accounts, ai, auth_bridge, batch, references, webhook
 from app.core.config import settings
+from app.core.logging_setup import setup_logging
 from app.core.task_queue import task_queue
 from app.services.auth_bridge import auth_bridge as auth_bridge_state
 from app.services.generation import register_task_handlers
 
+settings.ensure_dirs()
+setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
-settings.ensure_dirs()
+# Stable API key across restarts (webhook / n8n integrations)
 if not settings.api_key:
-    settings.api_key = secrets.token_urlsafe(32)
+    persisted = settings.load_persisted_api_key()
+    if persisted:
+        settings.api_key = persisted
+        logger.info("Loaded API key from data/api_key.txt")
+    else:
+        settings.api_key = secrets.token_urlsafe(32)
+        settings.persist_api_key(settings.api_key)
+        logger.info("Generated new API key → data/api_key.txt")
+else:
+    # Keep .env key durable too if file missing
+    if not settings.load_persisted_api_key():
+        try:
+            settings.persist_api_key(settings.api_key)
+        except OSError:
+            logger.warning("Could not persist API key to disk")
 
-task_queue.max_concurrent = settings.max_concurrent_tasks
+task_queue.set_max_concurrent(settings.max_concurrent_tasks)
 task_queue.timeout_seconds = settings.task_timeout_seconds
 register_task_handlers(task_queue)
+task_queue.hydrate_from_disk()
 
 # Chrome Auth Helper always polls this port
 AUTH_BRIDGE_PORT = 18923
@@ -101,11 +119,18 @@ async def lifespan(_app: FastAPI):
             AUTH_BRIDGE_PORT,
         )
 
+    logger.info(
+        "G-Labs BW ready — API http://%s:%s  max_concurrent=%s",
+        settings.host,
+        settings.port,
+        settings.max_concurrent_tasks,
+    )
     try:
         yield
     finally:
         if bridge_server is not None:
             bridge_server.should_exit = True
+        logger.info("G-Labs BW shutting down")
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

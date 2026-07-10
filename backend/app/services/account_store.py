@@ -64,6 +64,7 @@ class AccountStore:
             self._accounts[account.id] = account
 
     def _save(self) -> None:
+        """Atomic write (temp + replace) so crash mid-write cannot corrupt accounts.json."""
         settings.ensure_dirs()
         payload = {
             "accounts": [
@@ -85,7 +86,11 @@ class AccountStore:
                 for a in self._accounts.values()
             ]
         }
-        self.storage_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
+        data = json.dumps(payload, indent=2, ensure_ascii=False)
+        tmp.write_text(data, encoding="utf-8")
+        tmp.replace(self.storage_path)
 
     def list_accounts(self, provider: ProviderType | None = None) -> list[Account]:
         accounts = list(self._accounts.values())

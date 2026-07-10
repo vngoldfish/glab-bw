@@ -50,12 +50,46 @@ def _queue_response(task, message: str) -> TaskQueuedResponse:
 
 @router.get("/health")
 async def health() -> dict:
+    """Liveness + operator readiness hints (extension, accounts, disk)."""
+    from app.services.account_store import account_store
+    from app.services.auth_bridge import auth_bridge as auth_bridge_state
+
+    flow_accounts = [
+        a
+        for a in account_store.list_accounts("flow")
+        if a.enabled and a.credentials
+    ]
+    flow_image_ready = len(account_store.list_eligible("flow", for_video=False))
+    flow_video_ready = len(account_store.list_eligible("flow", for_video=True))
+
+    ext = auth_bridge_state.status_payload()
+    disk_free_gb: float | None = None
+    try:
+        import shutil
+
+        usage = shutil.disk_usage(str(settings.data_dir))
+        disk_free_gb = round(usage.free / (1024**3), 2)
+    except OSError:
+        pass
+
+    ready = bool(ext.get("connected")) and (
+        flow_image_ready > 0 or flow_video_ready > 0
+    )
     return {
         "status": "ok",
         "server": "G-Labs BW Webhook",
         "uptime": task_queue.uptime,
         "tasks_pending": task_queue.pending_count(),
         "tasks_running": task_queue.running_count(),
+        "max_concurrent": task_queue.max_concurrent,
+        "extension_connected": bool(ext.get("connected")),
+        "flow_tab": ext.get("flow_tab"),
+        "grok_tab": ext.get("grok_tab"),
+        "flow_accounts": len(flow_accounts),
+        "flow_image_ready": flow_image_ready,
+        "flow_video_ready": flow_video_ready,
+        "disk_free_gb": disk_free_gb,
+        "ready_to_generate": ready,
     }
 
 

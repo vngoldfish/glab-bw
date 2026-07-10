@@ -36,6 +36,8 @@ data/ai_settings.json
 data/api_key.txt
 data/tasks.db
 data/logs/
+data/run/
+*.tmp
 data/output/
 data/flow_media_cache.json
 data/G-Labs BW/image_output/**
