@@ -16,12 +16,21 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   deleteWorkflow,
   fetchSampleWorkflow,
   fetchWorkflow,
   listWorkflows,
+  normalizeFileUrl,
   runWorkflowGraph,
   saveWorkflow,
   type WorkflowMeta,
@@ -32,6 +41,8 @@ interface WorkflowPageProps {
   onError: (msg: string) => void;
 }
 
+type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
+
 type WNodeData = {
   title: string;
   prompt?: string;
@@ -40,7 +51,12 @@ type WNodeData = {
   mode?: string;
   image?: string;
   positions?: string;
+  /** Preview media after run (image/video URLs) */
+  resultUrls?: string[];
+  runStatus?: RunStatus;
+  runError?: string;
   onChange?: (id: string, patch: Partial<WNodeData>) => void;
+  onPreview?: (url: string) => void;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -51,27 +67,139 @@ const NODE_COLORS: Record<string, string> = {
   frame_extract: "#ec4899",
 };
 
+const STATUS_META: Record<
+  RunStatus,
+  { label: string; color: string; bg: string }
+> = {
+  idle: { label: "", color: "transparent", bg: "transparent" },
+  pending: { label: "chờ", color: "#94a3b8", bg: "rgba(148,163,184,0.15)" },
+  running: { label: "…", color: "#38bdf8", bg: "rgba(56,189,248,0.18)" },
+  completed: { label: "OK", color: "#4ade80", bg: "rgba(74,222,128,0.15)" },
+  failed: { label: "Lỗi", color: "#f87171", bg: "rgba(248,113,113,0.18)" },
+  skipped: { label: "skip", color: "#a3a3a3", bg: "rgba(163,163,163,0.12)" },
+};
+
+function isVideoUrl(u: string): boolean {
+  return /\.mp4($|\?)/i.test(u) || u.includes("/video");
+}
+
+function MediaPreview({
+  urls,
+  onPreview,
+  max = 4,
+}: {
+  urls?: string[];
+  onPreview?: (url: string) => void;
+  max?: number;
+}) {
+  if (!urls?.length) return null;
+  const list = urls.slice(0, max).map(normalizeFileUrl);
+  return (
+    <div
+      className="nodrag nopan"
+      style={{
+        display: "grid",
+        gridTemplateColumns: list.length === 1 ? "1fr" : "1fr 1fr",
+        gap: 6,
+        marginTop: 8,
+      }}
+    >
+      {list.map((u) =>
+        isVideoUrl(u) ? (
+          <video
+            key={u}
+            src={u}
+            controls
+            playsInline
+            style={{
+              width: "100%",
+              maxHeight: 140,
+              borderRadius: 8,
+              background: "#000",
+              border: "1px solid rgba(255,255,255,0.1)",
+            }}
+          />
+        ) : (
+          <button
+            key={u}
+            type="button"
+            className="nodrag"
+            onClick={() => onPreview?.(u)}
+            title="Click phóng to"
+            style={{
+              padding: 0,
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8,
+              overflow: "hidden",
+              cursor: "zoom-in",
+              background: "#0a0a0c",
+              lineHeight: 0,
+            }}
+          >
+            <img
+              src={u}
+              alt=""
+              style={{
+                width: "100%",
+                height: list.length === 1 ? 150 : 88,
+                objectFit: "cover",
+                display: "block",
+              }}
+            />
+          </button>
+        ),
+      )}
+      {urls.length > max && (
+        <span className="muted" style={{ fontSize: 10, gridColumn: "1 / -1" }}>
+          +{urls.length - max} media
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Shell({
   type,
   title,
   children,
   selected,
+  runStatus = "idle",
+  runError,
 }: {
   type: string;
   title: string;
   children: ReactNode;
   selected?: boolean;
+  runStatus?: RunStatus;
+  runError?: string;
 }) {
   const color = NODE_COLORS[type] || "#888";
+  const st = STATUS_META[runStatus] || STATUS_META.idle;
+  const borderColor =
+    runStatus === "failed"
+      ? "#f87171"
+      : runStatus === "completed"
+        ? color
+        : runStatus === "running"
+          ? "#38bdf8"
+          : selected
+            ? color
+            : "rgba(255,255,255,0.12)";
+
   return (
     <div
       style={{
-        minWidth: 220,
-        maxWidth: 280,
-        borderRadius: 10,
-        border: `1px solid ${selected ? color : "rgba(255,255,255,0.12)"}`,
-        background: "rgba(20,22,28,0.95)",
-        boxShadow: selected ? `0 0 0 1px ${color}` : "0 4px 16px rgba(0,0,0,0.35)",
+        minWidth: 240,
+        maxWidth: 300,
+        borderRadius: 12,
+        border: `1.5px solid ${borderColor}`,
+        background: "rgba(18,20,26,0.97)",
+        boxShadow:
+          runStatus === "running"
+            ? "0 0 0 1px rgba(56,189,248,0.35), 0 8px 24px rgba(0,0,0,0.4)"
+            : selected
+              ? `0 0 0 1px ${color}55, 0 8px 24px rgba(0,0,0,0.4)`
+              : "0 4px 16px rgba(0,0,0,0.35)",
         fontSize: 12,
         color: "#e5e7eb",
       }}
@@ -81,41 +209,86 @@ function Shell({
           padding: "8px 10px",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
           background: `${color}22`,
-          borderRadius: "10px 10px 0 0",
+          borderRadius: "12px 12px 0 0",
           fontWeight: 600,
           display: "flex",
           justifyContent: "space-between",
+          alignItems: "center",
           gap: 8,
         }}
       >
-        <span>{title}</span>
-        <span style={{ opacity: 0.6, fontWeight: 400 }}>{type}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {title}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {st.label ? (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: st.color,
+                background: st.bg,
+                padding: "2px 6px",
+                borderRadius: 999,
+                letterSpacing: 0.2,
+              }}
+            >
+              {runStatus === "running" ? "⟳ chạy" : st.label}
+            </span>
+          ) : null}
+          <span style={{ opacity: 0.45, fontWeight: 400, fontSize: 10 }}>{type}</span>
+        </span>
       </div>
-      <div style={{ padding: 10 }}>{children}</div>
+      <div style={{ padding: 10 }}>
+        {children}
+        {runError ? (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 10,
+              color: "#fca5a5",
+              lineHeight: 1.35,
+              maxHeight: 48,
+              overflow: "auto",
+            }}
+          >
+            {runError}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+function fieldStyle(): CSSProperties {
+  return {
+    width: "100%",
+    background: "rgba(0,0,0,0.35)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 6,
+    color: "inherit",
+    padding: 6,
+  };
 }
 
 function PromptNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   return (
-    <Shell type="prompt" title={d.title || "Prompt"} selected={selected}>
+    <Shell
+      type="prompt"
+      title={d.title || "Prompt"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
       <Handle type="source" position={Position.Right} id="prompt" style={{ background: "#6366f1" }} />
       <textarea
-        className="nodrag"
+        className="nodrag nowheel"
         rows={4}
         value={d.prompt || ""}
         onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
         placeholder="Nhập prompt…"
-        style={{
-          width: "100%",
-          resize: "vertical",
-          background: "rgba(0,0,0,0.35)",
-          border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 6,
-          color: "inherit",
-          padding: 6,
-        }}
+        style={{ ...fieldStyle(), resize: "vertical" }}
       />
     </Shell>
   );
@@ -123,24 +296,56 @@ function PromptNode({ id, data, selected }: NodeProps) {
 
 function ReferenceNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
+  const preview = d.resultUrls?.length
+    ? d.resultUrls
+    : d.image && (d.image.startsWith("data:") || d.image.includes("/api/files/") || d.image.startsWith("http"))
+      ? [d.image]
+      : [];
   return (
-    <Shell type="reference" title={d.title || "Ảnh tham chiếu"} selected={selected}>
+    <Shell
+      type="reference"
+      title={d.title || "Ảnh tham chiếu"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
       <Handle type="source" position={Position.Right} id="image" style={{ background: "#14b8a6" }} />
       <input
         className="nodrag"
         value={d.image || ""}
-        onChange={(e) => d.onChange?.(id, { image: e.target.value })}
-        placeholder="data URL /api/files/... hoặc path"
-        style={{
-          width: "100%",
-          background: "rgba(0,0,0,0.35)",
-          border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 6,
-          color: "inherit",
-          padding: 6,
-        }}
+        onChange={(e) => d.onChange?.(id, { image: e.target.value, resultUrls: undefined })}
+        placeholder="URL /api/files/... hoặc data:"
+        style={fieldStyle()}
       />
-      <small className="muted">Hoặc dán URL ảnh kết quả từ queue</small>
+      <label
+        className="nodrag"
+        style={{
+          display: "inline-block",
+          marginTop: 6,
+          fontSize: 11,
+          cursor: "pointer",
+          color: "#5eead4",
+        }}
+      >
+        ⬆ Upload ảnh
+        <input
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              const url = String(reader.result || "");
+              d.onChange?.(id, { image: url, resultUrls: [url] });
+            };
+            reader.readAsDataURL(f);
+          }}
+        />
+      </label>
+      <MediaPreview urls={preview} onPreview={d.onPreview} max={1} />
     </Shell>
   );
 }
@@ -148,16 +353,22 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
 function GenerateNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   return (
-    <Shell type="generate" title={d.title || "Tạo ảnh"} selected={selected}>
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "30%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="image" style={{ top: "70%", background: "#14b8a6" }} />
+    <Shell
+      type="generate"
+      title={d.title || "Tạo ảnh"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
+      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "28%", background: "#6366f1" }} />
+      <Handle type="target" position={Position.Left} id="image" style={{ top: "55%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="image" style={{ background: "#22c55e" }} />
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
           value={d.model || "nano_banana_2_lite"}
           onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ width: "100%", marginTop: 2 }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
         >
           <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
           <option value="nano_banana_2">Nano Banana 2</option>
@@ -169,13 +380,19 @@ function GenerateNode({ id, data, selected }: NodeProps) {
         <select
           value={d.aspect_ratio || "16:9"}
           onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
-          style={{ width: "100%", marginTop: 2 }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
         >
           <option value="1:1">1:1</option>
           <option value="16:9">16:9</option>
           <option value="9:16">9:16</option>
         </select>
       </label>
+      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} />
+      {!d.resultUrls?.length && d.runStatus === "idle" && (
+        <div className="muted" style={{ fontSize: 10, marginTop: 8, opacity: 0.7 }}>
+          Ảnh kết quả hiện tại đây sau khi chạy
+        </div>
+      )}
     </Shell>
   );
 }
@@ -183,27 +400,23 @@ function GenerateNode({ id, data, selected }: NodeProps) {
 function VideoNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   return (
-    <Shell type="video_generate" title={d.title || "Tạo video"} selected={selected}>
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "25%", background: "#6366f1" }} />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="start_image"
-        style={{ top: "55%", background: "#22c55e" }}
-      />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="end_image"
-        style={{ top: "80%", background: "#14b8a6" }}
-      />
+    <Shell
+      type="video_generate"
+      title={d.title || "Tạo video"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
+      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
+      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "48%", background: "#22c55e" }} />
+      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "72%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
           value={d.model || "veo_31_fast"}
           onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ width: "100%", marginTop: 2 }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
         >
           <option value="veo_31_fast">Veo 3.1 Fast</option>
           <option value="veo_31_quality">Veo 3.1 Quality</option>
@@ -215,13 +428,14 @@ function VideoNode({ id, data, selected }: NodeProps) {
         <select
           value={d.mode || "start_image"}
           onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
-          style={{ width: "100%", marginTop: 2 }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
         >
           <option value="text_to_video">Text→Video</option>
           <option value="start_image">Start image</option>
           <option value="start_end_image">Start+End</option>
         </select>
       </label>
+      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} />
     </Shell>
   );
 }
@@ -229,29 +443,26 @@ function VideoNode({ id, data, selected }: NodeProps) {
 function FrameNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
   return (
-    <Shell type="frame_extract" title={d.title || "Tách frame"} selected={selected}>
+    <Shell
+      type="frame_extract"
+      title={d.title || "Tách frame"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
       <Handle type="target" position={Position.Left} id="video" style={{ background: "#f59e0b" }} />
       <Handle type="source" position={Position.Right} id="image" style={{ top: "40%", background: "#22c55e" }} />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="start_image"
-        style={{ top: "65%", background: "#14b8a6" }}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="end_image"
-        style={{ top: "85%", background: "#ec4899" }}
-      />
+      <Handle type="source" position={Position.Right} id="start_image" style={{ top: "62%", background: "#14b8a6" }} />
+      <Handle type="source" position={Position.Right} id="end_image" style={{ top: "82%", background: "#ec4899" }} />
       <label className="nodrag">
         Positions
         <input
           value={d.positions || "start,middle,end"}
           onChange={(e) => d.onChange?.(id, { positions: e.target.value })}
-          style={{ width: "100%", marginTop: 2 }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
         />
       </label>
+      <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={3} />
     </Shell>
   );
 }
@@ -269,6 +480,27 @@ function nid(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${_seq++}`;
 }
 
+function extractUrlsFromNodeResult(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const r = raw as {
+    results?: string[];
+    frames?: Array<{ url: string }>;
+    image?: string;
+    prompt?: string;
+  };
+  const urls: string[] = [];
+  for (const u of r.results || []) {
+    if (typeof u === "string" && u) urls.push(normalizeFileUrl(u));
+  }
+  for (const f of r.frames || []) {
+    if (f?.url) urls.push(normalizeFileUrl(f.url));
+  }
+  if (r.image && typeof r.image === "string" && r.image !== "(image)") {
+    urls.push(normalizeFileUrl(r.image));
+  }
+  return urls;
+}
+
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -277,7 +509,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [savedList, setSavedList] = useState<WorkflowMeta[]>([]);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<WorkflowRunResult | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [saveHint, setSaveHint] = useState("");
   const rf = useRef<ReactFlowInstance | null>(null);
+
+  const openPreview = useCallback((url: string) => {
+    setLightbox(normalizeFileUrl(url));
+  }, []);
 
   const patchNode = useCallback(
     (id: string, patch: Partial<WNodeData>) => {
@@ -286,22 +524,31 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           n.id === id
             ? {
                 ...n,
-                data: { ...n.data, ...patch, onChange: patchNode },
+                data: {
+                  ...n.data,
+                  ...patch,
+                  onChange: patchNode,
+                  onPreview: openPreview,
+                },
               }
             : n,
         ),
       );
     },
-    [setNodes],
+    [openPreview, setNodes],
   );
 
   const attachHandlers = useCallback(
     (list: Node[]) =>
       list.map((n) => ({
         ...n,
-        data: { ...(n.data as object), onChange: patchNode },
+        data: {
+          ...(n.data as object),
+          onChange: patchNode,
+          onPreview: openPreview,
+        },
       })),
-    [patchNode],
+    [openPreview, patchNode],
   );
 
   const refreshList = useCallback(async () => {
@@ -320,6 +567,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         setNodes(attachHandlers((sample.nodes as Node[]) || []));
         setEdges((sample.edges as Edge[]) || []);
         await refreshList();
+        requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
       }
@@ -327,7 +575,17 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }, [attachHandlers, onError, refreshList, setEdges, setNodes]);
 
   const onConnect: OnConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
+    (params: Connection) =>
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            animated: true,
+            style: { stroke: "#64748b", strokeWidth: 2 },
+          },
+          eds,
+        ),
+      ),
     [setEdges],
   );
 
@@ -342,7 +600,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const id = nid(type);
     const baseData: WNodeData = {
       title: titles[type] || type,
+      runStatus: "idle",
       onChange: patchNode,
+      onPreview: openPreview,
     };
     if (type === "prompt") baseData.prompt = "";
     if (type === "generate") {
@@ -358,43 +618,55 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     if (type === "reference") baseData.image = "";
 
     const pos = rf.current
-      ? rf.current.screenToFlowPosition({ x: 280, y: 180 })
-      : { x: 120 + Math.random() * 80, y: 100 + Math.random() * 80 };
+      ? rf.current.screenToFlowPosition({ x: 320, y: 200 })
+      : { x: 140 + Math.random() * 60, y: 120 + Math.random() * 60 };
 
     setNodes((nds) => [
       ...nds,
-      {
+      { id, type, position: pos, data: baseData },
+    ]);
+  }
+
+  function stripNodeData(data: WNodeData): Record<string, unknown> {
+    const {
+      onChange: _c,
+      onPreview: _p,
+      runStatus: _s,
+      runError: _e,
+      // keep resultUrls so reopen still shows previews if user saved after run
+      ...rest
+    } = data;
+    return rest as Record<string, unknown>;
+  }
+
+  function graphPayload() {
+    return {
+      name,
+      nodes: nodes.map(({ id, type, position, data }) => ({
         id,
         type,
-        position: pos,
-        data: baseData,
-      },
-    ]);
+        position,
+        data: stripNodeData(data as WNodeData),
+      })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+      })),
+      viewport: rf.current?.getViewport(),
+    };
   }
 
   async function handleSave() {
     try {
-      const doc = await saveWorkflow(
-        {
-          name,
-          nodes: nodes.map(({ id, type, position, data }) => {
-            const { onChange: _o, ...rest } = data as WNodeData;
-            return { id, type, position, data: rest };
-          }),
-          edges: edges.map((e) => ({
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            sourceHandle: e.sourceHandle,
-            targetHandle: e.targetHandle,
-          })),
-          viewport: rf.current?.getViewport(),
-        },
-        workflowId,
-      );
+      const doc = await saveWorkflow(graphPayload(), workflowId);
       setWorkflowId(doc.id || null);
       setName(doc.name);
       await refreshList();
+      setSaveHint("Đã lưu");
+      setTimeout(() => setSaveHint(""), 2000);
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }
@@ -408,70 +680,161 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       setNodes(attachHandlers((doc.nodes as Node[]) || []));
       setEdges((doc.edges as Edge[]) || []);
       setRunResult(null);
+      requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  function applyRunToNodes(result: WorkflowRunResult) {
+    const nr = result.node_results || {};
+    setNodes((nds) =>
+      nds.map((n) => {
+        const raw = nr[n.id] as
+          | { status?: string; error?: string; results?: string[]; frames?: Array<{ url: string }> }
+          | undefined;
+        if (!raw) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              runStatus: "idle" as RunStatus,
+              onChange: patchNode,
+              onPreview: openPreview,
+            },
+          };
+        }
+        const status = (raw.status || "idle") as RunStatus;
+        const urls = extractUrlsFromNodeResult(raw);
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            runStatus: status,
+            runError: raw.error || undefined,
+            resultUrls: urls.length ? urls : (n.data as WNodeData).resultUrls,
+            // reference: sync image field if we got output
+            ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
+            onChange: patchNode,
+            onPreview: openPreview,
+          },
+        };
+      }),
+    );
   }
 
   async function handleRun() {
     try {
       setRunning(true);
       setRunResult(null);
-      const result = await runWorkflowGraph({
-        name,
-        nodes: nodes.map(({ id, type, position, data }) => {
-          const { onChange: _o, ...rest } = data as WNodeData;
-          return { id, type, position, data: rest };
-        }),
-        edges: edges.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: e.sourceHandle,
-          targetHandle: e.targetHandle,
+      // mark all media nodes pending for feedback
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: {
+            ...n.data,
+            runStatus: "pending" as RunStatus,
+            runError: undefined,
+            onChange: patchNode,
+            onPreview: openPreview,
+          },
         })),
-      });
+      );
+
+      const result = await runWorkflowGraph(graphPayload());
       setRunResult(result);
+      applyRunToNodes(result);
       if (result.status !== "completed") {
         onError(result.error || "Workflow failed");
       }
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: {
+            ...n.data,
+            runStatus: "failed" as RunStatus,
+            runError: e instanceof Error ? e.message : String(e),
+            onChange: patchNode,
+            onPreview: openPreview,
+          },
+        })),
+      );
     } finally {
       setRunning(false);
     }
   }
 
+  function clearPreviews() {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          resultUrls: undefined,
+          runStatus: "idle" as RunStatus,
+          runError: undefined,
+          onChange: patchNode,
+          onPreview: openPreview,
+        },
+      })),
+    );
+    setRunResult(null);
+  }
+
   const resultPreview = useMemo(() => {
     if (!runResult?.node_results) return [];
-    const items: { node: string; urls: string[] }[] = [];
+    const items: { node: string; urls: string[]; status: string }[] = [];
     for (const [nidKey, raw] of Object.entries(runResult.node_results)) {
-      const r = raw as { results?: string[]; frames?: Array<{ url: string }> };
-      const urls = [
-        ...(r.results || []),
-        ...((r.frames || []).map((f) => f.url) || []),
-      ].filter(Boolean);
-      if (urls.length) items.push({ node: nidKey, urls });
+      const r = raw as { status?: string; results?: string[]; frames?: Array<{ url: string }> };
+      const urls = extractUrlsFromNodeResult(r);
+      if (urls.length) items.push({ node: nidKey, urls, status: r.status || "" });
     }
     return items;
   }, [runResult]);
 
   return (
-    <div className="workflow-page" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 100px)", minHeight: 520 }}>
+    <div
+      className="workflow-page"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "calc(100vh - 100px)",
+        minHeight: 520,
+      }}
+    >
       <header className="page-header" style={{ flexShrink: 0 }}>
         <div className="page-title-group">
           <h1>Workflow</h1>
           <span className="pill pill-purple">NODE EDITOR</span>
+          {running && <span className="pill pill-green">Đang chạy…</span>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{ minWidth: 180 }}
+            style={{ minWidth: 160 }}
             placeholder="Tên workflow"
           />
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void handleSave()}>
-            Lưu
+            Lưu{saveHint ? ` · ${saveHint}` : ""}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={clearPreviews}
+            disabled={running}
+            title="Xóa preview trên node (không xóa file đã gen)"
+          >
+            Xóa preview
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => rf.current?.fitView({ padding: 0.2 })}
+          >
+            Fit view
           </button>
           <button
             type="button"
@@ -516,7 +879,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           <div className="panel-card" style={{ padding: 12, margin: 0, flex: 1 }}>
             <strong style={{ fontSize: 13 }}>Đã lưu</strong>
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              {savedList.length === 0 && <span className="muted" style={{ fontSize: 12 }}>Chưa có</span>}
+              {savedList.length === 0 && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Chưa có
+                </span>
+              )}
               {savedList.map((w) => (
                 <div key={w.id} style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <button
@@ -553,6 +920,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 setName(s.name);
                 setNodes(attachHandlers((s.nodes as Node[]) || []));
                 setEdges((s.edges as Edge[]) || []);
+                setRunResult(null);
+                requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
               }}
             >
               Load mẫu
@@ -583,6 +952,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             fitView
             colorMode="dark"
             deleteKeyCode={["Backspace", "Delete"]}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{
+              animated: true,
+              style: { stroke: "#64748b", strokeWidth: 2 },
+            }}
           >
             <Background gap={18} size={1} />
             <MiniMap
@@ -593,16 +967,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </ReactFlow>
         </div>
 
-        <aside
-          style={{
-            width: 260,
-            flexShrink: 0,
-            overflow: "auto",
-          }}
-        >
+        <aside style={{ width: 260, flexShrink: 0, overflow: "auto" }}>
           <div className="panel-card" style={{ padding: 12, margin: 0 }}>
-            <strong style={{ fontSize: 13 }}>Kết quả chạy</strong>
-            {!runResult && <p className="muted" style={{ fontSize: 12 }}>Chưa chạy</p>}
+            <strong style={{ fontSize: 13 }}>Kết quả / log</strong>
+            {!runResult && (
+              <p className="muted" style={{ fontSize: 12 }}>
+                Ảnh/video hiện <strong>trên từng node</strong> sau khi chạy. Click ảnh để phóng to.
+              </p>
+            )}
             {runResult && (
               <>
                 <p style={{ fontSize: 12, margin: "8px 0" }}>
@@ -621,36 +993,44 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     {runResult.error}
                   </p>
                 )}
-                <div style={{ maxHeight: 160, overflow: "auto", fontSize: 11 }} className="muted">
-                  {(runResult.logs || []).slice(-12).map((l, i) => (
+                <div style={{ maxHeight: 140, overflow: "auto", fontSize: 11 }} className="muted">
+                  {(runResult.logs || []).slice(-15).map((l, i) => (
                     <div key={i}>{l.msg}</div>
                   ))}
                 </div>
                 {resultPreview.map((block) => (
                   <div key={block.node} style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>{block.node}</div>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>
+                      {block.node} · {block.status}
+                    </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                      {block.urls.map((u) =>
-                        /\.mp4($|\?)/i.test(u) ? (
+                      {block.urls.slice(0, 4).map((u) =>
+                        isVideoUrl(u) ? (
                           <video
                             key={u}
-                            src={u.startsWith("http") ? u : u}
+                            src={u}
                             controls
-                            style={{ width: "100%", maxHeight: 120, borderRadius: 6 }}
+                            style={{ width: "100%", maxHeight: 100, borderRadius: 6 }}
                           />
                         ) : (
-                          <img
+                          <button
                             key={u}
-                            src={u}
-                            alt=""
-                            style={{
-                              width: 72,
-                              height: 72,
-                              objectFit: "cover",
-                              borderRadius: 6,
-                              border: "1px solid rgba(255,255,255,0.1)",
-                            }}
-                          />
+                            type="button"
+                            onClick={() => openPreview(u)}
+                            style={{ padding: 0, border: "none", background: "none", cursor: "zoom-in" }}
+                          >
+                            <img
+                              src={u}
+                              alt=""
+                              style={{
+                                width: 72,
+                                height: 72,
+                                objectFit: "cover",
+                                borderRadius: 6,
+                                border: "1px solid rgba(255,255,255,0.1)",
+                              }}
+                            />
+                          </button>
                         ),
                       )}
                     </div>
@@ -659,12 +1039,54 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               </>
             )}
           </div>
-          <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.45 }}>
-            Kéo từ chấm bên phải node → chấm trái node khác. Backspace xóa node/edge đã chọn.
-            Pipeline mẫu: Prompt → Tạo ảnh → Tạo video (nối image → start_image).
+          <p className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.5 }}>
+            <strong>Cách dùng nhanh</strong>
+            <br />
+            1) Prompt → nối sang Tạo ảnh
+            <br />
+            2) Tạo ảnh (image) → Tạo video (start_image)
+            <br />
+            3) Chạy → xem ảnh ngay trên node
+            <br />
+            Upload ảnh ở node Reference · Backspace xóa node
           </p>
         </aside>
       </div>
+
+      {lightbox && (
+        <div
+          role="dialog"
+          onClick={() => setLightbox(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0,0,0,0.82)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            cursor: "zoom-out",
+          }}
+        >
+          {isVideoUrl(lightbox) ? (
+            <video
+              src={lightbox}
+              controls
+              autoPlay
+              style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12 }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={lightbox}
+              alt=""
+              style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 12, objectFit: "contain" }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
