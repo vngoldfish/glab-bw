@@ -4521,19 +4521,35 @@ textarea:focus {
   font-size: 11px;
 }
 
-/* Workflow page shell */
+/* Workflow page shell — fill page-panel flex chain for React Flow sizing */
 .workflow-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .workflow-page .page-header {
   padding-left: 16px;
   padding-right: 16px;
+  flex-shrink: 0;
+}
+
+.workflow-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
 }
 
 .workflow-canvas-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  position: relative;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -4541,6 +4557,21 @@ textarea:focus {
     radial-gradient(ellipse 60% 40% at 50% 0%, rgba(139, 92, 246, 0.08), transparent 60%),
     #090b12;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-md);
+}
+
+.workflow-canvas-wrap .react-flow,
+.workflow-canvas-wrap .react-flow__renderer,
+.workflow-canvas-wrap .react-flow__pane {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.workflow-canvas-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
 }
 
 .workflow-side-card {

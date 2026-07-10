@@ -1655,9 +1655,9 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                         <div className="result-cell">
                           {row.results.length > 0 ? (
                             <div className="result-grid">
-                              {row.results.map((url) => (
+                              {row.results.map((url, ri) => (
                                 <a
-                                  key={url}
+                                  key={`${row.id}-vid-${ri}`}
                                   className="result-frame result-frame--video"
                                   href={url}
                                   target="_blank"

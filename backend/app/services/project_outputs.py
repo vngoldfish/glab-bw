@@ -75,8 +75,18 @@ def list_assets(project_id: str, *, kind: str | None = None, limit: int = 200) -
                 "folder": p.parent.relative_to(data_root).as_posix(),
             }
         )
-    items.sort(key=lambda x: float(x.get("mtime") or 0), reverse=True)
-    return items[: max(1, min(limit, 500))]
+    # Dedupe by path (same file can appear twice via rglob edge cases / links)
+    seen_paths: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for it in items:
+        pth = str(it.get("path") or "")
+        if pth and pth in seen_paths:
+            continue
+        if pth:
+            seen_paths.add(pth)
+        unique.append(it)
+    unique.sort(key=lambda x: float(x.get("mtime") or 0), reverse=True)
+    return unique[: max(1, min(limit, 500))]
 
 
 def asset_stats(project_id: str) -> dict[str, Any]:

@@ -128,21 +128,35 @@ function MediaPreview({
   label?: string;
 }) {
   if (!urls?.length) return null;
-  const list = urls.slice(0, max).map(normalizeFileUrl);
+  // Dedupe identical URLs (frames often appear in both results + frames[])
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const raw of urls) {
+    const u = normalizeFileUrl(raw);
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    list.push(u);
+    if (list.length >= max) break;
+  }
+  if (!list.length) return null;
   const single = list.length === 1;
+  const totalUnique = (() => {
+    const s = new Set(urls.map((x) => normalizeFileUrl(x)).filter(Boolean));
+    return s.size;
+  })();
   return (
     <div className="nodrag nopan node-media-preview">
       {label ? <div className="node-media-label">{label}</div> : null}
       <div className={`node-media-grid${single ? " is-single" : ""}`}>
         {list.map((u, i) =>
           isVideoUrl(u) ? (
-            <div key={u} className="node-media-item node-media-item--video">
+            <div key={`media-v-${i}`} className="node-media-item node-media-item--video">
               <video src={u} controls playsInline preload="metadata" />
               <span className="node-media-badge">VIDEO{list.length > 1 ? ` ${i + 1}` : ""}</span>
             </div>
           ) : (
             <button
-              key={u}
+              key={`media-i-${i}`}
               type="button"
               className="node-media-item node-media-item--image"
               onClick={() => onPreview?.(u)}
@@ -155,8 +169,8 @@ function MediaPreview({
           ),
         )}
       </div>
-      {urls.length > max ? (
-        <div className="node-media-more">+{urls.length - max} media khác</div>
+      {totalUnique > max ? (
+        <div className="node-media-more">+{totalUnique - max} media khác</div>
       ) : null}
     </div>
   );
@@ -773,12 +787,18 @@ function FrameNode({ id, data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = {
+/** Stable module-level maps — never recreate inside the component (RF error #002). */
+const WORKFLOW_NODE_TYPES: Record<string, typeof PromptNode> = {
   prompt: PromptNode,
   reference: ReferenceNode,
   generate: GenerateNode,
   video_generate: VideoNode,
   frame_extract: FrameNode,
+};
+
+const WORKFLOW_DEFAULT_EDGE_OPTIONS = {
+  animated: true,
+  style: { stroke: "#64748b", strokeWidth: 2 },
 };
 
 let _seq = 1;
@@ -794,21 +814,360 @@ function extractUrlsFromNodeResult(raw: unknown): string[] {
     image?: string;
     prompt?: string;
   };
+  const seen = new Set<string>();
   const urls: string[] = [];
+  const push = (u: string) => {
+    const n = normalizeFileUrl(u);
+    if (!n || seen.has(n)) return;
+    seen.add(n);
+    urls.push(n);
+  };
   for (const u of r.results || []) {
-    if (typeof u === "string" && u) urls.push(normalizeFileUrl(u));
+    if (typeof u === "string" && u) push(u);
   }
   for (const f of r.frames || []) {
-    if (f?.url) urls.push(normalizeFileUrl(f.url));
+    if (f?.url) push(f.url);
   }
   if (r.image && typeof r.image === "string" && r.image !== "(image)") {
-    urls.push(normalizeFileUrl(r.image));
+    push(r.image);
   }
   return urls;
 }
 
+type NodeRunRaw = {
+  status?: string;
+  error?: string;
+  results?: string[];
+  frames?: Array<{ position?: string; url: string; path?: string }>;
+  reused?: boolean;
+  folder?: string;
+  prompt?: string;
+  image?: string;
+};
+
+/** Merge workflow run snapshot into node list (pure — safe for save after run). */
+function mergeRunResultIntoNodes(
+  list: Node[],
+  result: WorkflowRunResult,
+  opts?: { keepMissing?: boolean },
+): Node[] {
+  const nr = result.node_results || {};
+  return list.map((n) => {
+    const raw = nr[n.id] as NodeRunRaw | undefined;
+    if (!raw) {
+      if (opts?.keepMissing) return n;
+      return n;
+    }
+    const status = (raw.status || "idle") as RunStatus;
+    const urls = extractUrlsFromNodeResult(raw);
+    const frames = (raw.frames || []).map((f) => ({
+      position: String(f.position || ""),
+      url: normalizeFileUrl(f.url),
+      path: f.path,
+    }));
+    const prev = n.data as WNodeData;
+    return {
+      ...n,
+      data: {
+        ...prev,
+        runStatus: status,
+        runError: raw.error || undefined,
+        reused: Boolean(raw.reused),
+        folder: raw.folder ?? prev.folder,
+        resultUrls: urls.length
+          ? urls
+          : status === "running" || status === "pending" || status === "completed"
+            ? prev.resultUrls
+            : prev.resultUrls,
+        ...(urls.length ? { resultUrls: urls } : {}),
+        ...(frames.length ? { frames } : {}),
+        ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
+      },
+    };
+  });
+}
+
+/**
+ * Restore previews/status from saved node.data and/or node_states
+ * (older saves may only have node_states).
+ */
+function hydrateNodesFromProject(
+  rawNodes: Node[],
+  nodeStates?: Record<string, unknown> | null,
+): Node[] {
+  const states = nodeStates || {};
+  return rawNodes.map((n) => {
+    const d = { ...(n.data as WNodeData) };
+    const st = states[n.id] as NodeRunRaw | undefined;
+
+    // Prefer embedded data; fall back to node_states
+    if ((!d.resultUrls || !d.resultUrls.length) && st) {
+      const urls = extractUrlsFromNodeResult(st);
+      if (urls.length) d.resultUrls = urls;
+      if (st.frames?.length && !d.frames?.length) {
+        d.frames = st.frames.map((f) => ({
+          position: String(f.position || ""),
+          url: normalizeFileUrl(f.url),
+          path: f.path,
+        }));
+      }
+      if (st.folder && !d.folder) d.folder = st.folder;
+      if (n.type === "reference" && st.image && !d.image) d.image = st.image;
+    }
+
+    if (!d.runStatus || d.runStatus === "idle") {
+      if (st?.status === "completed" || (d.resultUrls && d.resultUrls.length)) {
+        d.runStatus = "completed";
+      } else if (st?.status && st.status !== "idle") {
+        d.runStatus = st.status as RunStatus;
+      }
+    }
+
+    // Normalize URLs so /api/files/... still loads after restart
+    if (d.resultUrls?.length) {
+      d.resultUrls = d.resultUrls.map((u) => normalizeFileUrl(u));
+    }
+    if (d.frames?.length) {
+      d.frames = d.frames.map((f) => ({ ...f, url: normalizeFileUrl(f.url) }));
+    }
+    if (d.image) d.image = normalizeFileUrl(d.image);
+    if (d.start_image) d.start_image = normalizeFileUrl(d.start_image);
+    if (d.end_image) d.end_image = normalizeFileUrl(d.end_image);
+
+    return { ...n, data: d };
+  });
+}
+
+/**
+ * If project JSON lost previews but files still exist under Media project,
+ * re-attach newest assets to nodes by type (left→right on canvas).
+ */
+function recoverPreviewsFromAssets(list: Node[], assets: ProjectAsset[]): Node[] {
+  const hasAny = list.some((n) => {
+    const d = n.data as WNodeData;
+    return Boolean(d.resultUrls?.length || d.frames?.length);
+  });
+  if (hasAny || !assets.length) return list;
+
+  const byMtimeAsc = (a: ProjectAsset, b: ProjectAsset) =>
+    Number(a.mtime || 0) - Number(b.mtime || 0);
+  const isFramePath = (a: ProjectAsset) =>
+    /\/frames\//i.test(a.path || "") || /frames/i.test(a.folder || "");
+
+  const images = assets
+    .filter((a) => a.kind !== "video" && !isFramePath(a))
+    .sort(byMtimeAsc);
+  const frames = assets.filter((a) => a.kind !== "video" && isFramePath(a)).sort(byMtimeAsc);
+  const videos = assets.filter((a) => a.kind === "video").sort(byMtimeAsc);
+
+  const genNodes = list
+    .filter((n) => n.type === "generate")
+    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
+  const vidNodes = list
+    .filter((n) => n.type === "video_generate")
+    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
+  const frameNodes = list
+    .filter((n) => n.type === "frame_extract")
+    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
+  const refNodes = list
+    .filter((n) => n.type === "reference")
+    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
+
+  const assign = new Map<string, Partial<WNodeData>>();
+  // Prefer the most recent N files for N nodes (re-runs leave older copies on disk)
+  const pickLast = <T,>(arr: T[], n: number) => (n <= 0 ? [] : arr.slice(Math.max(0, arr.length - n)));
+
+  const genImgs = pickLast(images, genNodes.length);
+  genNodes.forEach((n, i) => {
+    const a = genImgs[i];
+    if (!a) return;
+    const url = normalizeFileUrl(a.url);
+    assign.set(n.id, { resultUrls: [url], runStatus: "completed", folder: a.folder });
+  });
+  const usedImg = new Set(genImgs.map((a) => a.path));
+  const leftoverImgs = images.filter((a) => !usedImg.has(a.path));
+  refNodes.forEach((n, i) => {
+    const d = n.data as WNodeData;
+    if (d.image || d.resultUrls?.length) return;
+    const a = leftoverImgs[i];
+    if (!a) return;
+    const url = normalizeFileUrl(a.url);
+    assign.set(n.id, { image: url, resultUrls: [url], runStatus: "completed" });
+  });
+  const pickVids = pickLast(videos, vidNodes.length);
+  vidNodes.forEach((n, i) => {
+    const a = pickVids[i];
+    if (!a) return;
+    const url = normalizeFileUrl(a.url);
+    assign.set(n.id, { resultUrls: [url], runStatus: "completed", folder: a.folder });
+  });
+  const pickFrames = pickLast(frames, frameNodes.length);
+  frameNodes.forEach((n, i) => {
+    const a = pickFrames[i];
+    if (!a) return;
+    const url = normalizeFileUrl(a.url);
+    assign.set(n.id, {
+      resultUrls: [url],
+      frames: [{ position: "end", url, path: a.path }],
+      runStatus: "completed",
+      folder: a.folder,
+    });
+  });
+
+  if (!assign.size) return list;
+  return list.map((n) => {
+    const patch = assign.get(n.id);
+    if (!patch) return n;
+    return { ...n, data: { ...(n.data as WNodeData), ...patch } };
+  });
+}
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Preferred vertical order of node types within the same column. */
+const LAYOUT_TYPE_ORDER: Record<string, number> = {
+  prompt: 0,
+  reference: 1,
+  generate: 2,
+  video_generate: 3,
+  frame_extract: 4,
+};
+
+export type WorkflowLayoutMode = "pipeline" | "grid";
+
+/**
+ * Auto-arrange nodes for readability.
+ * - pipeline: left→right by graph depth (edges), top→bottom by parent barycenter
+ * - grid: group by type in columns
+ */
+function layoutWorkflowNodes(
+  nodes: Node[],
+  edges: Edge[],
+  mode: WorkflowLayoutMode = "pipeline",
+): Node[] {
+  if (nodes.length === 0) return nodes;
+
+  const COL_W = 300;
+  const ROW_H = 210;
+  const ORIGIN_X = 48;
+  const ORIGIN_Y = 40;
+
+  if (mode === "grid") {
+    const groups = new Map<string, Node[]>();
+    for (const n of nodes) {
+      const t = String(n.type || "other");
+      if (!groups.has(t)) groups.set(t, []);
+      groups.get(t)!.push(n);
+    }
+    const typeCols = Object.keys(LAYOUT_TYPE_ORDER).concat(
+      [...groups.keys()].filter((t) => !(t in LAYOUT_TYPE_ORDER)),
+    );
+    const pos = new Map<string, { x: number; y: number }>();
+    let col = 0;
+    for (const t of typeCols) {
+      const list = groups.get(t);
+      if (!list?.length) continue;
+      list
+        .slice()
+        .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+        .forEach((n, i) => {
+          pos.set(n.id, { x: ORIGIN_X + col * COL_W, y: ORIGIN_Y + i * ROW_H });
+        });
+      col += 1;
+    }
+    return nodes.map((n) => ({
+      ...n,
+      position: pos.get(n.id) || n.position,
+    }));
+  }
+
+  // —— pipeline (layered DAG left → right) ——
+  const ids = new Set(nodes.map((n) => n.id));
+  const incoming = new Map<string, string[]>();
+  const outgoing = new Map<string, string[]>();
+  for (const id of ids) {
+    incoming.set(id, []);
+    outgoing.set(id, []);
+  }
+  for (const e of edges) {
+    if (!ids.has(e.source) || !ids.has(e.target) || e.source === e.target) continue;
+    outgoing.get(e.source)!.push(e.target);
+    incoming.get(e.target)!.push(e.source);
+  }
+
+  const roots = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
+  const seed = roots.length ? roots : [...ids];
+
+  // Longest-path rank from roots
+  const rank = new Map<string, number>();
+  for (const id of seed) rank.set(id, 0);
+  const q = [...seed];
+  const guard = new Set<string>();
+  while (q.length) {
+    const u = q.shift()!;
+    const key = `${u}:${rank.get(u)}`;
+    if (guard.has(key)) continue;
+    guard.add(key);
+    const ru = rank.get(u) || 0;
+    for (const v of outgoing.get(u) || []) {
+      const next = ru + 1;
+      if (!rank.has(v) || next > (rank.get(v) || 0)) {
+        rank.set(v, next);
+        q.push(v);
+      }
+    }
+  }
+  for (const id of ids) {
+    if (!rank.has(id)) rank.set(id, 0);
+  }
+
+  const maxRank = Math.max(0, ...[...rank.values()]);
+  const layers: Node[][] = Array.from({ length: maxRank + 1 }, () => []);
+  for (const n of nodes) {
+    layers[rank.get(n.id) || 0].push(n);
+  }
+
+  const positioned = new Map<string, { x: number; y: number }>();
+
+  for (let r = 0; r <= maxRank; r++) {
+    const layer = layers[r];
+    layer.sort((a, b) => {
+      const bary = (n: Node) => {
+        const parents = incoming.get(n.id) || [];
+        if (!parents.length) return n.position.y;
+        let sum = 0;
+        let c = 0;
+        for (const p of parents) {
+          const pp = positioned.get(p);
+          if (pp) {
+            sum += pp.y;
+            c += 1;
+          }
+        }
+        return c ? sum / c : n.position.y;
+      };
+      const d = bary(a) - bary(b);
+      if (Math.abs(d) > 1) return d;
+      const ta = LAYOUT_TYPE_ORDER[String(a.type || "")] ?? 50;
+      const tb = LAYOUT_TYPE_ORDER[String(b.type || "")] ?? 50;
+      if (ta !== tb) return ta - tb;
+      return a.id.localeCompare(b.id);
+    });
+
+    layer.forEach((n, i) => {
+      positioned.set(n.id, {
+        x: ORIGIN_X + r * COL_W,
+        y: ORIGIN_Y + i * ROW_H,
+      });
+    });
+  }
+
+  return nodes.map((n) => ({
+    ...n,
+    position: positioned.get(n.id) || n.position,
+  }));
 }
 
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
@@ -833,7 +1192,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
+  const [canvasReady, setCanvasReady] = useState(false);
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const rf = useRef<ReactFlowInstance | null>(null);
+  // Freeze prop identity for the lifetime of this mount
+  const nodeTypesRef = useRef(WORKFLOW_NODE_TYPES);
+  const edgeOptsRef = useRef(WORKFLOW_DEFAULT_EDGE_OPTIONS);
   const nodesRef = useRef<Node[]>([]);
   const pollStop = useRef(false);
   const projectIdRef = useRef<string | null>(null);
@@ -841,6 +1206,24 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   useEffect(() => {
     projectIdRef.current = projectId;
   }, [projectId]);
+
+  // Measure canvas wrapper — RF needs non-zero width/height before first paint
+  useEffect(() => {
+    const el = canvasWrapRef.current;
+    if (!el) return;
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setCanvasReady(width > 8 && height > 8);
+    };
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   const refreshProjectAssets = useCallback(async (id: string | null) => {
     if (!id) {
@@ -863,8 +1246,18 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const filtered = projectAssets.filter((a) =>
       mediaTab === "video" ? a.kind === "video" : a.kind !== "video",
     );
-    // Mới nhất trên cùng, cũ hơn ở dưới
-    return [...filtered].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0));
+    // Mới nhất trên · dedupe by path (same frame can appear twice)
+    const seen = new Set<string>();
+    const unique: ProjectAsset[] = [];
+    for (const a of [...filtered].sort(
+      (x, y) => Number(y.mtime || 0) - Number(x.mtime || 0),
+    )) {
+      const k = a.path || a.url || a.name;
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      unique.push(a);
+    }
+    return unique;
   }, [projectAssets, mediaTab]);
 
   const mediaCounts = useMemo(() => {
@@ -1133,10 +1526,45 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           setProjectId(doc.id);
           setName(doc.name || "Project");
           setDescription(doc.description || "");
-          setNodes(attachHandlers((doc.nodes as Node[]) || []));
+          let assets: ProjectAsset[] = [];
+          try {
+            const media = await fetchProjectAssets(openId);
+            assets = media.assets || [];
+            setProjectAssets(
+              [...assets].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0)).slice(0, 120),
+            );
+          } catch {
+            /* ignore */
+          }
+          const loaded = loadProjectNodes(doc, assets);
+          nodesRef.current = loaded;
+          setNodes(loaded);
           setEdges((doc.edges as Edge[]) || []);
-          setDirty(false);
-          await refreshProjectAssets(doc.id);
+          // Persist recovered previews so next reload keeps them
+          const needsPersist = loaded.some((n) => {
+            const d = n.data as WNodeData;
+            return d.runStatus === "completed" && Boolean(d.resultUrls?.length);
+          });
+          const hadSaved = ((doc.nodes as Node[]) || []).some((n) => {
+            const d = (n.data || {}) as WNodeData;
+            return Boolean(d.resultUrls?.length);
+          });
+          if (needsPersist && !hadSaved) {
+            try {
+              await saveProject(
+                projectPayload(loaded, (doc.edges as Edge[]) || [], {
+                  name: doc.name || "Project",
+                  description: doc.description || "",
+                }),
+                openId,
+              );
+              setDirty(false);
+            } catch {
+              setDirty(true);
+            }
+          } else {
+            setDirty(false);
+          }
         } else {
           const sample = await fetchSampleWorkflow();
           setProjectId(null);
@@ -1306,25 +1734,28 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       const { resultUrls: _u, frames: _f, folder: _fo, ...clean } = rest as WNodeData;
       return clean as Record<string, unknown>;
     }
-    // Persist previews + status so project can resume work
+    // Persist previews + status so project can resume work after reload
     return {
       ...rest,
-      runStatus,
+      runStatus: runStatus || "idle",
       runError,
       reused,
     } as Record<string, unknown>;
   }
 
-  function graphPayload() {
+  /** Always prefer refs — React state can be stale right after setNodes / after await. */
+  function graphPayload(list?: Node[], edgeList?: Edge[]) {
+    const nds = list ?? nodesRef.current;
+    const eds = edgeList ?? edgesRef.current;
     return {
       name,
-      nodes: nodes.map(({ id, type, position, data }) => ({
+      nodes: nds.map(({ id, type, position, data }) => ({
         id,
         type,
         position,
         data: stripNodeData(data as WNodeData),
       })),
-      edges: edges.map((e) => ({
+      edges: eds.map((e) => ({
         id: e.id,
         source: e.source,
         target: e.target,
@@ -1335,16 +1766,39 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     };
   }
 
-  function projectPayload() {
-    const g = graphPayload();
+  function projectPayload(
+    list?: Node[],
+    edgeList?: Edge[],
+    meta?: { name?: string; description?: string },
+  ) {
+    const nds = list ?? nodesRef.current;
+    const g = graphPayload(nds, edgeList);
     return {
-      name: name.trim() || "Project mới",
-      description: description.trim(),
+      name: (meta?.name ?? name).trim() || "Project mới",
+      description: (meta?.description ?? description).trim(),
       nodes: g.nodes,
       edges: g.edges,
       viewport: g.viewport,
-      node_states: buildPriorResults(nodes),
+      node_states: buildPriorResults(nds),
     };
+  }
+
+  function loadProjectNodes(
+    doc: {
+      nodes?: unknown;
+      node_states?: Record<string, unknown> | null;
+    },
+    assets?: ProjectAsset[],
+  ): Node[] {
+    const raw = ((doc.nodes as Node[]) || []).map((n) => ({
+      ...n,
+      data: { ...(n.data as object) },
+    }));
+    let hydrated = hydrateNodesFromProject(raw, doc.node_states);
+    if (assets?.length) {
+      hydrated = recoverPreviewsFromAssets(hydrated, assets);
+    }
+    return attachHandlers(hydrated);
   }
 
   async function handleSaveProject(asNew = false) {
@@ -1381,12 +1835,46 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       setProjectId(doc.id);
       setName(doc.name || "Project");
       setDescription(doc.description || "");
-      setNodes(attachHandlers((doc.nodes as Node[]) || []));
+      let assets: ProjectAsset[] = [];
+      try {
+        const media = await fetchProjectAssets(id);
+        assets = media.assets || [];
+        setProjectAssets(
+          [...assets].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0)).slice(0, 120),
+        );
+      } catch {
+        /* ignore */
+      }
+      const loaded = loadProjectNodes(doc, assets);
+      nodesRef.current = loaded;
+      setNodes(loaded);
       setEdges((doc.edges as Edge[]) || []);
       setRunResult(null);
       setProgressLabel("");
-      setDirty(false);
-      await refreshProjectAssets(doc.id);
+      const needsPersist = loaded.some((n) => {
+        const d = n.data as WNodeData;
+        return d.runStatus === "completed" && Boolean(d.resultUrls?.length);
+      });
+      const hadSaved = ((doc.nodes as Node[]) || []).some((n) => {
+        const d = (n.data || {}) as WNodeData;
+        return Boolean(d.resultUrls?.length);
+      });
+      if (needsPersist && !hadSaved) {
+        try {
+          await saveProject(
+            projectPayload(loaded, (doc.edges as Edge[]) || [], {
+              name: doc.name || "Project",
+              description: doc.description || "",
+            }),
+            id,
+          );
+          setDirty(false);
+        } catch {
+          setDirty(true);
+        }
+      } else {
+        setDirty(false);
+      }
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
@@ -1404,7 +1892,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       setProjectId(doc.id);
       setName(doc.name);
       setDescription(doc.description || "");
-      setNodes(attachHandlers((doc.nodes as Node[]) || []));
+      const loaded = loadProjectNodes(doc);
+      nodesRef.current = loaded;
+      setNodes(loaded);
       setEdges((doc.edges as Edge[]) || []);
       setDirty(false);
       await refreshProjects();
@@ -1416,70 +1906,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   function applyRunToNodes(result: WorkflowRunResult, opts?: { keepMissing?: boolean }) {
-    const nr = result.node_results || {};
-    setNodes((nds) =>
-      nds.map((n) => {
-        const raw = nr[n.id] as
-          | {
-              status?: string;
-              error?: string;
-              results?: string[];
-              frames?: Array<{ position?: string; url: string; path?: string }>;
-              reused?: boolean;
-              folder?: string;
-              prompt?: string;
-            }
-          | undefined;
-        if (!raw) {
-          if (opts?.keepMissing) return n;
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              onChange: patchNode,
-              onPreview: openPreview,
-              onError,
-              getWorkflowContext,
-              onRerun: (nid: string) => rerunRef.current(nid),
-              onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
-            },
-          };
-        }
-        const status = (raw.status || "idle") as RunStatus;
-        const urls = extractUrlsFromNodeResult(raw);
-        const frames = (raw.frames || []).map((f) => ({
-          position: String(f.position || ""),
-          url: normalizeFileUrl(f.url),
-          path: f.path,
-        }));
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            runStatus: status,
-            runError: raw.error || undefined,
-            reused: Boolean(raw.reused),
-            folder: raw.folder,
-            resultUrls: urls.length
-              ? urls
-              : status === "running" || status === "pending"
-                ? (n.data as WNodeData).resultUrls
-                : status === "completed"
-                  ? (n.data as WNodeData).resultUrls
-                  : (n.data as WNodeData).resultUrls,
-            ...(urls.length ? { resultUrls: urls } : {}),
-            ...(frames.length ? { frames } : {}),
-            ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
-            onChange: patchNode,
-            onPreview: openPreview,
-            onError,
-            getWorkflowContext,
-            onRerun: (nid: string) => rerunRef.current(nid),
-            onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
-          },
-        };
-      }),
-    );
+    setNodes((nds) => {
+      const merged = mergeRunResultIntoNodes(nds, result, opts);
+      const withHandlers = attachHandlers(merged);
+      nodesRef.current = withHandlers;
+      return withHandlers;
+    });
   }
 
   function buildPriorResults(list: Node[]): Record<string, unknown> {
@@ -1615,15 +2047,26 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       applyRunToNodes(started, { keepMissing: true });
       const final = await pollUntilDone(started.run_id);
       setRunResult(final);
-      // auto-save project graph + previews after run
+      // Sync ref immediately from final snapshot (setNodes is async — do not save stale state)
+      const nodesWithResults = attachHandlers(
+        mergeRunResultIntoNodes(nodesRef.current, final),
+      );
+      nodesRef.current = nodesWithResults;
+      setNodes(nodesWithResults);
+      // auto-save project graph + previews so reload still shows results
       try {
-        const saved = await saveProject(projectPayload(), pid);
+        const saved = await saveProject(projectPayload(nodesWithResults), pid);
         setProjectId(saved.id);
         setDirty(false);
         await refreshProjects();
         await refreshProjectAssets(saved.id);
-      } catch {
-        /* ignore autosave errors */
+      } catch (e) {
+        console.warn("autosave after run failed", e);
+        onError(
+          e instanceof Error
+            ? `Chạy xong nhưng lưu project lỗi: ${e.message}`
+            : "Chạy xong nhưng lưu project lỗi",
+        );
       }
       if (final.status !== "completed") {
         onError(final.error || "Workflow failed");
@@ -1671,36 +2114,42 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   };
 
   function clearPreviews() {
-    setNodes((nds) =>
-      nds.map((n) => ({
-        ...n,
-        data: {
-          ...n.data,
-          resultUrls: undefined,
-          runStatus: "idle" as RunStatus,
-          runError: undefined,
-          onChange: patchNode,
-          onPreview: openPreview,
-          onError,
-          getWorkflowContext,
-          onRerun: (nid: string) => rerunRef.current(nid),
-          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
-        },
-      })),
-    );
+    setNodes((nds) => {
+      const next = attachHandlers(
+        nds.map((n) => ({
+          ...n,
+          data: {
+            ...(n.data as WNodeData),
+            resultUrls: undefined,
+            frames: undefined,
+            runStatus: "idle" as RunStatus,
+            runError: undefined,
+            reused: undefined,
+          },
+        })),
+      );
+      nodesRef.current = next;
+      return next;
+    });
     setRunResult(null);
+    setDirty(true);
+  }
+
+  function handleLayout(mode: WorkflowLayoutMode = "pipeline") {
+    const nds = nodesRef.current;
+    const eds = edgesRef.current;
+    if (!nds.length) return;
+    const laid = attachHandlers(layoutWorkflowNodes(nds, eds, mode));
+    nodesRef.current = laid;
+    setNodes(laid);
+    setDirty(true);
+    requestAnimationFrame(() => {
+      rf.current?.fitView({ padding: 0.18, duration: 280 });
+    });
   }
 
   return (
-    <div
-      className="workflow-page"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "calc(100vh - 100px)",
-        minHeight: 520,
-      }}
-    >
+    <div className="workflow-page">
       <header className="page-header" style={{ flexShrink: 0 }}>
         <div className="page-title-group">
           <h1>Workflow</h1>
@@ -1761,6 +2210,24 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           >
             Fit view
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={nodes.length === 0}
+            title="Sắp xếp node trái → phải theo luồng nối (pipeline)"
+            onClick={() => handleLayout("pipeline")}
+          >
+            ⊡ Sắp xếp
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={nodes.length === 0}
+            title="Gom node theo loại (Prompt / Ảnh / Video…) thành cột"
+            onClick={() => handleLayout("grid")}
+          >
+            ▦ Theo loại
+          </button>
           {progressLabel ? (
             <span className="muted" style={{ fontSize: 12, maxWidth: 200 }}>
               {progressLabel}
@@ -1787,7 +2254,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         </div>
       </header>
 
-      <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
+      <div className="workflow-body">
         <aside
           style={{
             width: 200,
@@ -1796,6 +2263,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             flexDirection: "column",
             gap: 8,
             overflow: "auto",
+            minHeight: 0,
           }}
         >
           <div className="panel-card" style={{ padding: 12, margin: 0 }}>
@@ -1951,33 +2419,35 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </div>
         </aside>
 
-        <div className="workflow-canvas-wrap">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChangeTracked}
-            onEdgesChange={onEdgesChangeTracked}
-            onConnect={onConnect}
-            nodeTypes={nodeTypes}
-            onInit={(instance) => {
-              rf.current = instance;
-            }}
-            fitView
-            colorMode="dark"
-            deleteKeyCode={["Backspace", "Delete"]}
-            proOptions={{ hideAttribution: true }}
-            defaultEdgeOptions={{
-              animated: true,
-              style: { stroke: "#64748b", strokeWidth: 2 },
-            }}
-          >
-            <Background gap={18} size={1} />
-            <MiniMap
-              style={{ background: "#151820" }}
-              nodeColor={(n) => NODE_COLORS[n.type || ""] || "#555"}
-            />
-            <Controls />
-          </ReactFlow>
+        <div className="workflow-canvas-wrap" ref={canvasWrapRef}>
+          {canvasReady ? (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChangeTracked}
+              onEdgesChange={onEdgesChangeTracked}
+              onConnect={onConnect}
+              nodeTypes={nodeTypesRef.current}
+              onInit={(instance) => {
+                rf.current = instance;
+              }}
+              fitView
+              colorMode="dark"
+              deleteKeyCode={["Backspace", "Delete"]}
+              proOptions={{ hideAttribution: true }}
+              defaultEdgeOptions={edgeOptsRef.current}
+              style={{ width: "100%", height: "100%" }}
+            >
+              <Background gap={18} size={1} />
+              <MiniMap
+                style={{ background: "#151820" }}
+                nodeColor={(n) => NODE_COLORS[n.type || ""] || "#555"}
+              />
+              <Controls />
+            </ReactFlow>
+          ) : (
+            <div className="workflow-canvas-placeholder muted">Đang chuẩn bị canvas…</div>
+          )}
         </div>
 
         <aside className="workflow-media-aside">
@@ -2043,9 +2513,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                           : "Chưa có ảnh trong project"}
                     </span>
                   )}
-                  {mediaSidebarAssets.map((a) => (
+                  {mediaSidebarAssets.map((a, i) => (
                     <button
-                      key={a.path}
+                      key={`${a.path || a.url || a.name}-${i}`}
                       type="button"
                       className="workflow-media-thumb"
                       onClick={() => setLightbox(normalizeFileUrl(a.url))}
@@ -2132,9 +2602,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     0 && <p className="muted">Chưa có ảnh trong project.</p>}
                 {projectAssets
                   .filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name))
-                  .map((a) => (
+                  .map((a, i) => (
                     <button
-                      key={a.path}
+                      key={`${a.path || a.url}-${i}`}
                       type="button"
                       className="node-picker-item"
                       onClick={() => applyPickedImage(normalizeFileUrl(a.url))}

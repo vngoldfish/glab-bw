@@ -359,11 +359,11 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                     </button>
                   </div>
                 )}
-                {assets.map((a) => {
+                {assets.map((a, ai) => {
                   const video = isVideo(a);
                   const url = normalizeFileUrl(a.url);
                   return (
-                    <article key={a.path} className="media-tile">
+                    <article key={`${a.path || a.url || a.name}-${ai}`} className="media-tile">
                       <button
                         type="button"
                         className="media-tile-hit"

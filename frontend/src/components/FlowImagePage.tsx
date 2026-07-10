@@ -1211,9 +1211,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                         <div className="result-cell">
                           {row.results.length > 0 ? (
                             <div className="result-grid">
-                              {row.results.map((url) => (
+                              {row.results.map((url, ri) => (
                                 <a
-                                  key={url}
+                                  key={`${row.id}-img-${ri}`}
                                   className="result-frame"
                                   href={url}
                                   target="_blank"
