@@ -38,6 +38,7 @@ import {
   mapReferenceRecord,
   normalizeFileUrl,
   openProjectFolder,
+  rewritePromptAi,
   runWorkflowGraph,
   saveProject,
   type ProjectAsset,
@@ -78,10 +79,13 @@ type WNodeData = {
   onPreview?: (url: string) => void;
   onRerun?: (id: string) => void;
   onPickImage?: (id: string, field: ImageField) => void;
+  onError?: (msg: string) => void;
   /** true if an edge feeds start_image / image into this video node */
   hasStartImageInput?: boolean;
   /** true if end_image edge connected (e.g. from frame extract) */
   hasEndImageInput?: boolean;
+  /** AI rewrite style for this prompt node */
+  promptKind?: "image" | "video";
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -395,6 +399,35 @@ function ImageAttachBar({
 
 function PromptNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
+  const [aiBusy, setAiBusy] = useState(false);
+  const kind = d.promptKind === "video" ? "video" : "image";
+
+  async function handleAiRewrite() {
+    const source = (d.prompt || "").trim();
+    if (!source) {
+      d.onError?.("Nhập prompt trước khi dùng AI");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const res = await rewritePromptAi({ prompt: source, kind, locale: "vi" });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
+        return;
+      }
+      d.onChange?.(id, { prompt: next });
+      if (next === source) {
+        d.onError?.("AI gần như không đổi prompt — thử model/style khác trong Cài đặt");
+      }
+    } catch (err) {
+      d.onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   return (
     <Shell
       type="prompt"
@@ -404,14 +437,45 @@ function PromptNode({ id, data, selected }: NodeProps) {
       runError={d.runError}
     >
       <Handle type="source" position={Position.Right} id="prompt" style={{ background: "#6366f1" }} />
+      <div className="nodrag node-prompt-toolbar">
+        <label className="node-prompt-kind">
+          Kiểu
+          <select
+            value={kind}
+            onChange={(e) =>
+              d.onChange?.(id, { promptKind: e.target.value as "image" | "video" })
+            }
+          >
+            <option value="image">Ảnh</option>
+            <option value="video">Video</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="node-ai-btn"
+          disabled={aiBusy || !(d.prompt || "").trim()}
+          onClick={() => void handleAiRewrite()}
+          title="AI viết lại prompt chuyên nghiệp (cần bật API AI trong Cài đặt)"
+        >
+          {aiBusy ? "AI…" : "✦ AI"}
+        </button>
+      </div>
       <textarea
         className="nodrag nowheel"
         rows={4}
         value={d.prompt || ""}
         onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-        placeholder="Nhập prompt…"
+        placeholder="Nhập prompt… rồi bấm ✦ AI để làm chuyên nghiệp"
         style={{ ...fieldStyle(), resize: "vertical" }}
+        disabled={aiBusy}
       />
+      {aiBusy ? (
+        <div className="node-ai-status">AI đang viết lại prompt…</div>
+      ) : (
+        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.35 }}>
+          ✦ AI dùng cấu hình trong <strong>Cài đặt → API AI</strong>
+        </div>
+      )}
     </Shell>
   );
 }
@@ -755,6 +819,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   ...patch,
                   onChange: patchNode,
                   onPreview: openPreview,
+                  onError,
                   onRerun: (nid: string) => rerunRef.current(nid),
                   onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
                 },
@@ -764,7 +829,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       );
       setDirty(true);
     },
-    [openPreview, setNodes],
+    [onError, openPreview, setNodes],
   );
 
   const attachHandlers = useCallback(
@@ -775,11 +840,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           ...(n.data as object),
           onChange: patchNode,
           onPreview: openPreview,
+          onError,
           onRerun: (nid: string) => rerunRef.current(nid),
           onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
         },
       })),
-    [openPreview, patchNode],
+    [onError, openPreview, patchNode],
   );
 
   pickImageRef.current = (id: string, field: ImageField) => {
@@ -972,7 +1038,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       onRerun: (nid: string) => rerunRef.current(nid),
       onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
     };
-    if (type === "prompt") baseData.prompt = "";
+    if (type === "prompt") {
+      baseData.prompt = "";
+      baseData.promptKind = "image";
+    }
     if (type === "generate") {
       baseData.model = "nano_banana_2_lite";
       baseData.aspect_ratio = "16:9";
