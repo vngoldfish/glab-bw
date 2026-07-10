@@ -546,6 +546,36 @@ export async function cleanupOutputs(opts?: {
   return readJson(res);
 }
 
+export type TestSuite = "all" | "smoke" | "api";
+
+export interface TestRunResult {
+  ok: boolean;
+  exit_code: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  errors: number;
+  duration_sec: number;
+  summary: string;
+  output: string;
+  suite?: string;
+  tests_path?: string;
+  command?: string[];
+}
+
+export async function runProjectTests(
+  suite: TestSuite = "all",
+  verbose = false,
+): Promise<TestRunResult> {
+  const res = await apiFetch("/api/maintenance/run-tests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ suite, verbose }),
+  });
+  await ensureOk(res, "Chạy test thất bại");
+  return readJson<TestRunResult>(res);
+}
+
 export interface ExtensionStatus {
   connected: boolean;
   flow_tab: string;

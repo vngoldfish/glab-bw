@@ -67,7 +67,17 @@ Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 - Batch async: `POST /api/batch/submit-async` + poll
 - Export/import accounts + dọn output trong Settings
 - Prod: `frontend/dist` serve trong FastAPI (1 process)
-- Smoke tests: `npm run test:smoke`
+- Tests: UI Settings → **Chạy bài test**, hoặc CLI:
+
+```bash
+./test.sh           # all
+./test.sh smoke     # nhanh
+./test.sh api       # API TestClient
+npm test
+# hoặc khi app đang chạy:
+curl -X POST http://127.0.0.1:8765/api/maintenance/run-tests \
+  -H 'Content-Type: application/json' -d '{"suite":"all"}'
+```
 
 ## Cấu trúc
 

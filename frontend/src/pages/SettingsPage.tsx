@@ -11,10 +11,13 @@ import {
   fetchAiSettings,
   fetchDiskInfo,
   importAccountsBackup,
+  runProjectTests,
   saveAiApiSettings,
   savePromptSettings,
   testAiApi,
   updateAccount,
+  type TestRunResult,
+  type TestSuite,
 } from "../api";
 import { parseFlowCookieInput } from "../cookie";
 
@@ -186,6 +189,9 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [aiTestOk, setAiTestOk] = useState<boolean | null>(null);
   const [promptMsg, setPromptMsg] = useState("");
   const [aiLoading, setAiLoading] = useState(true);
+  const [testSuite, setTestSuite] = useState<TestSuite>("all");
+  const [testRunning, setTestRunning] = useState(false);
+  const [testResult, setTestResult] = useState<TestRunResult | null>(null);
 
   const flowAccounts = accounts.filter((a) => a.provider === "flow");
   const flowReady = flowAccounts.filter((a) => a.enabled && a.has_credentials && !a.in_cooldown);
@@ -1045,6 +1051,78 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             Dọn output &gt;30 ngày
           </button>
         </div>
+      </section>
+
+      <section className="panel-card">
+        <h2>Chạy bài test</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Pytest nội bộ (không gọi Google/Grok). Smoke nhanh · API qua TestClient · All = đầy đủ.
+          CLI: <code>./test.sh</code> hoặc <code>npm test</code>.
+        </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            Suite
+            <select
+              value={testSuite}
+              onChange={(e) => setTestSuite(e.target.value as TestSuite)}
+              disabled={testRunning}
+            >
+              <option value="all">All</option>
+              <option value="smoke">Smoke</option>
+              <option value="api">API</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={testRunning}
+            onClick={async () => {
+              try {
+                setTestRunning(true);
+                setTestResult(null);
+                const result = await runProjectTests(testSuite, false);
+                setTestResult(result);
+                if (!result.ok) {
+                  onError(`Tests FAIL: ${result.summary}`);
+                }
+              } catch (e) {
+                onError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setTestRunning(false);
+              }
+            }}
+          >
+            {testRunning ? "Đang chạy…" : "Chạy tests"}
+          </button>
+        </div>
+        {testResult && (
+          <div style={{ marginTop: 14 }}>
+            <p
+              style={{
+                margin: "0 0 8px",
+                fontWeight: 600,
+                color: testResult.ok ? "var(--success, #4ade80)" : "var(--danger, #f87171)",
+              }}
+            >
+              {testResult.ok ? "PASS" : "FAIL"} — {testResult.summary}
+              {typeof testResult.passed === "number"
+                ? ` · ${testResult.passed} passed / ${testResult.failed} failed`
+                : ""}
+            </p>
+            <pre
+              className="code-block"
+              style={{
+                maxHeight: 280,
+                overflow: "auto",
+                fontSize: 12,
+                margin: 0,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {testResult.output || "(no output)"}
+            </pre>
+          </div>
+        )}
       </section>
 
       <section className="panel-card">

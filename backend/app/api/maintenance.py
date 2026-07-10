@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import shutil
 import time
-from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.services.test_runner import run_tests
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 
@@ -115,3 +117,38 @@ async def cleanup_outputs(
         "sample": candidates[:30],
         "hint": "Gọi lại với dry_run=false để xóa thật",
     }
+
+
+class RunTestsRequest(BaseModel):
+    suite: Literal["all", "smoke", "api"] = "all"
+    verbose: bool = False
+
+
+@router.post("/run-tests")
+async def run_project_tests(body: RunTestsRequest | None = None) -> dict:
+    """Chạy pytest suite (local). Dùng từ Settings UI hoặc curl."""
+    req = body or RunTestsRequest()
+    path_map = {
+        "all": "backend/tests",
+        "smoke": "backend/tests/test_smoke.py",
+        "api": "backend/tests/test_api.py",
+    }
+    path = path_map.get(req.suite, "backend/tests")
+    result = run_tests(path=path, quiet=not req.verbose, timeout_sec=180)
+    result["suite"] = req.suite
+    return result
+
+
+@router.get("/run-tests")
+async def run_project_tests_get(
+    suite: Literal["all", "smoke", "api"] = Query(default="smoke"),
+) -> dict:
+    """GET convenience — default suite=smoke (nhanh)."""
+    path_map = {
+        "all": "backend/tests",
+        "smoke": "backend/tests/test_smoke.py",
+        "api": "backend/tests/test_api.py",
+    }
+    result = run_tests(path=path_map[suite], quiet=True, timeout_sec=180)
+    result["suite"] = suite
+    return result
