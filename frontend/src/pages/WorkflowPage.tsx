@@ -78,6 +78,10 @@ type WNodeData = {
   onPreview?: (url: string) => void;
   onRerun?: (id: string) => void;
   onPickImage?: (id: string, field: ImageField) => void;
+  /** true if an edge feeds start_image / image into this video node */
+  hasStartImageInput?: boolean;
+  /** true if end_image edge connected (e.g. from frame extract) */
+  hasEndImageInput?: boolean;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -515,6 +519,17 @@ function GenerateNode({ id, data, selected }: NodeProps) {
 
 function VideoNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
+  // Ảnh đầu: từ edge (node ảnh) HOẶC upload khi không nối
+  const fromEdge = Boolean(d.hasStartImageInput);
+  const hasStart = fromEdge || Boolean(d.start_image);
+  const hasEndEdge = Boolean(d.hasEndImageInput);
+  // Mode tự suy: text | start | start+end (end chỉ từ node tách frame)
+  const modeLabel = hasEndEdge
+    ? "Ảnh đầu + khung cuối (từ node frame)"
+    : hasStart
+      ? "Từ ảnh → video"
+      : "Từ text → video";
+
   return (
     <Shell
       type="video_generate"
@@ -527,8 +542,8 @@ function VideoNode({ id, data, selected }: NodeProps) {
       onRerun={() => d.onRerun?.(id)}
     >
       <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "48%", background: "#22c55e" }} />
-      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "72%", background: "#14b8a6" }} />
+      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "50%", background: "#22c55e" }} />
+      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "75%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
@@ -542,36 +557,42 @@ function VideoNode({ id, data, selected }: NodeProps) {
           <option value="omni_flash">Omni Flash</option>
         </select>
       </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Mode
-        <select
-          value={d.mode || "start_image"}
-          onChange={(e) => d.onChange?.(id, { mode: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="text_to_video">Text→Video</option>
-          <option value="start_image">Start image</option>
-          <option value="start_end_image">Start+End</option>
-        </select>
-      </label>
-      <ImageAttachBar
-        nodeId={id}
-        field="start_image"
-        value={d.start_image}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Khung đầu (ảnh có sẵn)"
-      />
-      <ImageAttachBar
-        nodeId={id}
-        field="end_image"
-        value={d.end_image}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Khung cuối (ảnh có sẵn)"
-      />
+      <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
+        <span>{modeLabel}</span>
+      </div>
+
+      {fromEdge ? (
+        <div className="node-edge-hint">
+          ✓ Ảnh đầu lấy từ node ảnh đã nối
+        </div>
+      ) : (
+        <ImageAttachBar
+          nodeId={id}
+          field="start_image"
+          value={d.start_image}
+          onChange={(nid, patch) => {
+            // auto mode when user attaches start image
+            d.onChange?.(nid, {
+              ...patch,
+              mode: patch.start_image ? "start_image" : "text_to_video",
+            });
+          }}
+          onPick={d.onPickImage}
+          onPreview={d.onPreview}
+          label="Ảnh đầu (khi không nối node ảnh)"
+        />
+      )}
+
+      {hasEndEdge ? (
+        <div className="node-edge-hint" style={{ marginTop: 6 }}>
+          ✓ Khung cuối lấy từ node Tách frame
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
+          Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
+        </div>
+      )}
+
       {d.resultUrls?.length ? (
         <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả video" />
       ) : (
@@ -865,6 +886,57 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     },
     [onEdgesChange],
   );
+
+  // Sync edge flags into video nodes: hide start-image upload when image node is connected
+  useEffect(() => {
+    setNodes((nds) => {
+      let changed = false;
+      const next = nds.map((n) => {
+        if (n.type !== "video_generate") return n;
+        const hasStart = edges.some(
+          (e) =>
+            e.target === n.id &&
+            (e.targetHandle === "start_image" || e.targetHandle === "image" || !e.targetHandle),
+        );
+        // also count edges from image outputs that target start_image specifically
+        const hasStartStrict = edges.some(
+          (e) =>
+            e.target === n.id &&
+            (e.targetHandle === "start_image" || e.targetHandle === "image"),
+        );
+        const hasEnd = edges.some(
+          (e) => e.target === n.id && e.targetHandle === "end_image",
+        );
+        const startFlag = hasStartStrict || hasStart;
+        const d = n.data as WNodeData;
+        if (d.hasStartImageInput === startFlag && d.hasEndImageInput === hasEnd) {
+          return n;
+        }
+        changed = true;
+        // auto mode from connections
+        let mode = d.mode;
+        if (hasEnd && startFlag) mode = "start_end_image";
+        else if (startFlag || d.start_image) mode = "start_image";
+        else if (!d.start_image) mode = "text_to_video";
+        return {
+          ...n,
+          data: {
+            ...d,
+            hasStartImageInput: startFlag,
+            hasEndImageInput: hasEnd,
+            mode,
+            // clear local start upload when edge provides image
+            ...(startFlag ? { start_image: undefined } : {}),
+            onChange: patchNode,
+            onPreview: openPreview,
+            onRerun: (nid: string) => rerunRef.current(nid),
+            onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+          },
+        };
+      });
+      return changed ? next : nds;
+    });
+  }, [edges, openPreview, patchNode, setNodes]);
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
