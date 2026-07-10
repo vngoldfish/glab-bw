@@ -58,15 +58,22 @@ function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
   if (mode === "start_end_image") mode = "start_image";
   const validModes = new Set(["text_to_video", "start_image", "components"]);
   const durationRaw = Number(source.duration ?? 8);
-  const duration = [4, 6, 8, 10].includes(durationRaw) ? durationRaw : 8;
+  const duration = [4, 6, 8, 10, 12, 15].includes(durationRaw) ? durationRaw : 8;
+  const engine = source.engine === "grok" ? "grok" : "flow";
   return {
-    model: String(source.model ?? "veo_31_fast"),
+    engine,
+    model: String(
+      source.model ?? (engine === "grok" ? "grok-3" : "veo_31_fast"),
+    ),
     aspectRatio: String(source.aspectRatio ?? "16:9"),
     // Default smart mode: auto T2V / I2V / FL from row images
     mode: validModes.has(mode) ? (mode as VideoConfig["mode"]) : "start_image",
     concurrency: Number(source.concurrency ?? 1),
     saveMode: String(source.saveMode ?? "task"),
-    outputFolder: String(source.outputFolder ?? "G-Labs BW/video_output"),
+    outputFolder: String(
+      source.outputFolder ??
+        (engine === "grok" ? "G-Labs BW/grok_output" : "G-Labs BW/video_output"),
+    ),
     resolution: Array.isArray(source.resolution) ? source.resolution : [],
     duration,
   };

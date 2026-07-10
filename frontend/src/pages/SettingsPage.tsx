@@ -235,23 +235,30 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     setAiMsg("");
     onError("");
     try {
-      const newKey = aiReplaceKey ? aiApiKey.trim() : "";
-      if (aiReplaceKey && !newKey && !hasSavedKey) {
+      // Lần đầu (chưa có key) HOẶC đang "Đổi key": gửi key đang gõ.
+      // Đã có key + không đổi: không gửi field api_key → server giữ key cũ.
+      const typedKey = aiApiKey.trim();
+      const sendKey = !hasSavedKey || aiReplaceKey;
+      const newKey = sendKey ? typedKey : "";
+      if (sendKey && !newKey && !hasSavedKey) {
         onError("Nhập API key trước khi lưu");
         setAiSaving(false);
         return;
+      }
+      if (aiReplaceKey && !newKey && hasSavedKey) {
+        // User bấm Đổi key rồi Lưu trống → giữ key cũ (không xóa)
+        setAiMsg("Key trống — giữ key đã lưu, không thay");
       }
       const data = await saveAiApiSettings({
         enabled: aiEnabled,
         provider: aiProvider,
         base_url: aiBaseUrl,
         model: aiModel,
-        // Chỉ gửi key khi user chủ động đổi và đã dán key mới
         ...(newKey ? { api_key: newKey } : {}),
       });
       applyAiSettings(data);
       if (!aiHasSavedKey(data)) {
-        setAiMsg("Đã lưu — chưa có API key, dán key rồi bấm Đổi key / Lưu");
+        setAiMsg("Đã lưu — chưa có API key, dán key vào ô API Key rồi bấm Lưu");
       } else if (data.enabled) {
         setAiMsg(
           newKey
@@ -268,16 +275,16 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }
 
-  /** Gọi thử API — ưu tiên key form nếu đang đổi; không thì key đã lưu. */
+  /** Gọi thử API — ưu tiên key form (lần đầu / đang đổi); không thì key đã lưu. */
   async function handleTestAiApi() {
     setAiTesting(true);
     setAiTestMsg("");
     setAiTestOk(null);
     onError("");
     try {
-      const typed = aiReplaceKey ? aiApiKey.trim() : "";
+      const typed = !hasSavedKey || aiReplaceKey ? aiApiKey.trim() : "";
       if (!typed && !hasSavedKey) {
-        throw new Error("Chưa có API key — dán key rồi Lưu, hoặc bấm Đổi key");
+        throw new Error("Chưa có API key — dán key vào ô API Key rồi bấm Lưu hoặc Test");
       }
       const result = await testAiApi({
         provider: aiProvider,
@@ -344,8 +351,16 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   }
 
   async function handleAddAccount() {
-    if (!newLabel.trim() && newProvider !== "flow") {
+    if (!newLabel.trim() && newProvider !== "flow" && newProvider !== "grok") {
       onError("Nhập tên tài khoản");
+      return;
+    }
+    if (newProvider === "openai" && !newApiKey.trim()) {
+      onError("Nhập API Key");
+      return;
+    }
+    if (newProvider === "grok" && !newCookie.trim() && !newApiKey.trim()) {
+      onError("Dán cookie grok.com (sso + sso-rw) — giống Flow. Hoặc API key xAI.");
       return;
     }
     setLoading(true);
@@ -355,6 +370,17 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       let credentials: Record<string, string>;
       if (newProvider === "openai") {
         credentials = { api_key: newApiKey.trim() };
+        if (!label) label = "OpenAI";
+      } else if (newProvider === "grok") {
+        // Cookie web (ưu tiên) + optional API key
+        if (newCookie.trim()) {
+          credentials = { cookie: newCookie.trim() };
+          if (newApiKey.trim()) credentials.api_key = newApiKey.trim();
+          if (!label) label = "Grok cookie";
+        } else {
+          credentials = { api_key: newApiKey.trim() };
+          if (!label) label = "Grok API key";
+        }
       } else if (newProvider === "flow") {
         const parsed = parseFlowCookieInput(newSessionToken);
         credentials = { session_token: parsed.session_token };
@@ -439,11 +465,45 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           App <strong>round-robin</strong> giữa các account đang bật. Khi một account{" "}
           <strong>hết quota</strong>, app tự cooldown ~1 giờ và chuyển sang account khác.
         </p>
-        <ol className="muted" style={{ margin: "8px 0 0", paddingLeft: 20, lineHeight: 1.55 }}>
-          <li>Đăng xuất Google / dùng profile Chrome khác → đăng nhập account mới trên labs.google</li>
-          <li>Copy cookie <code>__Secure-next-auth.session-token</code> (hoặc export JSON cookie)</li>
-          <li>Dán vào form bên dưới → <strong>Thêm tài khoản</strong> (không xóa account cũ)</li>
-          <li>Account hết quota: tắt hoặc để cooldown; account còn quota sẽ được dùng</li>
+        <div
+          className="muted"
+          style={{
+            marginTop: 10,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "rgba(251, 191, 36, 0.12)",
+            border: "1px solid rgba(251, 191, 36, 0.35)",
+            lineHeight: 1.55,
+          }}
+        >
+          <strong>Vì sao chỉ 1 Gmail chạy, account add thêm bị lỗi?</strong>
+          <br />
+          App gen bằng <strong>cookie đã lưu</strong>, còn captcha lấy từ{" "}
+          <strong>tab labs.google đang mở</strong>. Hai cái phải <strong>cùng một Gmail</strong>.
+          <br />
+          Ví dụ: tab Flow đang login <code>nktnclean@…</code> mà cookie account B khác → gen account B sẽ fail.
+          <br />
+          Cách đúng mỗi account:
+          <ol style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+            <li>
+              Chrome <strong>profile riêng</strong> (hoặc ẩn danh) → login <em>đúng</em> Gmail đó trên{" "}
+              <code>labs.google/fx/tools/flow</code>
+            </li>
+            <li>
+              Copy cookie <code>__Secure-next-auth.session-token</code> <em>lúc đã login account đó</em>
+            </li>
+            <li>Dán vào form → Thêm tài khoản (label = email)</li>
+            <li>
+              Khi gen bằng account đó: mở tab Flow <strong>cùng Gmail</strong> (Auth Helper xanh)
+            </li>
+          </ol>
+          Không chỉ “đổi email trên tab” mà vẫn để cookie cũ của nktnclean trong app.
+        </div>
+        <ol className="muted" style={{ margin: "12px 0 0", paddingLeft: 20, lineHeight: 1.55 }}>
+          <li>Profile Chrome A → login account A → copy cookie → Thêm TK A</li>
+          <li>Profile Chrome B → login account B → copy cookie → Thêm TK B (không xóa A)</li>
+          <li>Gen: tab Flow phải login cùng account mà app đang pick (hoặc tắt account không dùng)</li>
+          <li>Hết quota: cooldown ~1h; account khác còn bật sẽ được thử</li>
         </ol>
       </section>
 
@@ -467,15 +527,47 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             />
           </label>
           {newProvider === "openai" ? (
-            <label>
-              API Key
+            <label className="span-2">
+              OpenAI API Key
               <input
                 type="password"
                 value={newApiKey}
                 onChange={(e) => setNewApiKey(e.target.value)}
                 placeholder="sk-..."
+                autoComplete="new-password"
               />
             </label>
+          ) : newProvider === "grok" ? (
+            <>
+              <label className="span-2">
+                Cookie Grok.com (giống Flow — không dùng API key)
+                <textarea
+                  rows={5}
+                  value={newCookie}
+                  onChange={(e) => setNewCookie(e.target.value)}
+                  placeholder={
+                    "1) Login https://grok.com\n" +
+                    "2) F12 → Network → bấm bất kỳ request grok.com\n" +
+                    "3) Copy header Cookie (cần sso=...; sso-rw=...)\n" +
+                    "   hoặc export JSON cookie (EditThisCookie)"
+                  }
+                />
+                <small className="field-hint">
+                  Bắt buộc: <code>sso</code> + nên có <code>sso-rw</code>. Account SuperGrok có Imagine ảnh/video.
+                  App gọi <code>grok.com/rest/app-chat/...</code> bằng cookie — giống Flow + Google.
+                </small>
+              </label>
+              <label className="span-2">
+                xAI API Key (tuỳ chọn — fallback nếu cookie fail)
+                <input
+                  type="password"
+                  value={newApiKey}
+                  onChange={(e) => setNewApiKey(e.target.value)}
+                  placeholder="xai-... (không bắt buộc)"
+                  autoComplete="new-password"
+                />
+              </label>
+            </>
           ) : newProvider === "flow" ? (
             <label className="span-2">
               Cookie Google Flow (JSON export hoặc session token) — account MỚI
@@ -485,6 +577,11 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                 onChange={(e) => setNewSessionToken(e.target.value)}
                 placeholder="Dán JSON cookie hoặc __Secure-next-auth.session-token (eyJ...) của tài khoản khác"
               />
+              <small className="field-hint">
+                Export khi đang mở <code>labs.google</code> (đã login đúng Gmail).
+                App lấy cookie domain <code>labs.google</code>, rồi hỏi Google email thật
+                (không tin field email trong file cookie — dễ sai).
+              </small>
             </label>
           ) : (
             <label className="span-2">
@@ -662,7 +759,8 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           </p>
         ) : (
           <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 13 }}>
-            Key để trống khi Lưu = <strong>giữ key cũ</strong>. Test API cũng dùng key đã lưu nếu không đang đổi key.
+            Lần đầu: dán key → <strong>Lưu cấu hình AI</strong>. Đã có key: để trống khi Lưu = giữ key cũ;
+            bấm <strong>Đổi key</strong> chỉ khi muốn thay. Test dùng key form hoặc key đã lưu.
           </p>
         )}
       </section>
@@ -825,7 +923,12 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             >
               <div>
                 <strong>{account.label}</strong>
-                <p>{PROVIDER_LABELS[account.provider]}</p>
+                <p>
+                  {PROVIDER_LABELS[account.provider]}
+                  {account.email && account.email !== account.label
+                    ? ` · session: ${account.email}`
+                    : ""}
+                </p>
                 <small>
                   {account.enabled ? "Đang bật" : "Tắt"} ·
                   {account.has_credentials ? " Đã cấu hình" : " Chưa cấu hình"}
@@ -834,6 +937,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                   {account.in_cooldown
                     ? ` · Cooldown ${formatCooldown(account.cooldown_left_sec)}`
                     : ""}
+                  {account.auth_hint ? ` · ${account.auth_hint}` : ""}
                 </small>
                 {account.last_error && (
                   <p className="account-error" title={account.last_error}>

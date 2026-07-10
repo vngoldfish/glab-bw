@@ -12,7 +12,6 @@ import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import ExtensionPage from "./pages/ExtensionPage";
-import PlaceholderPage from "./pages/PlaceholderPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
 import WebhookPage from "./pages/WebhookPage";
@@ -64,7 +63,11 @@ export default function App() {
   return (
     <ReferenceLibraryProvider>
       <div className="app-shell">
-        <Sidebar extensionConnected={extension?.connected ?? false} />
+        <Sidebar
+          extensionConnected={extension?.connected ?? false}
+          flowTab={extension?.flow_tab ?? "…"}
+          grokTab={extension?.grok_tab ?? "…"}
+        />
         <main className="main-area">
           <div className="titlebar">
             <div className="titlebar-brand">
@@ -76,7 +79,24 @@ export default function App() {
                 <span className="status-dot" />
                 {extension?.connected ? "Auth OK" : "Auth off"}
               </span>
-              <span>Flow: {extension?.flow_tab ?? "..."}</span>
+              <span title="labs.google — reCAPTCHA Flow (popup Tokens)">
+                Flow: {extension?.flow_tab ?? "…"}
+                {typeof extension?.token_count === "number" && extension.token_count > 0
+                  ? ` · ${extension.token_count} tok`
+                  : ""}
+              </span>
+              <span
+                title="grok.com/imagine — gfetch/gws (popup Tokens không dùng cho Grok)"
+                style={{
+                  color:
+                    extension?.grok_tab === "open"
+                      ? "var(--success, #4ade80)"
+                      : undefined,
+                }}
+              >
+                Grok: {extension?.grok_tab ?? "…"}
+                {extension?.has_statsig ? " · sig" : ""}
+              </span>
               <span>:8765</span>
             </div>
           </div>
@@ -136,14 +156,7 @@ export default function App() {
               />
               <Route
                 path={NAV_ROUTES.grok}
-                element={
-                  <div className="page-panel">
-                    <PlaceholderPage
-                      title="Media Grok"
-                      subtitle="Tạo ảnh/video Grok — tính năng đang được phát triển."
-                    />
-                  </div>
-                }
+                element={<Navigate to={NAV_ROUTES["flow-image"]} replace />}
               />
               <Route
                 path={NAV_ROUTES.webhook}

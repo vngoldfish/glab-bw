@@ -17,15 +17,19 @@ import {
 } from "../referenceUtils";
 import {
   ASPECT_RATIOS,
+  GROK_IMAGE_MODELS,
   IMAGE_MODELS,
+  MEDIA_ENGINES,
   SAVE_MODES,
   type ImageConfig,
+  type MediaEngine,
   type QueueRow,
   type RowStatus,
 } from "../types";
 import { createId, runWithConcurrency } from "../utils";
 
 const DEFAULT_CONFIG: ImageConfig = {
+  engine: "flow",
   model: "nano_banana_2_lite",
   aspectRatio: "1:1",
   concurrency: 1,
@@ -34,6 +38,14 @@ const DEFAULT_CONFIG: ImageConfig = {
   outputFolder: "G-Labs BW/image_output",
   upscale: [],
 };
+
+function modelsForEngine(engine: MediaEngine) {
+  return engine === "grok" ? GROK_IMAGE_MODELS : IMAGE_MODELS;
+}
+
+function defaultModelForEngine(engine: MediaEngine): string {
+  return engine === "grok" ? GROK_IMAGE_MODELS[0].value : IMAGE_MODELS[0].value;
+}
 
 function emptyRow(): QueueRow {
   return {
@@ -217,20 +229,24 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         }
 
         const namedRefs = buildNamedReferencesPayload(prompt, referenceLibrary);
+        const isGrok = config.engine === "grok";
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          upscale: config.upscale,
+          upscale: isGrok ? [] : config.upscale,
           count: config.imagesPerPrompt,
           save_mode: config.saveMode,
-          output_folder: config.outputFolder,
+          output_folder: isGrok
+            ? config.outputFolder.replace("image_output", "grok_output") || "G-Labs BW/grok_output"
+            : config.outputFolder,
+          ...(isGrok ? { mode: "t2i" } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
           ...(!namedRefs.length && row.referenceImage
             ? { reference_images: [row.referenceImage] }
             : {}),
         };
         const result = await submitBatch(
-          [{ prompt, provider: "image", params }],
+          [{ prompt, provider: isGrok ? "grok" : "image", params }],
           1,
         );
         const item = result.results[0];
@@ -511,8 +527,10 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     <div className="flow-page">
       <header className="flow-page-top">
         <div className="flow-page-top-main">
-          <h1>Flow Image</h1>
-          <span className="pill pill-purple">Batch</span>
+          <h1>{config.engine === "grok" ? "Grok Image" : "Flow Image"}</h1>
+          <span className={`pill ${config.engine === "grok" ? "pill-purple" : "pill-purple"}`}>
+            {config.engine === "grok" ? "Grok · Auth Helper" : "Google Flow"}
+          </span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
         </div>
         <div className="flow-page-stats">
@@ -542,12 +560,40 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           <section className="config-section">
             <h3>Cấu hình cơ bản</h3>
             <label>
+              Engine
+              <select
+                value={config.engine || "flow"}
+                onChange={(e) => {
+                  const engine = e.target.value as MediaEngine;
+                  setConfig((c) => ({
+                    ...c,
+                    engine,
+                    model: defaultModelForEngine(engine),
+                    outputFolder:
+                      engine === "grok"
+                        ? "G-Labs BW/grok_output"
+                        : "G-Labs BW/image_output",
+                  }));
+                }}
+              >
+                {MEDIA_ENGINES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <small className="field-hint">
+                {(MEDIA_ENGINES.find((m) => m.value === (config.engine || "flow")) || MEDIA_ENGINES[0]).hint}
+                {config.engine === "grok"
+                  ? " · Grok = nick login trên tab grok.com (không dùng list account Flow). Flow = cookie trong Cài đặt."
+                  : " · Flow = cookie/session trong Cài đặt (email thật sau khi refresh session)."}
+              </small>
+            </label>
+            <label>
               Model
               <select
                 value={config.model}
                 onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
               >
-                {IMAGE_MODELS.map((m) => (
+                {modelsForEngine(config.engine || "flow").map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>

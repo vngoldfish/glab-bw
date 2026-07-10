@@ -6,8 +6,9 @@
 
 - **Python 3.11+**
 - **Node.js 18+**
-- **Chrome** + extension **G-Labs Automation - Auth Helper**
+- **Chrome** + extension **G-Labs Automation - Auth Helper** (Flow reCAPTCHA)
 - Tab [Google Flow Lab](https://labs.google/fx/tools/flow) đã đăng nhập
+- **(Grok)** Load unpacked extension `extension-grok/` + tab [grok.com/imagine](https://grok.com/imagine)
 
 ## Cài đặt
 

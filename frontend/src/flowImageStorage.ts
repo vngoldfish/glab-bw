@@ -50,13 +50,18 @@ function stripReferenceImages(rows: QueueRow[]): QueueRow[] {
 
 function migrateConfig(config: Partial<ImageConfig> | undefined): ImageConfig {
   const source = config ?? {};
+  const engine = source.engine === "grok" ? "grok" : "flow";
   return {
-    model: String(source.model ?? "nano_banana_2_lite"),
+    engine,
+    model: String(source.model ?? (engine === "grok" ? "grok-3" : "nano_banana_2_lite")),
     aspectRatio: String(source.aspectRatio ?? "1:1"),
     concurrency: Number(source.concurrency ?? 1),
     imagesPerPrompt: Number(source.imagesPerPrompt ?? 1),
     saveMode: String(source.saveMode ?? "task"),
-    outputFolder: String(source.outputFolder ?? "G-Labs BW/image_output"),
+    outputFolder: String(
+      source.outputFolder ??
+        (engine === "grok" ? "G-Labs BW/grok_output" : "G-Labs BW/image_output"),
+    ),
     upscale: Array.isArray(source.upscale) ? source.upscale : [],
   };
 }

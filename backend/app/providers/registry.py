@@ -30,11 +30,39 @@ def get_flow_providers(for_video: bool = False) -> list[tuple[Account, FlowVeoPr
     return [(a, FlowVeoProvider(account=a)) for a in ordered]
 
 
-def get_grok_provider() -> GrokProvider | None:
-    account = account_store.get_active("grok", for_video=True)
+def get_grok_provider(for_video: bool = False) -> GrokProvider | None:
+    """Next eligible Grok account (cookie web / API key / extension browser session)."""
+    account = account_store.get_active("grok", for_video=for_video)
     if not account:
-        return None
-    return GrokProvider(session_data=account.credentials)
+        for acc in account_store.list_accounts("grok"):
+            if not acc.enabled:
+                continue
+            creds = acc.credentials or {}
+            has_auth = bool(creds.get("sso") or creds.get("cookie") or creds.get("api_key"))
+            if not has_auth:
+                continue
+            if for_video and not acc.video_enabled:
+                continue
+            if not for_video and not acc.image_enabled:
+                continue
+            account = acc
+            break
+    if account:
+        return GrokProvider(
+            session_data=account.credentials,
+            api_key=account.credentials.get("api_key", ""),
+        )
+    # No stored account: still allow extension-driven browser session (Flow-like)
+    try:
+        from app.services.auth_bridge_access import auth_bridge_access
+
+        if auth_bridge_access.is_connected():
+            sess = auth_bridge_access.get_primary_session()
+            if sess and sess.grok_tab_status == "open":
+                return GrokProvider(session_data={"auth_mode": "cookie", "sso": "browser"})
+    except Exception:
+        pass
+    return None
 
 
 def get_meta_provider(for_video: bool = False) -> MetaProvider | None:
@@ -49,10 +77,15 @@ def account_to_dict(account: Account) -> dict:
     cooldown_left = 0
     if account.cooldown_until and account.cooldown_until > now:
         cooldown_left = int(account.cooldown_until - now)
+    creds = account.credentials or {}
+    email = str(creds.get("email") or "").strip()
+    # Prefer real email from last session refresh for display
+    display = email or account.label
     return {
         "id": account.id,
         "provider": account.provider,
-        "label": account.label,
+        "label": display,
+        "email": email or None,
         "image_enabled": account.image_enabled,
         "video_enabled": account.video_enabled,
         "enabled": account.enabled,
@@ -62,4 +95,14 @@ def account_to_dict(account: Account) -> dict:
         "cooldown_left_sec": cooldown_left,
         "in_cooldown": cooldown_left > 0,
         "last_error": account.last_error,
+        "auth_hint": (
+            "cookie/session trong app"
+            if account.provider == "flow"
+            else (
+                "tab browser grok.com (Auth Helper)"
+                if account.provider == "grok"
+                and not creds.get("api_key")
+                else "credentials trong app"
+            )
+        ),
     }

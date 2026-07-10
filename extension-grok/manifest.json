@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "G-Labs BW — Grok Statsig",
+  "version": "0.2.0",
+  "description": "Lấy x-statsig-id từ tab grok.com (không F5) — dùng cùng Auth Helper gốc.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:18923/*",
+    "http://localhost:18923/*",
+    "https://grok.com/*",
+    "https://*.grok.com/*",
+    "https://*.x.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://grok.com/*", "https://*.grok.com/*"],
+      "js": ["content_hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://grok.com/*", "https://*.grok.com/*"],
+      "js": ["content_bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "G-Labs Grok Statsig",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

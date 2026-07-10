@@ -41,10 +41,22 @@ class FlowSessionManager:
             or expires_at < time.time() + 60
         )
         if needs_refresh:
-            session = await client.st_to_at(session_token)
+            try:
+                session = await client.st_to_at(session_token)
+            except ProviderError as exc:
+                # Most common when cookie is stale / wrong account paste / not labs.google
+                raise ProviderError(
+                    f"Session Flow không hợp lệ cho «{account.label}». "
+                    "Lấy lại cookie __Secure-next-auth.session-token khi ĐÃ login "
+                    "đúng account đó trên labs.google (profile Chrome riêng). "
+                    f"Chi tiết: {exc}",
+                    error_code=getattr(exc, "error_code", 403) or 403,
+                ) from exc
             access_token = str(session.get("access_token", "")).strip()
             expires = str(session.get("expires", "")).strip()
             user = session.get("user") or {}
+            if not isinstance(user, dict):
+                user = {}
             # Accept several possible field names from Flow session payload
             tier = str(
                 user.get("paygateTier")
@@ -53,15 +65,30 @@ class FlowSessionManager:
                 or creds.get("user_paygate_tier")
                 or "PAYGATE_TIER_ONE"
             )
+            email = str(
+                user.get("email")
+                or user.get("emailAddress")
+                or user.get("userEmail")
+                or creds.get("email")
+                or ""
+            ).strip()
             if not access_token:
                 raise ProviderError(
-                    "Không lấy được access token từ Google Flow — paste lại cookie session-token trong Settings",
+                    f"Không lấy được access token cho «{account.label}» — "
+                    "cookie session-token hết hạn hoặc không phải account Flow. "
+                    "Login đúng Gmail trên labs.google → copy cookie lại → Cài đặt.",
                     error_code=403,
                 )
             creds["access_token"] = access_token
             creds["at_expires"] = expires
             creds["user_paygate_tier"] = tier
+            if email:
+                creds["email"] = email
             account_store.update(account.id, credentials=creds)
+            # Always sync label to real Google email from session (avoids
+            # "app shows A, library is B" when user typed wrong label).
+            if email and account.label != email:
+                account_store.update(account.id, label=email)
 
         project_id = creds.get("project_id", "").strip()
         if not project_id:

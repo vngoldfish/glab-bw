@@ -68,13 +68,29 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
                 "Cũng thử model Veo 3.1 Fast + Văn bản→Video trước để kiểm tra auth. "
                 f"({message or status})"
             )
+        # 429 / quota must be checked BEFORE generic INTERNAL (Google sometimes wraps)
+        quota_hit = (
+            status_code == 429
+            or status == "RESOURCE_EXHAUSTED"
+            or "PUBLIC_ERROR_USER_QUOTA_REACHED" in joined
+            or "quota" in message.lower()
+            or "resource has been exhausted" in message.lower()
+        )
+        if quota_hit:
+            return (
+                "Hết quota Google Flow trên account này (USER_QUOTA_REACHED). "
+                "Video/model Pro đã dùng hết lượt free trong ngày hoặc gói. "
+                "Cách xử lý: (1) thêm account Flow khác trong Cài đặt, "
+                "(2) đợi reset quota (thường ~24h), "
+                "(3) ảnh: dùng Nano Banana 2 / Lite (Pro hay fail trên free tier). "
+                f"({message or status or status_code})"
+            )
         if status == "INTERNAL" or (status_code >= 500 and status_code != 503):
             return (
-                "Google Flow INTERNAL (lỗi phía Google hoặc model/payload không khớp). "
-                "App sẽ tự thử model/cách khác. Nếu vẫn fail: "
-                "(1) chọn Gemini Omni Flash + Văn bản→Video, "
-                "(2) nhiều người: gõ đủ @a @b @c + model Omni, "
-                "(3) đợi 30s / reload tab Flow + Auth OK. "
+                "Google Flow INTERNAL (model không hỗ trợ account này, payload lệch, hoặc Google lỗi). "
+                "Ảnh: chọn Nano Banana 2 / Lite (Pro hay fail free tier). "
+                "Video: thử Omni Flash + Văn bản→Video; reload tab Flow + Auth OK; "
+                "hoặc thêm account khác nếu hết lượt. "
                 f"({message or status or status_code})"
             )
         if status_code == 503 or status == "UNAVAILABLE":
@@ -291,54 +307,123 @@ class GoogleFlowClient:
         reference_images: list[Any] | None = None,
         upscale_targets: list[str] | None = None,
         count: int = 1,
+        session_token: str | None = None,
     ) -> list[bytes]:
         last_error: ProviderError | None = None
         result: dict[str, Any] | None = None
         image_count = max(1, min(count, 4))
         has_references = bool(reference_images)
+        tier = user_paygate_tier or "PAYGATE_TIER_ONE"
 
-        for attempt in range(self.max_image_retries):
-            try:
-                recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION")
-                session_id = self._session_id()
-                client_context = self._client_context(
-                    project_id=project_id,
-                    recaptcha_token=recaptcha_token,
-                    session_id=session_id,
-                )
-                resolved_aspect = resolve_image_aspect(aspect_ratio, has_references=has_references)
-                request_items = []
-                for _ in range(image_count):
-                    request_item: dict[str, Any] = {
+        # Free tier often rejects GEM_PIX (Pro) with INTERNAL — fall back to working models
+        primary = resolve_image_model(model)
+        model_candidates: list[str] = []
+        for name in (primary, "GEM_PIX_2", "NARWHAL"):
+            if name and name not in model_candidates:
+                model_candidates.append(name)
+
+        # Prefer next model over same-model spam when Google returns INTERNAL for Pro/etc.
+        attempts_per_model = 2
+        for model_idx, model_name in enumerate(model_candidates):
+            for attempt in range(attempts_per_model):
+                try:
+                    recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION")
+                    session_id = self._session_id()
+                    client_context = self._client_context(
+                        project_id=project_id,
+                        recaptcha_token=recaptcha_token,
+                        session_id=session_id,
+                        user_paygate_tier=tier,
+                    )
+                    resolved_aspect = resolve_image_aspect(aspect_ratio, has_references=has_references)
+                    request_items = []
+                    for _ in range(image_count):
+                        request_item: dict[str, Any] = {
+                            "clientContext": client_context,
+                            "seed": random.randint(1, 999999),
+                            "imageModelName": model_name,
+                            "structuredPrompt": {"parts": [{"text": prompt}]},
+                            "imageInputs": reference_images or [],
+                        }
+                        if resolved_aspect:
+                            request_item["imageAspectRatio"] = resolved_aspect
+                        request_items.append(request_item)
+                    payload = {
                         "clientContext": client_context,
-                        "seed": random.randint(1, 999999),
-                        "imageModelName": resolve_image_model(model),
-                        "structuredPrompt": {"parts": [{"text": prompt}]},
-                        "imageInputs": reference_images or [],
+                        "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
+                        "useNewMedia": True,
+                        "requests": request_items,
                     }
-                    if resolved_aspect:
-                        request_item["imageAspectRatio"] = resolved_aspect
-                    request_items.append(request_item)
-                payload = {
-                    "clientContext": client_context,
-                    "mediaGenerationContext": {"batchId": str(uuid.uuid4())},
-                    "useNewMedia": True,
-                    "requests": request_items,
-                }
-                result = await self._request(
-                    "POST",
-                    self._api_url(f"projects/{project_id}/flowMedia:batchGenerateImages"),
-                    headers=self._headers(access_token=access_token, project_id=project_id),
-                    json_data=payload,
-                )
+                    logger.info(
+                        "Flow image submit model=%s resolved=%s try=%s/%s refs=%s",
+                        model,
+                        model_name,
+                        attempt + 1,
+                        attempts_per_model,
+                        len(reference_images or []),
+                    )
+                    result = await self._request(
+                        "POST",
+                        self._api_url(f"projects/{project_id}/flowMedia:batchGenerateImages"),
+                        headers=self._headers(
+                            access_token=access_token,
+                            session_token=session_token,
+                            project_id=project_id,
+                        ),
+                        json_data=payload,
+                    )
+                    break  # success for this model
+                except ProviderError as exc:
+                    last_error = exc
+                    msg = str(exc).lower()
+                    code = int(exc.error_code or 0)
+                    logger.warning(
+                        "Flow image model=%s failed try=%s code=%s: %s",
+                        model_name,
+                        attempt + 1,
+                        code,
+                        exc,
+                    )
+                    # Detect real quota only — do NOT match our own advice text ("còn quota")
+                    real_quota = (
+                        code == 429
+                        or "resource_exhausted" in msg
+                        or "user_quota" in msg
+                        or "hết quota" in msg
+                        or "public_error_user_quota" in msg
+                        or "resource has been exhausted" in msg
+                    )
+                    if real_quota:
+                        raise
+                    # Google free tier: Pro (GEM_PIX) often 500 INTERNAL — try next model
+                    can_retry_same = attempt + 1 < attempts_per_model and code in {
+                        403,
+                        500,
+                        502,
+                        503,
+                        504,
+                    }
+                    if can_retry_same:
+                        await asyncio.sleep(1.2 + attempt)
+                        continue
+                    if model_idx + 1 < len(model_candidates) and code in {
+                        403,
+                        500,
+                        502,
+                        503,
+                        504,
+                        0,
+                    }:
+                        logger.warning(
+                            "Flow image switch model %s → %s (after %s)",
+                            model_name,
+                            model_candidates[model_idx + 1],
+                            code,
+                        )
+                        break
+                    raise
+            if result is not None:
                 break
-            except ProviderError as exc:
-                last_error = exc
-                retryable = exc.error_code in {403, 500, 502, 503, 504}
-                if retryable and attempt < self.max_image_retries - 1:
-                    await asyncio.sleep(2 + attempt * 2)
-                    continue
-                raise
 
         if result is None:
             raise last_error or ProviderError("Tạo ảnh thất bại", error_code=0)
@@ -695,15 +780,13 @@ class GoogleFlowClient:
                     last_error = exc
                     msg = str(exc).lower()
                     captcha_fail = "recaptcha" in msg
-                    retryable = (
-                        exc.error_code in {403, 429, 500, 502, 503, 504}
-                        or "internal" in msg
-                        or "unavailable" in msg
-                        or "permission" in msg
-                        or "tạm thời" in msg
-                        or "failed" in msg
-                        or "media_generation" in msg
-                        or captcha_fail
+                    quota_hit = (
+                        exc.error_code == 429
+                        or "resource_exhausted" in msg
+                        or "user_quota" in msg
+                        or "hết quota" in msg
+                        or "public_error_user_quota" in msg
+                        or "resource has been exhausted" in msg
                     )
                     logger.warning(
                         "Flow video failed mode=%s model_key=%s attempt=%s: %s",
@@ -711,6 +794,22 @@ class GoogleFlowClient:
                         model_key,
                         attempt + 1,
                         exc,
+                    )
+                    # Out of credits — stop trying other keys (avoids fake INTERNAL spam)
+                    if quota_hit:
+                        raise ProviderError(
+                            str(exc),
+                            error_code=429,
+                        ) from exc
+                    retryable = (
+                        exc.error_code in {403, 500, 502, 503, 504}
+                        or "internal" in msg
+                        or "unavailable" in msg
+                        or "permission" in msg
+                        or "tạm thời" in msg
+                        or "failed" in msg
+                        or "media_generation" in msg
+                        or captcha_fail
                     )
                     if retryable and attempt < 2:
                         # Fresh reCAPTCHA each _submit_once; wait longer after captcha fail

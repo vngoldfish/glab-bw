@@ -32,12 +32,18 @@ yarn-error.log*
 
 # Runtime data (ảnh output, thư viện tham chiếu, tài khoản)
 data/accounts.json
+data/ai_settings.json
+data/api_key.txt
+data/tasks.db
+data/logs/
 data/output/
 data/flow_media_cache.json
 data/G-Labs BW/image_output/**
 !data/G-Labs BW/image_output/.gitkeep
 data/G-Labs BW/video_output/**
 !data/G-Labs BW/video_output/.gitkeep
+data/G-Labs BW/grok_output/**
+!data/G-Labs BW/grok_output/.gitkeep
 data/G-Labs BW/reference_images/**
 !data/G-Labs BW/reference_images/.gitkeep
 

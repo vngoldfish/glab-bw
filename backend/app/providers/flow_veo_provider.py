@@ -42,6 +42,14 @@ class FlowVeoProvider(BaseProvider):
                 "Chưa mở tab labs.google/fx/tools/flow — đăng nhập Google và mở Flow Lab",
                 error_code=0,
             )
+        # Captcha is solved in whatever Google account is logged into the tab.
+        # Cookie/token for API comes from the selected app account — they must match.
+        if self.account and self.account.label:
+            logger.debug(
+                "Flow gen with app account=%s — tab Google must be the SAME gmail "
+                "(Auth Helper captcha is tab session)",
+                self.account.label,
+            )
 
     async def _session(self, *, force_refresh: bool = False) -> dict[str, str]:
         if self.account is None:
@@ -134,7 +142,8 @@ class FlowVeoProvider(BaseProvider):
         return image_inputs
 
     async def generate_image(self, prompt: str, params: dict[str, Any]) -> list[bytes]:
-        session = await self._session()
+        # Fresh AT like video — stale token sometimes comes back as INTERNAL, not 401
+        session = await self._session(force_refresh=True)
         aspect_ratio = params.get("aspect_ratio", "1:1")
         named_refs = params.get("named_references", [])
         resolved_prompt, named_items = resolve_prompt_references(prompt, named_refs)
@@ -157,6 +166,7 @@ class FlowVeoProvider(BaseProvider):
             reference_images=image_inputs,
             upscale_targets=params.get("upscale", []),
             count=count,
+            session_token=session.get("session_token"),
         )
 
     async def generate_video(self, prompt: str, params: dict[str, Any]) -> list[bytes]:

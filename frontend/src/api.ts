@@ -5,6 +5,8 @@ export interface Account {
   id: string;
   provider: Provider;
   label: string;
+  /** Real email from last session refresh (Flow), if known */
+  email?: string | null;
   image_enabled: boolean;
   video_enabled: boolean;
   enabled: boolean;
@@ -14,6 +16,8 @@ export interface Account {
   cooldown_left_sec?: number;
   in_cooldown?: boolean;
   last_error?: string | null;
+  /** short hint: cookie in app vs browser tab */
+  auth_hint?: string | null;
 }
 
 export interface AppInfo {
@@ -477,6 +481,10 @@ export interface ExtensionStatus {
   token_count: number;
   extensions: number;
   pending_captcha: number;
+  pending_grok?: number;
+  uptime?: number;
+  has_statsig?: boolean;
+  statsig_wanted?: boolean;
 }
 
 export async function fetchExtensionStatus(): Promise<ExtensionStatus> {

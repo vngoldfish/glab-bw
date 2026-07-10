@@ -33,24 +33,32 @@ def _save_outputs(
 
 
 def _is_quota_or_rate_error(exc: BaseException) -> bool:
-    """Detect Google Flow quota / rate-limit style failures for account rotation."""
+    """Detect Google Flow quota / rate-limit style failures for account rotation.
+
+    Avoid matching the word "quota" inside our own advice text on INTERNAL errors.
+    """
     msg = str(exc).lower()
+    code = int(getattr(exc, "error_code", 0) or 0)
+    if code == 429:
+        return True
+    # Specific Google phrases only — NOT bare "quota" (false-positive on advice strings)
     needles = (
-        "quota",
         "resource_exhausted",
+        "resource has been exhausted",
+        "public_error_user_quota",
+        "user_quota_reached",
+        "hết quota",
+        "het quota",
         "rate limit",
         "rate_limit",
         "ratelimit",
-        "too many",
+        "too many requests",
         "throttl",
-        "credits",
         "daily limit",
-        "user_quota",
         "per_model_daily",
         "out of credit",
         "hết credit",
         "het credit",
-        "429",
     )
     return any(n in msg for n in needles)
 
@@ -92,22 +100,36 @@ async def _run_flow_with_rotation(
         except ProviderError as exc:
             last_error = exc
             if _is_quota_or_rate_error(exc):
+                # Only cool down the modality that failed (video quota must not block image)
                 account_store.mark_quota_exhausted(
                     account.id,
                     reason=str(exc)[:300],
                     cooldown_sec=3600,
+                    for_video=for_video,
                 )
                 logger.warning(
-                    "Account %s quota/rate-limited — cooldown 1h, try next. err=%s",
+                    "Account %s %s quota/rate-limited — cooldown 1h, try next. err=%s",
                     account.label,
+                    "video" if for_video else "image",
                     exc,
                 )
                 continue
-            # Non-quota errors: still try next account (session/cookie issues)
+            # Non-quota errors: try next account (session / model INTERNAL / captcha)
+            msg = str(exc).lower()
             soft = any(
-                x in str(exc).lower()
-                for x in ("permission", "unauthenticated", "401", "403", "session", "token")
-            )
+                x in msg
+                for x in (
+                    "permission",
+                    "unauthenticated",
+                    "401",
+                    "403",
+                    "session",
+                    "token",
+                    "internal",
+                    "recaptcha",
+                    "captcha",
+                )
+            ) or int(getattr(exc, "error_code", 0) or 0) in {403, 500, 502, 503}
             if soft and len(candidates) > 1:
                 logger.warning(
                     "Account %s failed (%s) — try next Flow account",
@@ -167,12 +189,18 @@ async def handle_grok_task(task: Task) -> list[str]:
     if not task.prompt.strip():
         raise ProviderError("Missing required field: prompt", error_code=0)
 
-    mode = task.payload.get("mode", "t2v")
-    provider = get_grok_provider()
+    mode = str(task.payload.get("mode") or "t2v").lower()
+    # t2i / i2i = image; everything else treated as video (t2v, i2v, …)
+    for_video = mode not in {"t2i", "i2i", "image", "img"}
+    provider = get_grok_provider(for_video=for_video)
     if provider is None:
-        raise ProviderError("No active Grok session available", error_code=0)
+        raise ProviderError(
+            "Chưa có tài khoản Grok — Cài đặt → Grok AI → dán cookie sso+sso-rw từ grok.com "
+            "(giống Flow), hoặc xAI API key",
+            error_code=0,
+        )
 
-    if mode in {"t2i", "i2i"}:
+    if not for_video:
         images = await provider.generate_image(task.prompt, task.payload)
         return _save_outputs(images, task, f"grok_{task.task_id}")
     videos = await provider.generate_video(task.prompt, task.payload)

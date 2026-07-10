@@ -40,7 +40,12 @@ export interface QueueRow {
   savedFolder: string | null;
 }
 
+/** Engine backend: Google Flow (labs) or Grok (Auth Helper / web) */
+export type MediaEngine = "flow" | "grok";
+
 export interface ImageConfig {
+  /** flow = Google Flow · grok = Grok via Auth Helper */
+  engine: MediaEngine;
   model: string;
   aspectRatio: string;
   concurrency: number;
@@ -58,9 +63,15 @@ export const REFERENCE_CATEGORIES: { value: ReferenceCategory; label: string }[]
 ];
 
 export const IMAGE_MODELS = [
-  { value: "nano_banana_2_lite", label: "Nano Banana 2 Lite" },
-  { value: "nano_banana_2", label: "Nano Banana 2" },
-  { value: "nano_banana_pro", label: "Nano Banana Pro" },
+  { value: "nano_banana_2_lite", label: "Nano Banana 2 Lite (ổn định)" },
+  { value: "nano_banana_2", label: "Nano Banana 2 (ổn định)" },
+  { value: "nano_banana_pro", label: "Nano Banana Pro (hay INTERNAL trên free)" },
+] as const;
+
+export const GROK_IMAGE_MODELS = [
+  { value: "grok-3", label: "Grok Imagine (web · Auth Helper)" },
+  { value: "grok-imagine-image", label: "Grok Imagine API (cần key xAI)" },
+  { value: "grok-imagine-image-quality", label: "Grok Imagine Quality API" },
 ] as const;
 
 export const ASPECT_RATIOS = [
@@ -80,6 +91,7 @@ export const SAVE_MODES = [
 export type VideoMode = "text_to_video" | "start_image" | "start_end_image" | "components";
 
 export interface VideoConfig {
+  engine: MediaEngine;
   model: string;
   aspectRatio: string;
   mode: VideoMode;
@@ -87,7 +99,7 @@ export interface VideoConfig {
   saveMode: string;
   outputFolder: string;
   resolution: string[];
-  /** Omni Flash clip length in seconds (4/6/8/10). Ignored for Veo. */
+  /** Omni Flash / Grok clip length in seconds. */
   duration: number;
 }
 
@@ -98,6 +110,25 @@ export const VIDEO_MODELS = [
   { value: "veo_31_quality", label: "Veo 3.1 Quality" },
   { value: "veo_31_lite_relaxed", label: "Veo 3.1 Lite Relaxed" },
 ] as const;
+
+export const GROK_VIDEO_MODELS = [
+  { value: "grok-3", label: "Grok Imagine Video (web · Auth Helper)" },
+  { value: "grok-imagine-video", label: "Grok Video API (cần key xAI)" },
+  { value: "grok-imagine-video-1.5", label: "Grok Video 1.5 API" },
+] as const;
+
+export const MEDIA_ENGINES: { value: MediaEngine; label: string; hint: string }[] = [
+  {
+    value: "flow",
+    label: "Google Flow",
+    hint: "labs.google · cookie Flow + Auth Helper reCAPTCHA",
+  },
+  {
+    value: "grok",
+    label: "Grok",
+    hint: "grok.com/imagine · Auth Helper gfetch (cùng extension Flow)",
+  },
+];
 
 export const OMNI_FLASH_DURATIONS = [
   { value: 4, label: "4 giây" },

@@ -24,11 +24,14 @@ class VideoGenerateRequest(BaseModel):
 
 class GrokGenerateRequest(BaseModel):
     prompt: str
-    mode: str = "t2v"
+    mode: str = "t2v"  # t2i | i2i | t2v | i2v
+    model: str = ""
     aspect_ratio: str = "9:16"
     reference_images: list[Any] = Field(default_factory=list)
     video_length: int = 6
+    duration: int | None = None
     resolution: str = "480p"
+    count: int = 1
 
 
 class MetaGenerateRequest(BaseModel):

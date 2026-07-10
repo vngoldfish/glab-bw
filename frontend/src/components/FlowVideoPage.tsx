@@ -19,12 +19,15 @@ import {
   validatePromptMentions,
 } from "../referenceUtils";
 import {
+  GROK_VIDEO_MODELS,
+  MEDIA_ENGINES,
   OMNI_FLASH_DURATIONS,
   SAVE_MODES,
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODES,
   VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
+  type MediaEngine,
   type NamedReference,
   type QueueRow,
   type RowStatus,
@@ -34,6 +37,7 @@ import {
 import { createId, readFileAsDataUrl, runWithConcurrency } from "../utils";
 
 const DEFAULT_CONFIG: VideoConfig = {
+  engine: "flow",
   model: "omni_flash",
   aspectRatio: "16:9",
   mode: "start_image", // smart: T2V / I2V / FL theo ảnh trên dòng
@@ -43,6 +47,14 @@ const DEFAULT_CONFIG: VideoConfig = {
   resolution: [],
   duration: 8,
 };
+
+function videoModelsForEngine(engine: MediaEngine) {
+  return engine === "grok" ? GROK_VIDEO_MODELS : VIDEO_MODELS;
+}
+
+function defaultVideoModel(engine: MediaEngine): string {
+  return engine === "grok" ? GROK_VIDEO_MODELS[0].value : VIDEO_MODELS[0].value;
+}
 
 function emptyRow(): QueueRow {
   return {
@@ -414,18 +426,27 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         ) {
           namedRefs = buildNamedReferencesPayload(prompt, referenceLibrary);
         }
+        const isGrok = config.engine === "grok";
+        // Grok: map Flow modes → t2v / i2v (Auth Helper / API)
+        const grokMode =
+          resolved.mode === "text_to_video" || namedRefs.length === 0 ? "t2v" : "i2v";
         const params = {
           model: config.model,
           aspect_ratio: config.aspectRatio,
-          mode: resolved.mode,
+          mode: isGrok ? grokMode : resolved.mode,
           save_mode: config.saveMode,
-          output_folder: config.outputFolder,
-          ...(config.model === "omni_flash" ? { duration: config.duration || 8 } : {}),
+          output_folder: isGrok
+            ? config.outputFolder.replace("video_output", "grok_output") ||
+              "G-Labs BW/grok_output"
+            : config.outputFolder,
+          ...((config.model === "omni_flash" || isGrok)
+            ? { duration: config.duration || 8, video_length: config.duration || 8 }
+            : {}),
           ...(config.resolution.length > 0 ? { resolution: config.resolution } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
         };
         const result = await submitBatch(
-          [{ prompt, provider: "video", params }],
+          [{ prompt, provider: isGrok ? "grok" : "video", params }],
           1,
         );
         const item = result.results[0];
@@ -751,7 +772,10 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     <div className="flow-page flow-video-page">
       <header className="flow-page-top">
         <div className="flow-page-top-main">
-          <h1>Flow Video</h1>
+          <h1>{config.engine === "grok" ? "Grok Video" : "Flow Video"}</h1>
+          <span className="pill pill-purple">
+            {config.engine === "grok" ? "Grok · Auth Helper" : "Google Flow"}
+          </span>
           <span className="pill pill-purple">Batch</span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
         </div>
@@ -782,22 +806,53 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           <section className="config-section">
             <h3>Cấu hình cơ bản</h3>
             <label>
+              Engine
+              <select
+                value={config.engine || "flow"}
+                onChange={(e) => {
+                  const engine = e.target.value as MediaEngine;
+                  setConfig((c) => ({
+                    ...c,
+                    engine,
+                    model: defaultVideoModel(engine),
+                    mode: engine === "grok" ? "text_to_video" : c.mode,
+                    outputFolder:
+                      engine === "grok"
+                        ? "G-Labs BW/grok_output"
+                        : "G-Labs BW/video_output",
+                  }));
+                }}
+              >
+                {MEDIA_ENGINES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <small className="field-hint">
+                {(MEDIA_ENGINES.find((m) => m.value === (config.engine || "flow")) || MEDIA_ENGINES[0]).hint}
+              </small>
+            </label>
+            <label>
               Model
               <select
                 value={config.model}
                 onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
               >
-                {VIDEO_MODELS.map((m) => (
+                {videoModelsForEngine(config.engine || "flow").map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
-              {config.model === "omni_flash" && (
+              {config.model === "omni_flash" && config.engine !== "grok" && (
                 <small className="field-hint">
                   Omni Flash (abra): T2V / ảnh đầu / @tham chiếu · 4–10s · cần credit Flow
                 </small>
               )}
+              {config.engine === "grok" && (
+                <small className="field-hint">
+                  Grok Imagine video: tab /imagine + Auth Helper. T2V (text); duration 6/10/15s · 480p/720p.
+                </small>
+              )}
             </label>
-            {config.model === "omni_flash" && (
+            {(config.model === "omni_flash" || config.engine === "grok") && (
               <label>
                 Độ dài video
                 <select
@@ -806,7 +861,10 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                     setConfig((c) => ({ ...c, duration: Number(e.target.value) }))
                   }
                 >
-                  {OMNI_FLASH_DURATIONS.map((d) => (
+                  {(config.engine === "grok"
+                    ? [4, 6, 8, 10, 12, 15].map((v) => ({ value: v, label: `${v} giây` }))
+                    : OMNI_FLASH_DURATIONS
+                  ).map((d) => (
                     <option key={d.value} value={d.value}>{d.label}</option>
                   ))}
                 </select>

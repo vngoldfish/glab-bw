@@ -13,7 +13,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: "flow-image", label: "Flow Ảnh", icon: "◈" },
   { id: "references", label: "Ảnh tham chiếu", icon: "▣" },
   { id: "flow-video", label: "Flow Video", icon: "▶" },
-  { id: "grok", label: "Media Grok", icon: "✦", enabled: false },
   { id: "webhook", label: "Webhook", icon: "⬡" },
   { id: "extension", label: "Auth Helper", icon: "◎" },
   { id: "settings", label: "Cài Đặt", icon: "⚙" },
@@ -21,9 +20,15 @@ const NAV_ITEMS: NavItem[] = [
 
 interface SidebarProps {
   extensionConnected: boolean;
+  grokTab?: string;
+  flowTab?: string;
 }
 
-export default function Sidebar({ extensionConnected }: SidebarProps) {
+export default function Sidebar({
+  extensionConnected,
+  grokTab = "…",
+  flowTab = "…",
+}: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -61,6 +66,11 @@ export default function Sidebar({ extensionConnected }: SidebarProps) {
           <span className="status-dot" />
           {extensionConnected ? "Auth Helper OK" : "Chưa kết nối"}
         </div>
+        {extensionConnected && (
+          <div className="sidebar-ext-meta" style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+            Flow {flowTab} · Grok {grokTab}
+          </div>
+        )}
         <span className="sidebar-badge">BASIC</span>
       </div>
     </aside>

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.models.schemas import AccountCreate, AccountUpdate
 from app.providers.registry import account_to_dict
 from app.services.account_store import account_store
-from app.services.cookie_parser import parse_flow_credentials
+from app.services.cookie_parser import parse_flow_credentials, parse_grok_credentials
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -15,21 +15,56 @@ async def list_accounts(provider: str | None = None) -> dict:
 
 
 def _normalize_credentials(provider: str, label: str, credentials: dict[str, str]) -> tuple[str, dict[str, str]]:
-    if provider != "flow":
-        return label, credentials
+    if provider == "flow":
+        raw = credentials.get("session_token") or credentials.get("cookie") or ""
+        try:
+            parsed = parse_flow_credentials(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        normalized_label = label
+        email = parsed.get("email", "").strip()
+        if not normalized_label and email:
+            normalized_label = email
+        return normalized_label or label, parsed
 
-    raw = credentials.get("session_token") or credentials.get("cookie") or ""
-    try:
-        parsed = parse_flow_credentials(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+    if provider == "grok":
+        # Cookie (web) preferred; api_key optional fallback
+        raw_cookie = (
+            credentials.get("cookie")
+            or credentials.get("session_token")
+            or credentials.get("sso")
+            or ""
+        )
+        api_key = (credentials.get("api_key") or "").strip()
+        # Also accept already-split fields from UI
+        if not raw_cookie and credentials.get("sso"):
+            parts = [f"sso={credentials['sso']}"]
+            if credentials.get("sso-rw"):
+                parts.append(f"sso-rw={credentials['sso-rw']}")
+            raw_cookie = "; ".join(parts)
+        if raw_cookie and (
+            "sso" in raw_cookie
+            or raw_cookie.startswith("eyJ")
+            or raw_cookie.startswith("[")
+            or "sso=" in raw_cookie
+        ):
+            try:
+                parsed = parse_grok_credentials(raw_cookie)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+            if api_key:
+                parsed["api_key"] = api_key
+            return label or "Grok (cookie)", parsed
+        if api_key:
+            return label or "Grok (API key)", {"api_key": api_key, "auth_mode": "api_key"}
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Dán cookie JSON grok.com (có sso + sso-rw) hoặc xAI API key",
+            },
+        )
 
-    normalized_label = label
-    email = parsed.get("email", "").strip()
-    if not normalized_label and email:
-        normalized_label = email
-
-    return normalized_label or label, parsed
+    return label, credentials
 
 
 @router.post("", status_code=201)
@@ -43,6 +78,22 @@ async def create_account(body: AccountCreate) -> dict:
         video_enabled=body.video_enabled,
         enabled=body.enabled,
     )
+    # Flow: immediately resolve real Google email from session-token so UI
+    # never shows a wrong label from cookie-export noise.
+    if body.provider == "flow" and credentials.get("session_token"):
+        try:
+            from app.services.flow_client import google_flow_client
+            from app.services.flow_session import flow_session_manager
+
+            await flow_session_manager.ensure_session(
+                account,
+                google_flow_client,
+                force_refresh=True,
+            )
+            account = account_store.get(account.id) or account
+        except Exception:
+            # Keep account even if offline; label may stay user-typed until first gen
+            pass
     return {"account": account_to_dict(account)}
 
 
