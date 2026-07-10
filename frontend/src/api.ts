@@ -772,6 +772,99 @@ export async function fetchDashboard(): Promise<Record<string, unknown>> {
   return readJson(res);
 }
 
+/* —— Workflow (G-Labs node editor) —— */
+
+export interface WorkflowMeta {
+  id: string;
+  name: string;
+  updated_at?: number;
+  created_at?: number;
+  node_count?: number;
+}
+
+export interface WorkflowDoc {
+  id?: string | null;
+  name: string;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  viewport?: { x: number; y: number; zoom: number };
+}
+
+export interface WorkflowRunResult {
+  run_id: string;
+  status: string;
+  node_results?: Record<string, unknown>;
+  logs?: Array<{ t: number; msg: string }>;
+  error?: string | null;
+  started_at?: number;
+  finished_at?: number | null;
+}
+
+export async function listWorkflows(): Promise<WorkflowMeta[]> {
+  const res = await apiFetch("/api/workflows");
+  await ensureOk(res, "Không tải workflows");
+  const data = await readJson<{ workflows: WorkflowMeta[] }>(res);
+  return data.workflows;
+}
+
+export async function fetchWorkflow(id: string): Promise<WorkflowDoc> {
+  const res = await apiFetch(`/api/workflows/${id}`);
+  await ensureOk(res, "Không tải workflow");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
+export async function fetchSampleWorkflow(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/default");
+  await ensureOk(res, "Không tải mẫu");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
+export async function saveWorkflow(
+  doc: WorkflowDoc,
+  id?: string | null,
+): Promise<WorkflowDoc> {
+  const res = await apiFetch(id ? `/api/workflows/${id}` : "/api/workflows", {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: doc.name,
+      nodes: doc.nodes,
+      edges: doc.edges,
+      viewport: doc.viewport,
+    }),
+  });
+  await ensureOk(res, "Không lưu workflow");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
+export async function deleteWorkflow(id: string): Promise<void> {
+  const res = await apiFetch(`/api/workflows/${id}`, { method: "DELETE" });
+  await ensureOk(res, "Không xóa workflow");
+}
+
+export async function runWorkflowGraph(doc: WorkflowDoc): Promise<WorkflowRunResult> {
+  const res = await apiFetch("/api/workflows/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: doc.name,
+      nodes: doc.nodes,
+      edges: doc.edges,
+    }),
+  });
+  await ensureOk(res, "Chạy workflow thất bại");
+  return readJson(res);
+}
+
+export async function runSavedWorkflow(id: string): Promise<WorkflowRunResult> {
+  const res = await apiFetch(`/api/workflows/${id}/run`, { method: "POST" });
+  await ensureOk(res, "Chạy workflow thất bại");
+  return readJson(res);
+}
+
 /** Parse CSV/TSV/TXT lines into prompt strings (first column or whole line). */
 export function parsePromptCsv(text: string): string[] {
   const lines = text.split(/\r?\n/);

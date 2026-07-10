@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "references", label: "Ảnh tham chiếu", icon: "▣" },
   { id: "flow-video", label: "Flow Video", icon: "▶" },
   { id: "prompt-hub", label: "Prompt Hub", icon: "✎" },
+  { id: "workflow", label: "Workflow", icon: "⧉" },
   { id: "webhook", label: "Webhook", icon: "⬡" },
   { id: "extension", label: "Auth Helper", icon: "◎" },
   { id: "settings", label: "Cài Đặt", icon: "⚙" },

@@ -23,6 +23,7 @@ from app.api import (
     prompts,
     references,
     webhook,
+    workflows,
 )
 from app.core.config import PROJECT_ROOT, settings
 from app.core.logging_setup import setup_logging
@@ -167,6 +168,7 @@ app.include_router(prompts.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(workflows.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
 

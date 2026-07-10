@@ -18,6 +18,7 @@ import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
 import WebhookPage from "./pages/WebhookPage";
+import WorkflowPage from "./pages/WorkflowPage";
 import { ReferenceLibraryProvider } from "./referenceLibraryContext";
 import { DEFAULT_ROUTE, NAV_ROUTES } from "./routes";
 
@@ -239,6 +240,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <PromptHubPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES.workflow}
+                element={
+                  <div className="page-panel" style={{ height: "100%" }}>
+                    <WorkflowPage onError={setError} />
                   </div>
                 }
               />

@@ -64,7 +64,13 @@ Hoặc: `npm start` / `npm run start:prod` / `npm stop`
 | Import CSV prompts | Flow Ảnh / Flow Video → **Import CSV** |
 | Pipeline Ảnh→Video | Flow Ảnh → **Ảnh→Video** |
 | Tách frame video | Flow Video → **Tách frame** / **Frame từ KQ** |
+| **Workflow node editor** | Menu **Workflow** — kéo node Prompt/Ảnh/Video/Frame, nối cạnh, Lưu/Chạy |
 | Multi-account + Webhook + Auth Helper | (đã có) |
+
+### Workflow (giống G-Labs)
+
+Node types: `prompt` · `reference` · `generate` · `video_generate` · `frame_extract`  
+API: `GET/POST /api/workflows`, `POST /api/workflows/run`, `POST /api/workflows/{id}/run`
 
 Playwright (login browser):
 

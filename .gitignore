@@ -41,6 +41,7 @@ data/prompt_hub.json
 data/browser_profiles/
 data/temp/
 data/G-Labs BW/extracted_frames/
+data/workflows/
 *.tmp
 data/output/
 data/flow_media_cache.json

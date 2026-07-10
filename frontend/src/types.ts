@@ -4,6 +4,7 @@ export type NavPage =
   | "flow-video"
   | "references"
   | "prompt-hub"
+  | "workflow"
   | "grok"
   | "webhook"
   | "settings"
