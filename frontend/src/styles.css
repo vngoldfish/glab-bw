@@ -10731,3 +10731,45 @@ textarea:focus {
   color: var(--muted);
 }
 
+/* ── Tabs inside Prompt Hub ── */
+.hub-tab-container {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 20px;
+  padding: 0 24px;
+}
+
+.hub-tab-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px 16px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  border-radius: 6px 6px 0 0;
+}
+
+.hub-tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.hub-tab-btn.active {
+  color: var(--primary);
+}
+
+.hub-tab-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: -1.5px;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: var(--primary);
+  border-radius: 2px;
+}
+
