@@ -61,7 +61,7 @@ interface WorkflowPageProps {
 
 type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
 
-type ImageField = "image" | "start_image" | "end_image";
+type ImageField = "image" | "start_image" | "end_image" | "video";
 
 type WNodeData = {
   title: string;
@@ -70,9 +70,11 @@ type WNodeData = {
   aspect_ratio?: string;
   mode?: string;
   image?: string;
+  video?: string;
   /** Video start/end attached on node (no edge required) */
   start_image?: string;
   end_image?: string;
+
   positions?: string;
   /** Preview media after run (image/video URLs) */
   resultUrls?: string[];
@@ -639,7 +641,139 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
   );
 }
 
+/** Attach existing video: upload / library / project */
+function VideoAttachBar({
+  nodeId,
+  field,
+  value,
+  onChange,
+  onPick,
+  onPreview,
+  label = "Video có sẵn",
+}: {
+  nodeId: string;
+  field: "video";
+  value?: string;
+  onChange?: (id: string, patch: Partial<WNodeData>) => void;
+  onPick?: (id: string, field: "video") => void;
+  onPreview?: (url: string) => void;
+  label?: string;
+}) {
+  const has = Boolean(value);
+  return (
+    <div className="nodrag nopan node-attach-bar">
+      <div className="node-attach-head">
+        <span>{label}</span>
+        {has ? (
+          <button
+            type="button"
+            className="node-attach-clear"
+            onClick={() =>
+              onChange?.(nodeId, {
+                [field]: undefined,
+                resultUrls: undefined,
+              } as Partial<WNodeData>)
+            }
+          >
+            Gỡ
+          </button>
+        ) : null}
+      </div>
+      {has ? (
+        <button
+          type="button"
+          className="node-attach-thumb node-attach-thumb--video"
+          onClick={() => value && onPreview?.(mediaUrl(value))}
+          title="Xem video"
+          style={{ position: "relative" }}
+        >
+          <video src={mediaUrl(value!)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,0.25)", color: "#fff", fontSize: 16 }}>▶</span>
+        </button>
+      ) : (
+        <div className="node-attach-actions">
+          <label className="node-attach-btn">
+            ⬆ Upload
+            <input
+              type="file"
+              accept="video/*"
+              hidden
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                try {
+                  const url = await readFileAsDataUrl(f);
+                  onChange?.(nodeId, {
+                    [field]: url,
+                    resultUrls: [url],
+                  } as Partial<WNodeData>);
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="node-attach-btn"
+            onClick={() => onPick?.(nodeId, field)}
+          >
+            📂 Chọn có sẵn
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VideoReferenceNode({ id, data, selected }: NodeProps) {
+  const d = data as WNodeData;
+  const previewUrls = d.resultUrls?.length ? d.resultUrls : [];
+  return (
+    <Shell
+      type="video_reference"
+      title={d.title || "Video có sẵn"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+    >
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="video"
+        style={{ background: "#f59e0b" }}
+        title="Cổng xuất Video: Nối sang cổng Video gốc của node Tách frame"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Video ref →</div>
+      <VideoAttachBar
+        nodeId={id}
+        field="video"
+        value={d.video}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Gắn video có sẵn"
+      />
+      {previewUrls.length > 0 && !d.video && (
+        <MediaPreview urls={previewUrls} onPreview={d.onPreview} max={1} label="Preview" />
+      )}
+      <input
+        className="nodrag"
+        value={
+          d.video?.startsWith("data:") ? "(đã gắn file local)"
+          : d.video || ""
+        }
+        onChange={(e) => d.onChange?.(id, { video: e.target.value, resultUrls: e.target.value ? [e.target.value] : undefined })}
+        placeholder="Hoặc dán URL /api/files/..."
+        style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
+      />
+    </Shell>
+  );
+}
+
 function GenerateNode({ id, data, selected }: NodeProps) {
+
   const d = data as WNodeData;
   return (
     <Shell
@@ -1013,6 +1147,7 @@ function FrameNode({ id, data, selected }: NodeProps) {
 const WORKFLOW_NODE_TYPES: Record<string, typeof PromptNode> = {
   prompt: PromptNode,
   reference: ReferenceNode,
+  video_reference: VideoReferenceNode,
   generate: GenerateNode,
   video_generate: VideoNode,
   frame_extract: FrameNode,
@@ -1708,25 +1843,34 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   pickImageRef.current = (id: string, field: ImageField) => {
     setPicker({ nodeId: id, field });
-    setPickerTab(projectIdRef.current ? "project" : "library");
+    if (field === "video") {
+      setPickerTab(projectIdRef.current ? "project" : "flow_image");
+    } else {
+      setPickerTab(projectIdRef.current ? "project" : "library");
+    }
   };
+
 
   useEffect(() => {
     if (!picker) return;
     setPickerLoading(true);
     void (async () => {
       try {
+        const isVideo = picker.field === "video";
         if (pickerTab === "library") {
           const data = await fetchReferenceLibrary();
           setLibrary(data.references.map(mapReferenceRecord));
         } else if (pickerTab === "all_projects") {
-          const data = await fetchAllProjectAssets("image", 300);
+          const data = await fetchAllProjectAssets(isVideo ? "video" : "image", 300);
           setAllProjectsAssets(data.assets);
         } else if (pickerTab === "flow_image") {
-          const data = await browseInsertMedia({ source: "flow_image", kind: "image" });
+          const data = await browseInsertMedia({
+            source: isVideo ? "flow_video" : "flow_image",
+            kind: isVideo ? "video" : "image",
+          });
           setFlowAssets(data.assets || []);
         } else if (projectIdRef.current) {
-          const data = await fetchProjectAssets(projectIdRef.current, "image");
+          const data = await fetchProjectAssets(projectIdRef.current, isVideo ? "video" : "image");
           setProjectAssets(data.assets);
         }
       } catch (e) {
@@ -1736,6 +1880,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       }
     })();
   }, [picker, pickerTab, onError]);
+
 
   // Fetch library whenever bulk popup opens (ensure @mention auto-link has fresh data)
   useEffect(() => {
@@ -1760,9 +1905,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         patch.title = `@${refName}`;
         patch.refName = refName;
       }
+    } else if (field === "video") {
+      patch.resultUrls = [url];
     } else if (refName) {
       patch.refName = refName;
     }
+
     // video mode auto when attaching start
     if (field === "start_image" || field === "end_image") {
       const node = nodesRef.current.find((n) => n.id === nodeId);
@@ -1968,6 +2116,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const titles: Record<string, string> = {
       prompt: "Prompt",
       reference: "Ảnh có sẵn",
+      video_reference: "Video có sẵn",
       generate: "Tạo ảnh",
       video_generate: "Tạo video",
       frame_extract: "Tách frame",
@@ -1998,6 +2147,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
     if (type === "frame_extract") baseData.positions = "end";
     if (type === "reference") baseData.image = "";
+    if (type === "video_reference") baseData.video = "";
+
 
     let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     if (canvasWrapRef.current) {
@@ -2948,10 +3099,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 [
                   ["prompt", "Prompt", "+"],
                   ["reference", "Ảnh có sẵn", "🖼"],
+                  ["video_reference", "Video có sẵn", "📹"],
                   ["generate", "Tạo ảnh", "🎨"],
                   ["video_generate", "Tạo video", "🎬"],
                   ["frame_extract", "Tách frame", "🎞"],
                 ] as const
+
               ).map(([t, label, icon]) => (
                 <button key={t} type="button" className="wf-node-add-btn" onClick={() => addNode(t)}>
                   <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
@@ -3264,7 +3417,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         <div className="ui-lightbox node-picker-overlay" onClick={() => setPicker(null)}>
           <div className="node-picker-modal" onClick={(e) => e.stopPropagation()}>
             <div className="node-picker-head">
-              <strong>Chọn ảnh có sẵn</strong>
+              <strong>{picker.field === "video" ? "Chọn video có sẵn" : "Chọn ảnh có sẵn"}</strong>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPicker(null)}>
                 Đóng
               </button>
@@ -3283,8 +3436,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 className={`projects-tab${pickerTab === "flow_image" ? " active" : ""}`}
                 onClick={() => setPickerTab("flow_image")}
               >
-                🖼️ Ảnh Flow lẻ
+                {picker.field === "video" ? "🎬 Video Flow lẻ" : "🖼️ Ảnh Flow lẻ"}
               </button>
+
               <button
                 type="button"
                 className={`projects-tab${pickerTab === "all_projects" ? " active" : ""}`}
@@ -3292,14 +3446,17 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               >
                 🗂 Tất cả Projects
               </button>
-              <button
-                type="button"
-                className={`projects-tab${pickerTab === "library" ? " active" : ""}`}
-                onClick={() => setPickerTab("library")}
-              >
-                Thư viện @ref
-              </button>
+              {picker.field !== "video" && (
+                <button
+                  type="button"
+                  className={`projects-tab${pickerTab === "library" ? " active" : ""}`}
+                  onClick={() => setPickerTab("library")}
+                >
+                  Thư viện @ref
+                </button>
+              )}
             </div>
+
             {pickerLoading ? (
               <p className="muted">Đang tải…</p>
             ) : pickerTab === "library" ? (
@@ -3323,7 +3480,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             ) : pickerTab === "flow_image" ? (
               <div className="node-picker-grid">
                 {flowAssets.length === 0 && (
-                  <p className="muted">Chưa có ảnh trong thư mục Flow lẻ (image_output / grok_output).</p>
+                  <p className="muted">
+                    {picker.field === "video"
+                      ? "Chưa có video trong thư mục Flow lẻ (video_output)."
+                      : "Chưa có ảnh trong thư mục Flow lẻ (image_output / grok_output)."}
+                  </p>
                 )}
                 {flowAssets.map((a, i) => (
                   <button
@@ -3333,7 +3494,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
                     title={a.name}
                   >
-                    <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                    {picker.field === "video" ? (
+                      <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                    )}
                     <span style={{ fontSize: 9 }}>
                       <span style={{ color: "#10b981", display: "block" }}>
                         {String(a.folder || "").includes("grok") ? "Grok" : "Flow"}
@@ -3346,10 +3511,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             ) : pickerTab === "all_projects" ? (
               <div className="node-picker-grid">
                 {allProjectsAssets.length === 0 && (
-                  <p className="muted">Chưa có ảnh trong bất kỳ project nào.</p>
+                  <p className="muted">
+                    {picker.field === "video" ? "Chưa có video trong bất kỳ project nào." : "Chưa có ảnh trong bất kỳ project nào."}
+                  </p>
                 )}
                 {allProjectsAssets
-                  .filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name))
+                  .filter((a) => picker.field === "video" ? (a.kind === "video" || /\.mp4/i.test(a.name)) : (a.kind === "image" || !/\.mp4/i.test(a.name)))
                   .map((a, i) => (
                     <button
                       key={`all-${a.path || a.url}-${i}`}
@@ -3358,7 +3525,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
                       title={`${(a as ProjectAsset & { project_name?: string }).project_name || ""} · ${a.name}`}
                     >
-                      <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      {picker.field === "video" ? (
+                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      )}
                       <span style={{ fontSize: 9 }}>
                         <span style={{ color: "#94a3b8", display: "block" }}>
                           {(a as ProjectAsset & { project_name?: string }).project_name || ""}
@@ -3374,10 +3545,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   <p className="muted">Lưu project trước để chọn media project.</p>
                 )}
                 {projectIdRef.current &&
-                  projectAssets.filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name)).length ===
-                    0 && <p className="muted">Chưa có ảnh trong project.</p>}
+                  projectAssets.filter((a) => picker.field === "video" ? (a.kind === "video" || /\.mp4/i.test(a.name)) : (a.kind === "image" || !/\.mp4/i.test(a.name))).length ===
+                    0 && <p className="muted">{picker.field === "video" ? "Chưa có video trong project." : "Chưa có ảnh trong project."}</p>}
                 {projectAssets
-                  .filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name))
+                  .filter((a) => picker.field === "video" ? (a.kind === "video" || /\.mp4/i.test(a.name)) : (a.kind === "image" || !/\.mp4/i.test(a.name)))
                   .map((a, i) => (
                     <button
                       key={`${a.path || a.url}-${i}`}
@@ -3386,7 +3557,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
                       title={a.name}
                     >
-                      <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      {picker.field === "video" ? (
+                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      )}
                       <span>{a.name}</span>
                     </button>
                   ))}
@@ -3394,11 +3569,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             )}
             <div style={{ marginTop: 12 }}>
               <label className="btn btn-primary btn-sm" style={{ cursor: "pointer" }}>
-                ⬆ Upload từ máy
+                {picker.field === "video" ? "⬆ Upload video từ máy" : "⬆ Upload ảnh từ máy"}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={picker.field === "video" ? "video/*" : "image/*"}
                   hidden
+
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";

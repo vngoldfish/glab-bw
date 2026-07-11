@@ -121,6 +121,14 @@ def _restore_outputs_from_result(
         if img:
             outputs[nid]["image"] = [img]
         return
+    if ntype == "video_reference":
+        vid = prior.get("video")
+        if vid == "(video)" or not vid:
+            vid = (prior.get("results") or [None])[0] or node_data.get("video")
+        if vid:
+            outputs[nid]["video"] = [vid]
+        return
+
     results = list(prior.get("results") or [])
     if ntype == "generate":
         if results:
@@ -239,6 +247,27 @@ async def _execute_node(
             "image": img if isinstance(img, str) and len(img) < 200 else "(image)",
             "results": [img] if isinstance(img, str) and img.startswith(("http", "data:", "/")) else [],
         }
+
+    if ntype == "video_reference":
+        vid = data.get("video") or data.get("file_url") or data.get("file_path")
+        if not vid and inputs.get("video"):
+            vid = inputs["video"][0]
+        if not vid:
+            raise ValueError("Video reference node missing video file")
+        if not str(vid).startswith("data:") and not str(vid).startswith("http"):
+            try:
+                p = resolve_data_file(str(vid))
+                vid = file_url_from_path(p)
+            except Exception:
+                pass
+        outputs[nid]["video"] = [vid]
+        return {
+            "status": "completed",
+            "type": ntype,
+            "video": vid if isinstance(vid, str) and len(vid) < 200 else "(video)",
+            "results": [vid] if isinstance(vid, str) and vid.startswith(("http", "data:", "/")) else [],
+        }
+
 
     if ntype == "generate":
         prompt = ""
@@ -549,8 +578,9 @@ async def run_workflow(
                 if nid not in only_set:
                     if prior_nr and prior_nr.get("status") == "completed":
                         should_skip = True
-                    elif ntype in {"prompt", "reference"}:
+                    elif ntype in {"prompt", "reference", "video_reference"}:
                         should_skip = False
+
                     else:
                         should_skip = bool(prior_nr and prior_nr.get("status") == "completed")
             elif skip_completed and prior_nr and prior_nr.get("status") == "completed":
