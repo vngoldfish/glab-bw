@@ -36,7 +36,7 @@ def edit_project_root(project_id: str) -> Path:
 
 
 def edit_output_folder(project_id: str) -> str:
-    return f"G-Labs BW/video_edits/{project_id}/exports"
+    return f"G-Labs BW/video_edits/{project_id}"
 
 
 def _load_index() -> list[dict[str, Any]]:

@@ -70,10 +70,7 @@ function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
     mode: validModes.has(mode) ? (mode as VideoConfig["mode"]) : "start_image",
     concurrency: Number(source.concurrency ?? 1),
     saveMode: String(source.saveMode ?? "task"),
-    outputFolder: String(
-      source.outputFolder ??
-        (engine === "grok" ? "G-Labs BW/grok_output" : "G-Labs BW/video_output"),
-    ),
+    outputFolder: String(source.outputFolder ?? "G-Labs BW/media_output"),
     resolution: Array.isArray(source.resolution) ? source.resolution : [],
     duration,
   };

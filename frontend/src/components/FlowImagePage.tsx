@@ -51,7 +51,7 @@ const DEFAULT_CONFIG: ImageConfig = {
   concurrency: 1,
   imagesPerPrompt: 1,
   saveMode: "task",
-  outputFolder: "G-Labs BW/image_output",
+  outputFolder: "G-Labs BW/media_output",
   upscale: [],
 };
 
@@ -279,7 +279,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         mode: "start_image",
         concurrency: 1,
         saveMode: "task",
-        outputFolder: "G-Labs BW/video_output",
+        outputFolder: "G-Labs BW/media_output",
         resolution: [],
         duration: 8,
       },
@@ -400,11 +400,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           upscale: (isGrok || isMeta) ? [] : config.upscale,
           count: config.imagesPerPrompt,
           save_mode: config.saveMode,
-          output_folder: isGrok
-            ? config.outputFolder.replace("image_output", "grok_output") || "G-Labs BW/grok_output"
-            : isMeta
-            ? config.outputFolder.replace("image_output", "meta_output") || "G-Labs BW/meta_output"
-            : config.outputFolder,
+          output_folder: config.outputFolder,
           ...(isGrok ? { mode: "t2i" } : {}),
           ...(isMeta ? { mode: "t2i" } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),

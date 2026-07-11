@@ -25,8 +25,7 @@ def project_root(project_id: str) -> Path:
 
 def project_output_folder(project_id: str, kind: str) -> str:
     """Relative folder under data/ for generation save."""
-    kind = kind if kind in {"images", "videos", "frames", "exports"} else "images"
-    return f"G-Labs BW/projects/{project_id}/{kind}"
+    return f"G-Labs BW/projects/{project_id}"
 
 
 def _is_media(path: Path) -> bool:

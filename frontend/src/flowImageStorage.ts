@@ -58,10 +58,7 @@ function migrateConfig(config: Partial<ImageConfig> | undefined): ImageConfig {
     concurrency: Number(source.concurrency ?? 1),
     imagesPerPrompt: Number(source.imagesPerPrompt ?? 1),
     saveMode: String(source.saveMode ?? "task"),
-    outputFolder: String(
-      source.outputFolder ??
-        (engine === "grok" ? "G-Labs BW/grok_output" : "G-Labs BW/image_output"),
-    ),
+    outputFolder: String(source.outputFolder ?? "G-Labs BW/media_output"),
     upscale: Array.isArray(source.upscale) ? source.upscale : [],
   };
 }

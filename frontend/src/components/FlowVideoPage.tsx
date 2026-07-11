@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: VideoConfig = {
   mode: "start_image", // smart: T2V / I2V / FL theo ảnh trên dòng
   concurrency: 1,
   saveMode: "task",
-  outputFolder: "G-Labs BW/video_output",
+  outputFolder: "G-Labs BW/media_output",
   resolution: [],
   duration: 8,
 };
@@ -582,13 +582,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           aspect_ratio: config.aspectRatio,
           mode: (isGrok || isMeta) ? extraMode : resolved.mode,
           save_mode: config.saveMode,
-          output_folder: isGrok
-            ? config.outputFolder.replace("video_output", "grok_output") ||
-              "G-Labs BW/grok_output"
-            : isMeta
-            ? config.outputFolder.replace("video_output", "meta_output") ||
-              "G-Labs BW/meta_output"
-            : config.outputFolder,
+          output_folder: config.outputFolder,
           ...((config.model === "omni_flash" || isGrok || isMeta)
             ? { duration: config.duration || 8, video_length: config.duration || 8 }
             : {}),
