@@ -11190,6 +11190,51 @@ textarea:focus {
 }
 .mhp-overlay-close:hover { background: rgba(255,255,255,0.15); }
 
+/* Pagination */
+.mhp-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mhp-page-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #cbd5e1;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mhp-page-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.45);
+  color: #c4b5fd;
+}
+
+.mhp-page-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.mhp-page-info {
+  font-size: 13px;
+  color: var(--muted, #64748b);
+}
+
+.mhp-page-info b {
+  color: #c4b5fd;
+}
+
+
 @media (max-width: 640px) {
   .mhp-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
   .mhp-grid--video { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }

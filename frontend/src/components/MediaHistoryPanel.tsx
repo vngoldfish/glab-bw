@@ -1,6 +1,7 @@
 /**
  * MediaHistoryPanel — hiển thị ảnh/video đã tạo trước từ đĩa (không phụ thuộc localStorage)
  * Mặc định thu gọn, click nút mới mở ra — không che phần tạo ảnh/video.
+ * Hỗ trợ phân trang để hiển thị mượt mà không bị tràn hay khuất phần dưới.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { browseInsertMedia } from "../api";
@@ -37,6 +38,10 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
   const loadedRef = useRef(false);
   const actionLabel = selectLabel ?? (kind === "image" ? "Dùng ảnh này" : "Dùng video này");
 
+  // Phân trang
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = kind === "image" ? 16 : 8; // Ảnh hiển thị nhiều hơn, video to hơn nên ít hơn
+
   const load = useCallback(async () => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -68,6 +73,14 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
   const filtered = assets.filter((a) =>
     search ? a.name.toLowerCase().includes(search.toLowerCase()) : true,
   );
+
+  // Reset trang khi lọc hoặc load lại
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, assets]);
+
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const paginatedItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const label = kind === "image" ? "Ảnh đã tạo" : "Video đã tạo";
   const icon  = kind === "image" ? "🖼️" : "🎬";
@@ -135,7 +148,7 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
 
           {/* Grid */}
           <div className={`mhp-grid${kind === "video" ? " mhp-grid--video" : ""}`}>
-            {filtered.map((asset) => (
+            {paginatedItems.map((asset) => (
               <div
                 key={asset.url}
                 className="mhp-item"
@@ -190,6 +203,31 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
               </div>
             ))}
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="mhp-pagination">
+              <button
+                className="mhp-page-btn"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                type="button"
+              >
+                ◀ Trước
+              </button>
+              <span className="mhp-page-info">
+                Trang <b>{currentPage}</b> / {totalPages}
+              </span>
+              <button
+                className="mhp-page-btn"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                type="button"
+              >
+                Sau ▶
+              </button>
+            </div>
+          )}
         </div>
       )}
 
