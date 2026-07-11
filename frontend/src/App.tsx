@@ -21,6 +21,7 @@ import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
 import VideoEditorPage from "./pages/VideoEditorPage";
+import StoryboardPage from "./pages/StoryboardPage";
 import WebhookPage from "./pages/WebhookPage";
 import WorkflowPage from "./pages/WorkflowPage";
 import WorkflowTemplatesPage from "./pages/WorkflowTemplatesPage";
@@ -277,6 +278,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <VideoEditorPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES.storyboard}
+                element={
+                  <div className="page-panel">
+                    <StoryboardPage onError={setError} />
                   </div>
                 }
               />

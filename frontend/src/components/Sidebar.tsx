@@ -10,6 +10,7 @@ import {
   Wand2,
   Workflow,
   Film,
+  Clapperboard,
   FolderKanban,
   Library,
   BookOpen,
@@ -50,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "workflow", label: "Workflow Editor", icon: Workflow },
       { id: "workflow-templates", label: "Mẫu Workflow", icon: Library },
       { id: "video-editor", label: "Trình Dựng Video", icon: Film },
+      { id: "storyboard", label: "Phân Cảnh Storyboard", icon: Clapperboard },
     ]
   },
   {

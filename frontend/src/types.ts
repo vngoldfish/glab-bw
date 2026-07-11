@@ -7,6 +7,7 @@ export type NavPage =
   | "workflow"
   | "workflow-templates"
   | "video-editor"
+  | "storyboard"
   | "projects"
   | "docs"
   | "api-docs"
