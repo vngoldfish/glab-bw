@@ -364,6 +364,64 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  const handleContinueVideo = async (videoUrl: string, originalPrompt: string) => {
+    const newId = createId();
+    const newRow: QueueRow = {
+      id: newId,
+      selected: true,
+      prompt: originalPrompt,
+      referenceImage: null,
+      referenceName: null,
+      startFrameName: "Đang trích xuất frame...",
+      startFrameImage: "loading",
+      endFrameName: null,
+      endFrameImage: null,
+      results: [],
+      status: "idle",
+      error: null,
+      savedFolder: null,
+    };
+
+
+    // Thêm dòng mới lên đầu bảng hàng chờ
+    setRows((prev) => [newRow, ...prev]);
+
+    try {
+      // Gọi API trích xuất khung hình cuối (end)
+      const frames = await extractFramesFromPath(videoUrl, ["end"]);
+      const endFrame = frames.find((f) => f.position === "end") || frames[0];
+      if (endFrame && endFrame.url) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === newId
+              ? {
+                  ...r,
+                  startFrameName: "frame_cuoi.png",
+                  startFrameImage: endFrame.url,
+                }
+              : r
+          )
+        );
+      } else {
+        throw new Error("Không lấy được khung hình cuối");
+      }
+    } catch (err) {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === newId
+            ? {
+                ...r,
+                startFrameName: null,
+                startFrameImage: null,
+                error: "Lỗi trích xuất frame cuối: " + (err instanceof Error ? err.message : String(err)),
+              }
+            : r
+        )
+      );
+    }
+  };
+
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       saveFlowVideoSnapshot({ config, rows, promptInput, advancedOpen });
@@ -1681,30 +1739,40 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                           {row.results.length > 0 ? (
                             <div className="result-grid">
                               {row.results.map((url, ri) => (
-                                <a
-                                  key={`${row.id}-vid-${ri}`}
-                                  className="result-frame result-frame--video"
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Mở video"
-                                >
-                                  <video
-                                    src={url}
-                                    className="result-video"
-                                    muted
-                                    playsInline
-                                    preload="metadata"
-                                    onMouseEnter={(e) => {
-                                      void e.currentTarget.play().catch(() => undefined);
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.pause();
-                                      e.currentTarget.currentTime = 0;
-                                    }}
-                                  />
-                                </a>
+                                <div key={`${row.id}-vid-${ri}`} className="flow-video-result-item" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  <a
+                                    className="result-frame result-frame--video"
+                                    href={url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="Mở video"
+                                  >
+                                    <video
+                                      src={url}
+                                      className="result-video"
+                                      muted
+                                      playsInline
+                                      preload="metadata"
+                                      onMouseEnter={(e) => {
+                                        void e.currentTarget.play().catch(() => undefined);
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.pause();
+                                        e.currentTarget.currentTime = 0;
+                                      }}
+                                    />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="btn btn-primary btn-xs btn-create-video-flow"
+                                    onClick={() => void handleContinueVideo(url, row.prompt)}
+                                    title="Tạo cảnh tiếp theo (lấy khung hình cuối)"
+                                  >
+                                    🎬 Tạo tiếp video
+                                  </button>
+                                </div>
                               ))}
+
                             </div>
                           ) : (
                             <span className="result-empty">

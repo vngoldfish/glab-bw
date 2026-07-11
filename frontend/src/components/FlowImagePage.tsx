@@ -14,7 +14,12 @@ import {
   loadFlowImageSnapshot,
   saveFlowImageSnapshot,
 } from "../flowImageStorage";
+import {
+  loadFlowVideoSnapshot,
+  saveFlowVideoSnapshot,
+} from "../flowVideoStorage";
 import { NAV_ROUTES } from "../routes";
+
 import PromptMentionField, {
   type PromptMentionFieldHandle,
 } from "./PromptMentionField";
@@ -174,6 +179,49 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [pageSize, setPageSize] = useState<number>(20);
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCreateVideoFromImage = (imageUrl: string, promptText: string) => {
+    const snap = loadFlowVideoSnapshot() || {
+      config: {
+        engine: "flow",
+        model: "veo_31_fast",
+        aspectRatio: "16:9",
+        mode: "start_image",
+        concurrency: 1,
+        saveMode: "task",
+        outputFolder: "G-Labs BW/video_output",
+        resolution: [],
+        duration: 8,
+      },
+      rows: [],
+      promptInput: "",
+      advancedOpen: false,
+    };
+
+    const newRow: QueueRow = {
+      id: createId(),
+      selected: true,
+      prompt: promptText,
+      referenceImage: null,
+      referenceName: null,
+      startFrameName: "image_input.png",
+      startFrameImage: imageUrl,
+      endFrameName: null,
+      endFrameImage: null,
+      results: [],
+      status: "idle",
+      error: null,
+      savedFolder: null,
+    };
+
+    snap.config.mode = "start_image";
+    snap.rows = [newRow, ...snap.rows];
+
+    saveFlowVideoSnapshot(snap);
+    navigate(NAV_ROUTES["flow-video"] || "/flow-video");
+  };
+
+
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1246,17 +1294,27 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                           {row.results.length > 0 ? (
                             <div className="result-grid">
                               {row.results.map((url, ri) => (
-                                <a
-                                  key={`${row.id}-img-${ri}`}
-                                  className="result-frame"
-                                  href={url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Mở ảnh"
-                                >
-                                  <img src={url} alt="result" className="result-thumb" />
-                                </a>
+                                <div key={`${row.id}-img-${ri}`} className="flow-image-result-item">
+                                  <a
+                                    className="result-frame"
+                                    href={url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="Mở ảnh"
+                                  >
+                                    <img src={url} alt="result" className="result-thumb" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className="btn btn-primary btn-xs btn-create-video-flow"
+                                    onClick={() => handleCreateVideoFromImage(url, row.prompt)}
+                                    title="Tạo video tiếp từ ảnh này"
+                                  >
+                                    🎬 Tạo video tiếp
+                                  </button>
+                                </div>
                               ))}
+
                             </div>
                           ) : (
                             <span className="result-empty">

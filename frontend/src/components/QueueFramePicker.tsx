@@ -81,10 +81,17 @@ export default function QueueFramePicker({
           }
         >
           {previewUrl ? (
-            <>
-              <img src={previewUrl} alt="" />
-              <span className="queue-frame-trigger-text">{valueName || "Đã gắn"}</span>
-            </>
+            previewUrl === "loading" ? (
+              <>
+                <span className="mhp-spinner" style={{ margin: "4px auto" }} />
+                <span className="queue-frame-trigger-text" style={{ fontSize: 9 }}>Trích xuất...</span>
+              </>
+            ) : (
+              <>
+                <img src={previewUrl} alt="" />
+                <span className="queue-frame-trigger-text">{valueName || "Đã gắn"}</span>
+              </>
+            )
           ) : (
             <>
               <span className="queue-frame-plus" aria-hidden>
@@ -96,6 +103,7 @@ export default function QueueFramePicker({
             </>
           )}
         </button>
+
 
         {hasValue && (
           <button
