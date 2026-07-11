@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { NAV_ROUTES } from "../routes";
 
 const SECTIONS = [
@@ -13,6 +13,7 @@ const SECTIONS = [
   { id: "assets-ai", title: "Ảnh có sẵn & AI prompt" },
   { id: "run", title: "Chạy, tiếp tục & phím tắt" },
   { id: "media", title: "Media project" },
+  { id: "api-guide", title: "Tích hợp API & Demo chạy thử (Mới)" },
   { id: "grok-flow-mechanisms", title: "Cơ chế Grok, Flow & Meta AI" },
 ] as const;
 
@@ -69,6 +70,74 @@ function HandleTable({
 }
 
 export default function DocsPage() {
+  const navigate = useNavigate();
+
+  const handleTriggerDemo = async (demoType: "modernyou" | "char", action: "create" | "run") => {
+    const isModern = demoType === "modernyou";
+    const projectName = isModern ? `Demo Báo Thức API (${action === "create" ? "Thô" : "Chạy"})` : `Demo Võ Thuật API (${action === "create" ? "Thô" : "Chạy"})`;
+    
+    const payload = {
+      project_name: projectName,
+      aspect_ratio: "16:9",
+      model_image: "nano_banana_2_lite",
+      model_video: "veo_31_fast",
+      boxes: isModern ? [
+        {
+          type: "generate",
+          prompts: "001. Hand-drawn 2D doodle cartoon, clock blaring on nightstand, cobalt blue background.\n002. Hand-drawn 2D doodle cartoon, @MODERNYOU waking up in bed frown, cobalt blue background.\n003. Hand-drawn 2D doodle cartoon, @MODERNYOU tense mouth with storm cloud above head, cobalt blue background.\n004. Hand-drawn 2D doodle cartoon, @MODERNYOU flat on back with grey block on chest, cobalt blue background."
+        },
+        {
+          type: "video_generate",
+          prompts: "001. Hand-drawn 2D doodle cartoon animation, clock blaring rattle, cobalt blue background.\n002. Hand-drawn 2D doodle cartoon animation, @MODERNYOU gropes hand toward alarm, cobalt blue background.\n003. Hand-drawn 2D doodle cartoon animation, storm cloud puffs above head, cobalt blue background.\n004. Hand-drawn 2D doodle cartoon animation, heavy grey block drops on chest, cobalt blue background."
+        },
+        {
+          type: "video_generate",
+          prompts: "001. Hand-drawn 2D doodle cartoon animation, alarm clock flies off nightstand and smashes on floor.\n003. Hand-drawn 2D doodle cartoon animation, grey storm cloud grows larger and lightning flashes."
+        }
+      ] : [
+        {
+          type: "video_generate",
+          prompts: "001 cô gái @char đang đứng thủ thế võ thuật"
+        },
+        {
+          type: "video_generate",
+          prompts: "001 cô gái @char thực hiện động tác đấm thẳng"
+        },
+        {
+          type: "video_generate",
+          prompts: "001 cô gái @char đá xoay vòng đẹp mắt"
+        }
+      ],
+      references: [
+        {
+          name: isModern ? "MODERNYOU" : "char",
+          image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXUpAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAnUlEQVR42u3TQQ0AIBDAsIG/tL+0i4spQA6Sg7xWp/2qPwEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgcDkAWN0Abe1D1JcAAAAAElFTkSuQmCC"
+        }
+      ]
+    };
+
+    try {
+      const endpoint = action === "create" ? "/api/workflows/create-bulk" : "/api/workflows/run-bulk";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error(await res.text() || "Lỗi server");
+      }
+      const data = await res.json();
+      const pid = data.project_id;
+      if (pid) {
+        navigate(`/workflow/${pid}`);
+      } else {
+        alert("Không nhận được Project ID từ API");
+      }
+    } catch (err) {
+      alert(`Lỗi khi gọi API: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   return (
     <div className="docs-page">
       <header className="docs-hero">
@@ -530,6 +599,100 @@ Phải:
                 Quản lý đầy đủ hơn tại <Link to={NAV_ROUTES.projects}>Projects</Link>
               </li>
             </ul>
+          </section>
+
+          {/* —— API Integration & Demo Run (MỚI) —— */}
+          <section id="api-guide" className="panel-card docs-section" style={{ borderLeft: "4px solid var(--primary, #6366f1)" }}>
+            <h2>Tích hợp API &amp; Demo chạy thử</h2>
+            <p className="muted">
+              Hệ thống cung cấp API từ xa giúp bạn tạo dự án và workflow tự động từ bất kỳ công cụ ngoài nào (Python, Node.js, cURL...).
+            </p>
+
+            <h3>Các Endpoint chính</h3>
+            <div className="docs-table-wrap">
+              <table className="docs-table">
+                <thead>
+                  <tr>
+                    <th>Phương thức</th>
+                    <th>Endpoint</th>
+                    <th>Ý nghĩa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span className="docs-side-badge out" style={{ background: "var(--success, #10b981)", color: "white" }}>POST</span></td>
+                    <td><code>/api/workflows/create-bulk</code></td>
+                    <td>Tạo dự án + vẽ workflow thô trên UI (Chờ chạy, không tự động chạy)</td>
+                  </tr>
+                  <tr>
+                    <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white" }}>POST</span></td>
+                    <td><code>/api/workflows/run-bulk</code></td>
+                    <td>Tạo dự án + Khởi chạy workflow song song lập tức trong background</td>
+                  </tr>
+                  <tr>
+                    <td><span className="docs-side-badge in">GET</span></td>
+                    <td><code>/api/workflows/runs/{"{run_id}"}</code></td>
+                    <td>Theo dõi tiến độ chạy &amp; lấy danh sách file ảnh/video kết quả</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="docs-callout" style={{ marginTop: 16 }}>
+              <strong>Mẹo nạp ảnh tham chiếu (@tên):</strong> Bạn chỉ cần gửi <code>name: "char"</code> (không phân biệt hoa thường). 
+              Nếu nhân vật đã có trong thư viện cục bộ của máy, backend tự động lấy ảnh gốc chất lượng cao, không bao giờ ghi đè làm hỏng ảnh của bạn!
+            </div>
+
+            <h3>Chạy thử các kịch bản demo mẫu</h3>
+            <p className="muted" style={{ fontSize: "13px" }}>
+              Bấm trực tiếp vào các nút dưới đây để test API ngay trên giao diện web. Hệ thống sẽ tự động gọi API tương ứng và đưa bạn sang trang Canvas dự án mới tạo!
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+              {/* Demo 1 */}
+              <div className="docs-demo-card panel-card" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", padding: 16, borderRadius: 8 }}>
+                <h4 style={{ margin: "0 0 8px 0", color: "#fdba74" }}>📋 Demo 1: Kịch bản Báo thức @MODERNYOU (4 cảnh nối tiếp)</h4>
+                <p className="muted" style={{ fontSize: "12px", margin: "0 0 12px 0", lineHeight: "1.5" }}>
+                  Tạo chuỗi hoạt cảnh doodle 2D về chiếc chuông báo thức sáng thứ Hai. Gồm 4 node tạo ảnh, 4 node tạo video và 2 node cắt frame cuối nối tiếp cảnh. Sử dụng nhân vật tham chiếu `@MODERNYOU`.
+                </p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button 
+                    onClick={() => handleTriggerDemo("modernyou", "create")}
+                    className="btn btn-primary btn-sm"
+                  >
+                    🎨 Dựng dự án thô (create-bulk)
+                  </button>
+                  <button 
+                    onClick={() => handleTriggerDemo("modernyou", "run")}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    🚀 Chạy tự động (run-bulk)
+                  </button>
+                </div>
+              </div>
+
+              {/* Demo 2 */}
+              <div className="docs-demo-card panel-card" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", padding: 16, borderRadius: 8 }}>
+                <h4 style={{ margin: "0 0 8px 0", color: "#93c5fd" }}>📋 Demo 2: Hoạt cảnh Võ thuật @char (3 cảnh nối tiếp)</h4>
+                <p className="muted" style={{ fontSize: "12px", margin: "0 0 12px 0", lineHeight: "1.5" }}>
+                  Dựng chuỗi video hành động võ thuật của cô gái `@char`. Tự động cắt khung hình cuối của video trước làm ảnh bắt đầu cho video sau để tạo sự tiếp diễn mượt mà.
+                </p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button 
+                    onClick={() => handleTriggerDemo("char", "create")}
+                    className="btn btn-primary btn-sm"
+                  >
+                    🎨 Dựng dự án thô (create-bulk)
+                  </button>
+                  <button 
+                    onClick={() => handleTriggerDemo("char", "run")}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    🚀 Chạy tự động (run-bulk)
+                  </button>
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* —— Grok & Google Flow Mechanisms —— */}
