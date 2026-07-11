@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { NAV_ROUTES } from "../routes";
 
@@ -71,6 +72,7 @@ function HandleTable({
 
 export default function DocsPage() {
   const navigate = useNavigate();
+  const [apiTab, setApiTab] = useState<"curl" | "python">("curl");
 
   const handleTriggerDemo = async (demoType: "modernyou" | "char", action: "create" | "run") => {
     const isModern = demoType === "modernyou";
@@ -691,6 +693,130 @@ Phải:
                     🚀 Chạy tự động (run-bulk)
                   </button>
                 </div>
+              </div>
+
+              {/* Mới: Hộp code mẫu tích hợp API */}
+              <div style={{ marginTop: 24, borderTop: "1px dashed var(--border)", paddingTop: 16 }}>
+                <h4 style={{ margin: "0 0 12px 0", color: "var(--primary, #6366f1)" }}>💻 Mẫu Code Tích Hợp API Từ Xa</h4>
+                <p className="muted" style={{ fontSize: "13px", margin: "0 0 12px 0" }}>
+                  Sử dụng các mẫu code dưới đây để gọi API từ bất kỳ ứng dụng hoặc script bên ngoài nào:
+                </p>
+
+                {/* Tab buttons */}
+                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                  <button 
+                    onClick={() => setApiTab("curl")} 
+                    className={`btn btn-sm ${apiTab === "curl" ? "btn-primary" : "btn-ghost"}`}
+                    style={{ padding: "4px 12px", fontSize: "12px" }}
+                  >
+                    cURL (Bash)
+                  </button>
+                  <button 
+                    onClick={() => setApiTab("python")} 
+                    className={`btn btn-sm ${apiTab === "python" ? "btn-primary" : "btn-ghost"}`}
+                    style={{ padding: "4px 12px", fontSize: "12px" }}
+                  >
+                    Python
+                  </button>
+                </div>
+
+                {/* Tab content */}
+                {apiTab === "curl" ? (
+                  <pre style={{ 
+                    background: "rgba(0,0,0,0.4)", 
+                    padding: 14, 
+                    borderRadius: 6, 
+                    overflowX: "auto", 
+                    border: "1px solid var(--border)", 
+                    color: "#a7f3d0", 
+                    fontSize: "12px", 
+                    fontFamily: "monospace", 
+                    lineHeight: "1.5" 
+                  }}>
+{`# 🎨 Kịch bản 1: Tạo dự án thô (Chờ chạy - Dùng create-bulk)
+curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "project_name": "Chuỗi Võ Thuật 007",
+    "aspect_ratio": "16:9",
+    "boxes": [
+      {
+        "type": "video_generate",
+        "prompts": "001 cô gái @char đang đứng thủ thế võ thuật\\n001 cô gái @char thực hiện động tác đấm thẳng"
+      }
+    ],
+    "references": [
+      {
+        "name": "char",
+        "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ..."
+      }
+    ]
+  }'
+
+# 🚀 Kịch bản 2: Tạo dự án & Khởi chạy lập tức (Dùng run-bulk)
+curl -X POST http://localhost:8765/api/workflows/run-bulk \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "project_name": "Modern You Alarm Clock",
+    "aspect_ratio": "16:9",
+    "boxes": [
+      {
+        "type": "generate",
+        "prompts": "001. Red alarm clock...\\n002. @MODERNYOU waking up..."
+      }
+    ]
+  }'`}
+                  </pre>
+                ) : (
+                  <pre style={{ 
+                    background: "rgba(0,0,0,0.4)", 
+                    padding: 14, 
+                    borderRadius: 6, 
+                    overflowX: "auto", 
+                    border: "1px solid var(--border)", 
+                    color: "#93c5fd", 
+                    fontSize: "12px", 
+                    fontFamily: "monospace", 
+                    lineHeight: "1.5" 
+                  }}>
+{`import json
+import urllib.request
+
+BASE_URL = "http://localhost:8765/api"
+
+payload = {
+    "project_name": "Modern You Alarm Clock",
+    "aspect_ratio": "16:9",
+    "boxes": [
+        {
+            "type": "generate",
+            "prompts": "001. Red alarm clock...\\n002. @MODERNYOU waking up..."
+        }
+    ],
+    "references": [
+        {
+            "name": "MODERNYOU",
+            "image": "data:image/png;base64,iVBORw0KGgoAAA..."
+        }
+    ]
+}
+
+# Gửi request lên endpoint /create-bulk để chỉ tạo dự án thô
+req = urllib.request.Request(
+    f"{BASE_URL}/workflows/create-bulk",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={"Content-Type": "application/json"}
+)
+
+try:
+    with urllib.request.urlopen(req) as response:
+        data = json.loads(response.read().decode("utf-8"))
+        print(f"Project Created! ID: {data['project_id']}")
+        print(f"Open URL: http://127.0.0.1:5173/workflow/{data['project_id']}")
+except Exception as e:
+    print("Error:", e)`}
+                  </pre>
+                )}
               </div>
             </div>
           </section>
