@@ -141,7 +141,7 @@ export default function ApiDocsPage() {
       const data = await res.json();
       const pid = data.project_id;
       if (pid) {
-        navigate(`/workflow/${pid}`);
+        navigate(`${NAV_ROUTES.workflow}?project=${pid}`);
       } else {
         alert("Không nhận được Project ID từ API");
       }
