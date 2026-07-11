@@ -187,6 +187,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   } | null>(null);
 
   const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [customActionVal, setCustomActionVal] = useState("");
 
   const handleContinueImage = (imageUrl: string, promptText: string) => {
     setContinueModal({
@@ -196,48 +197,56 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     });
   };
 
-  const submitContinueImage = async (actionText: string) => {
+  const submitContinueImage = async (actionText: string, useAi: boolean) => {
     if (!continueModal) return;
     const { imageUrl, promptText } = continueModal;
-    setModalSubmitting(true);
 
     let finalPrompt = promptText;
     const trimmedAction = actionText.trim();
 
-    try {
-      if (trimmedAction) {
-        try {
-          const response = await rewritePromptAi({
-            prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${trimmedAction}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${promptText}"`,
-            kind: "image",
-            locale: "vi",
-          });
-          if (response && response.prompt) {
-            finalPrompt = response.prompt;
-          } else {
+    if (useAi) {
+      setModalSubmitting(true);
+      try {
+        if (trimmedAction) {
+          try {
+            const response = await rewritePromptAi({
+              prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${trimmedAction}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${promptText}"`,
+              kind: "image",
+              locale: "vi",
+            });
+            if (response && response.prompt) {
+              finalPrompt = response.prompt;
+            } else {
+              finalPrompt = `${promptText}, ${trimmedAction}`;
+            }
+          } catch {
             finalPrompt = `${promptText}, ${trimmedAction}`;
           }
-        } catch {
-          finalPrompt = `${promptText}, ${trimmedAction}`;
-        }
-      } else {
-        // AI automatic suggestion
-        try {
-          const response = await rewritePromptAi({
-            prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${promptText}"`,
-            kind: "image",
-            locale: "vi",
-          });
-          if (response && response.prompt) {
-            finalPrompt = response.prompt;
+        } else {
+          // AI automatic suggestion
+          try {
+            const response = await rewritePromptAi({
+              prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${promptText}"`,
+              kind: "image",
+              locale: "vi",
+            });
+            if (response && response.prompt) {
+              finalPrompt = response.prompt;
+            }
+          } catch {
+            // fallback to original
           }
-        } catch {
-          // fallback to original
         }
+      } finally {
+        setContinueModal(null);
+        setModalSubmitting(false);
       }
-    } finally {
+    } else {
+      // Gắn trực tiếp không dùng AI (Chạy ngay lập tức 0ms)
+      if (trimmedAction) {
+        finalPrompt = `${promptText}, ${trimmedAction}`;
+      }
       setContinueModal(null);
-      setModalSubmitting(false);
     }
 
     const newRow: QueueRow = {
@@ -1615,14 +1624,14 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                     type="button"
                     className="btn btn-primary"
                     style={{ width: "100%", justifyContent: "center", background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", border: "none", fontWeight: 700 }}
-                    onClick={() => void submitContinueImage("")}
+                    onClick={() => void submitContinueImage("", true)}
                   >
                     ✦ AI tự động gợi ý diễn biến tiếp theo
                   </button>
                 </div>
 
                 <div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>GÓC MÁY & HÀNH ĐỘNG GỢI Ý (CLICK LÀ CHẠY):</div>
+                  <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>GÓC MÁY & HÀNH ĐỘNG GỢI Ý (CLICK LÀ CHẠY NGAY):</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {[
                       { label: "📸 Cận cảnh mặt", action: "close-up portrait" },
@@ -1640,7 +1649,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                         type="button"
                         className="btn btn-secondary btn-sm"
                         style={{ fontSize: 11, padding: "4px 8px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#cbd5e1" }}
-                        onClick={() => void submitContinueImage(item.action)}
+                        onClick={() => void submitContinueImage(item.action, false)}
                       >
                         {item.label}
                       </button>
@@ -1650,26 +1659,42 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
                 <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 14 }}>
                   <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>TỰ NHẬP HÀNH ĐỘNG TÙY CHỈNH:</div>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const input = e.currentTarget.querySelector('input[name="customAction"]') as HTMLInputElement;
-                      void submitContinueImage(input ? input.value : "");
-                    }}
-                    style={{ display: "flex", gap: 6 }}
-                  >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <input
                       name="customAction"
                       type="text"
                       placeholder="Ví dụ: đang cười lớn, nhảy múa..."
                       className="form-control"
-                      style={{ flex: 1, height: 32, fontSize: 12, background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "0 10px" }}
+                      value={customActionVal}
+                      onChange={(e) => setCustomActionVal(e.target.value)}
+                      style={{ height: 32, fontSize: 12, background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "0 10px", width: "100%" }}
                       autoFocus
                     />
-                    <button type="submit" className="btn btn-primary btn-sm" style={{ height: 32, padding: "0 14px", fontWeight: 700 }}>
-                      Tạo
-                    </button>
-                  </form>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ height: 30, padding: "0 12px", fontSize: 11, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                        onClick={() => {
+                          void submitContinueImage(customActionVal, false);
+                          setCustomActionVal("");
+                        }}
+                      >
+                        Gắn trực tiếp (Không AI)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        style={{ height: 30, padding: "0 12px", fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", border: "none" }}
+                        onClick={() => {
+                          void submitContinueImage(customActionVal, true);
+                          setCustomActionVal("");
+                        }}
+                      >
+                        ✦ Trợ lý AI tối ưu
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
