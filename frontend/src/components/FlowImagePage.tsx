@@ -221,6 +221,26 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     navigate(NAV_ROUTES["flow-video"] || "/flow-video");
   };
 
+  const handleContinueImage = (imageUrl: string, promptText: string) => {
+    const newRow: QueueRow = {
+      id: createId(),
+      selected: true,
+      prompt: promptText,
+      referenceImage: imageUrl,
+      referenceName: "style_ref",
+      startFrameName: null,
+      startFrameImage: null,
+      endFrameName: null,
+      endFrameImage: null,
+      results: [],
+      status: "idle",
+      error: null,
+      savedFolder: null,
+    };
+    setRows((prev) => [newRow, ...prev]);
+  };
+
+
 
 
   useEffect(() => {
@@ -1248,7 +1268,57 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                           title="Double-click để xem / sửa đầy đủ"
                           onDoubleClick={() => beginEditPrompt(row)}
                         >
-                          <p className="queue-prompt-text">{row.prompt || "—"}</p>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                            {row.referenceImage && (
+                              <div
+                                style={{
+                                  position: "relative",
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: 4,
+                                  border: "1px solid rgba(139, 92, 246, 0.4)",
+                                  overflow: "hidden",
+                                  flexShrink: 0
+                                }}
+                                title="Ảnh style reference (Ảnh tham chiếu phong cách)"
+                              >
+                                <img
+                                  src={row.referenceImage}
+                                  alt="Style Ref"
+                                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateRow(row.id, { referenceImage: null, referenceName: null });
+                                  }}
+                                  style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    right: 0,
+                                    background: "rgba(0,0,0,0.6)",
+                                    color: "#ff4d4f",
+                                    border: "none",
+                                    fontSize: 8,
+                                    width: 12,
+                                    height: 12,
+                                    cursor: "pointer",
+                                    padding: 0,
+                                    display: "grid",
+                                    placeItems: "center",
+                                    borderRadius: "0 0 0 2px"
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                            <p className="queue-prompt-text" style={{ margin: 0 }}>
+                              {row.prompt || "—"}
+                            </p>
+                          </div>
+
                           <div className="queue-prompt-side-actions">
                             <button
                               type="button"
@@ -1312,7 +1382,17 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                                   >
                                     🎬 Tạo video tiếp
                                   </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-primary btn-xs btn-create-video-flow"
+                                    onClick={() => handleContinueImage(url, row.prompt)}
+                                    title="Tạo ảnh tiếp theo sử dụng ảnh này làm style"
+                                    style={{ marginTop: 2 }}
+                                  >
+                                    🎨 Tạo ảnh tiếp
+                                  </button>
                                 </div>
+
                               ))}
 
                             </div>
