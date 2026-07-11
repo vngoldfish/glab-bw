@@ -406,7 +406,9 @@ def build_bulk_graph(
             ref_y = origin_y + ref_node_counter * 240
             ref_node_counter += 1
 
-            image_url = ref_item.get("image") if ref_item else None
+            image_url = None
+            if ref_item:
+                image_url = ref_item.get("image") or ref_item.get("image_url") or ref_item.get("file_path")
             ref_node = {
                 "id": ref_id,
                 "type": "reference",
