@@ -11330,4 +11330,41 @@ textarea:focus {
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
 }
 
+/* Optimize React Flow handles for easier drag & drop */
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border: 2px solid #0d111a !important;
+  border-radius: 50% !important;
+  transition: transform 0.15s ease-in-out, background-color 0.15s, box-shadow 0.15s !important;
+  cursor: pointer !important;
+  z-index: 10 !important;
+}
+
+/* Expand the hover hit area using a large transparent pseudo-element */
+.react-flow__handle::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+/* Hover effects */
+.react-flow__handle:hover {
+  transform: scale(1.6) !important;
+  box-shadow: 0 0 8px currentColor !important;
+}
+
+/* Connecting/active handle styling */
+.react-flow__handle:active,
+.react-flow__handle.connecting {
+  transform: scale(1.8) !important;
+  box-shadow: 0 0 12px currentColor !important;
+}
+
+
 
