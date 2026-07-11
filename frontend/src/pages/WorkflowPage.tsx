@@ -27,6 +27,7 @@ import {
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  browseInsertMedia,
   deleteProject,
   duplicateProject,
   fetchAllProjectAssets,
@@ -1287,10 +1288,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   /** Sidebar media column: Image / Video tabs (newest first) */
   const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
   const [picker, setPicker] = useState<{ nodeId: string; field: ImageField } | null>(null);
-  const [pickerTab, setPickerTab] = useState<"project" | "library" | "all_projects">("project");
+  const [pickerTab, setPickerTab] = useState<"project" | "library" | "all_projects" | "flow_image">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [allProjectsAssets, setAllProjectsAssets] = useState<ProjectAsset[]>([]);
+  const [flowAssets, setFlowAssets] = useState<ProjectAsset[]>([]);
   const [bulkBoxes, setBulkBoxes] = useState<Array<{ id: string; type: "generate" | "video_generate"; prompts: string }>>([]);
   const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
@@ -1596,6 +1598,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         } else if (pickerTab === "all_projects") {
           const data = await fetchAllProjectAssets("image", 300);
           setAllProjectsAssets(data.assets);
+        } else if (pickerTab === "flow_image") {
+          const data = await browseInsertMedia({ source: "flow_image", kind: "image" });
+          setFlowAssets(data.assets || []);
         } else if (projectIdRef.current) {
           const data = await fetchProjectAssets(projectIdRef.current, "image");
           setProjectAssets(data.assets);
@@ -3151,6 +3156,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               </button>
               <button
                 type="button"
+                className={`projects-tab${pickerTab === "flow_image" ? " active" : ""}`}
+                onClick={() => setPickerTab("flow_image")}
+              >
+                🖼️ Ảnh Flow lẻ
+              </button>
+              <button
+                type="button"
                 className={`projects-tab${pickerTab === "all_projects" ? " active" : ""}`}
                 onClick={() => setPickerTab("all_projects")}
               >
@@ -3181,6 +3193,29 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   >
                     <img src={ref.image} alt={ref.name} />
                     <span>{ref.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : pickerTab === "flow_image" ? (
+              <div className="node-picker-grid">
+                {flowAssets.length === 0 && (
+                  <p className="muted">Chưa có ảnh trong thư mục Flow lẻ (image_output / grok_output).</p>
+                )}
+                {flowAssets.map((a, i) => (
+                  <button
+                    key={`flow-${a.path || a.url}-${i}`}
+                    type="button"
+                    className="node-picker-item"
+                    onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
+                    title={a.name}
+                  >
+                    <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                    <span style={{ fontSize: 9 }}>
+                      <span style={{ color: "#10b981", display: "block" }}>
+                        {String(a.folder || "").includes("grok") ? "Grok" : "Flow"}
+                      </span>
+                      {a.name}
+                    </span>
                   </button>
                 ))}
               </div>
