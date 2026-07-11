@@ -503,6 +503,23 @@ async def run_workflow(
                 continue
             active_parent_count[nid] = sum(1 for p in parents[nid] if p not in completed_nodes)
 
+        # Sort helper to order task launch priority logically
+        def sort_nodes_key(nid_str: str) -> tuple[float, float, float]:
+            node_item = nmap.get(nid_str)
+            if not node_item:
+                return (float('inf'), 0.0, 0.0)
+            
+            # Extract number from title (e.g. "Prompt 001" -> 1.0)
+            title = str((node_item.get("data") or {}).get("title") or "")
+            import re
+            m = re.search(r"(\d+(?:\.\d+)?)", title)
+            num = float(m.group(1)) if m else float('inf')
+            
+            pos = node_item.get("position") or {}
+            y = float(pos.get("y") or 0.0)
+            x = float(pos.get("x") or 0.0)
+            return (num, y, x)
+
         # Nodes ready to execute (0 active parents)
         ready_queue = [nid for nid in ids if nid not in completed_nodes and active_parent_count.get(nid, 0) == 0]
         running_tasks: dict[str, asyncio.Task] = {}
@@ -510,6 +527,9 @@ async def run_workflow(
 
         # 2. Parallel Event Loop
         while (ready_queue or running_tasks) and not failed_node_error:
+            # Sort queue before launching so smaller prefix numbers or top nodes launch first
+            ready_queue.sort(key=sort_nodes_key)
+
             # Launch all ready nodes
             while ready_queue and not failed_node_error:
                 nid = ready_queue.pop(0)
