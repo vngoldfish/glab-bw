@@ -254,11 +254,22 @@ class FlowVeoProvider(BaseProvider):
         end_media_id = None
         reference_media_ids: list[str] = []
 
+        edge_refs = params.get("reference_images", [])
+
         if mode == "components" and reference_items:
             image_inputs = await self._build_reference_inputs(session, reference_items)
             reference_media_ids = [item["name"] for item in image_inputs]
+        elif mode == "start_image" and edge_refs:
+            # Prioritize start image from actual edge connections
+            first_parsed = _parse_reference_image(edge_refs[0])
+            if not first_parsed:
+                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP < 10MB)", error_code=400)
+            first_raw, first_mime = first_parsed
+            start_media_id = await self._ensure_flow_media_id_resilient(
+                session, first_raw, first_mime
+            )
         elif mode == "start_image" and reference_items:
-            # First @mention / first ref = start frame only
+            # Fallback if edge_refs is empty
             first_parsed = _parse_reference_image(reference_items[0])
             if not first_parsed:
                 raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP < 10MB)", error_code=400)
@@ -266,10 +277,31 @@ class FlowVeoProvider(BaseProvider):
             start_media_id = await self._ensure_flow_media_id_resilient(
                 session, first_raw, first_mime
             )
+        elif mode == "start_end_image" and len(edge_refs) >= 2:
+            # Prioritize start and end images from actual edge connections
+            first_parsed = _parse_reference_image(edge_refs[0])
+            second_parsed = _parse_reference_image(edge_refs[1])
+            if not first_parsed:
+                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP)", error_code=400)
+            if not second_parsed:
+                raise ProviderError("Ảnh khung cuối không hợp lệ (PNG/JPG/WebP)", error_code=400)
+            first_raw, first_mime = first_parsed
+            second_raw, second_mime = second_parsed
+            if first_raw == second_raw:
+                raise ProviderError(
+                    "Ảnh đầu và ảnh cuối trùng nhau — chọn 2 ảnh khác nhau cho video đầu→cuối",
+                    error_code=400,
+                )
+            invalidate_for_bytes(first_raw)
+            invalidate_for_bytes(second_raw)
+            start_media_id = await self._ensure_flow_media_id(
+                session, first_raw, first_mime, force_reupload=True
+            )
+            end_media_id = await self._ensure_flow_media_id(
+                session, second_raw, second_mime, force_reupload=True
+            )
         elif mode == "start_end_image" and len(reference_items) >= 2:
-            # Ordered: picker[0] = start, picker[1] = end.
-            # Always force fresh upload for FL — stale/hidden cache mediaIds often
-            # submit OK then poll MEDIA_GENERATION_STATUS_FAILED.
+            # Fallback if edge_refs has less than 2 items
             first_parsed = _parse_reference_image(reference_items[0])
             second_parsed = _parse_reference_image(reference_items[1])
             if not first_parsed:
