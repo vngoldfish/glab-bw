@@ -1637,8 +1637,8 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    const val = (e.currentTarget.elements.namedItem("customAction") as HTMLInputElement).value;
-                    void submitContinueImage(val);
+                    const input = e.currentTarget.querySelector('input[name="customAction"]') as HTMLInputElement;
+                    void submitContinueImage(input ? input.value : "");
                   }}
                   style={{ display: "flex", gap: 6 }}
                 >

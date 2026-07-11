@@ -2007,8 +2007,8 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    const val = (e.currentTarget.elements.namedItem("customAction") as HTMLInputElement).value;
-                    void submitContinueVideo(val);
+                    const input = e.currentTarget.querySelector('input[name="customAction"]') as HTMLInputElement;
+                    void submitContinueVideo(input ? input.value : "");
                   }}
                   style={{ display: "flex", gap: 6 }}
                 >
