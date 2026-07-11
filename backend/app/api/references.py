@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.services import reference_storage
 
 router = APIRouter()
@@ -68,8 +69,13 @@ async def add_reference_from_path(body: AddReferenceFromPathRequest) -> dict:
     from pathlib import Path
     import mimetypes
     p = Path(body.filePath)
+    if not p.is_absolute():
+        p = (settings.data_dir / p).resolve()
+    else:
+        p = p.resolve()
+
     if not p.is_file():
-        raise HTTPException(status_code=400, detail={"error": "File không tồn tại hoặc không hợp lệ"})
+        raise HTTPException(status_code=400, detail={"error": f"File không tồn tại hoặc không hợp lệ: {body.filePath} (Resolved: {p})"})
     
     try:
         raw = p.read_bytes()
