@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 
@@ -11,6 +12,9 @@ from app.services.reference_image_loader import load_reference_image
 from app.services.reference_resolver import resolve_prompt_references
 
 logger = logging.getLogger(__name__)
+
+_upload_locks = {}
+_upload_locks_lock = asyncio.Lock()
 
 
 def _parse_reference_image(item: Any) -> tuple[bytes, str] | None:
@@ -71,58 +75,68 @@ class FlowVeoProvider(BaseProvider):
     ) -> str:
         """Upload once per (project, image bytes); reuse mediaId on later generations."""
         project_id = session["project_id"]
-        if not force_reupload:
-            cached = get_media_id(project_id, image_bytes)
-            if cached:
-                return cached
+        
+        import hashlib
+        image_hash = hashlib.sha256(image_bytes).hexdigest()
+        
+        async with _upload_locks_lock:
+            if image_hash not in _upload_locks:
+                _upload_locks[image_hash] = asyncio.Lock()
+            lock = _upload_locks[image_hash]
+            
+        async with lock:
+            if not force_reupload:
+                cached = get_media_id(project_id, image_bytes)
+                if cached:
+                    return cached
 
-        try:
-            media_id = await google_flow_client.upload_image(
-                access_token=session["access_token"],
-                project_id=project_id,
-                image_bytes=image_bytes,
-                mime_type=mime_type,
-                # Visible upload — hidden assets often fail video reference with PERMISSION_DENIED
-                hidden=False,
-            )
-            set_media_id(project_id, image_bytes, media_id)
-            return media_id
-        except ProviderError as exc:
-            if self.account:
-                from app.services.account_store import account_store
-                account = account_store.get(self.account.id)
-                if account:
-                    creds = dict(account.credentials)
-                    if "project_id" in creds:
-                        logger.warning(
-                            "Upload failed with stale project %s for %s. Clearing project_id and retrying...",
-                            project_id,
-                            self.account.label,
-                        )
-                        del creds["project_id"]
-                        account_store.update(account.id, credentials=creds)
-                        self.account = account_store.get(account.id) or account
-                        
-                        # Invalidate cache
-                        invalidate_for_bytes(image_bytes)
-                        
-                        # Obtain fresh session with new project_id
-                        new_session = await self._session(force_refresh=True)
-                        session["project_id"] = new_session["project_id"]
-                        session["access_token"] = new_session["access_token"]
-                        
-                        # Retry uploading to the new project
-                        new_project_id = session["project_id"]
-                        media_id = await google_flow_client.upload_image(
-                            access_token=session["access_token"],
-                            project_id=new_project_id,
-                            image_bytes=image_bytes,
-                            mime_type=mime_type,
-                            hidden=False,
-                        )
-                        set_media_id(new_project_id, image_bytes, media_id)
-                        return media_id
-            raise
+            try:
+                media_id = await google_flow_client.upload_image(
+                    access_token=session["access_token"],
+                    project_id=project_id,
+                    image_bytes=image_bytes,
+                    mime_type=mime_type,
+                    # Visible upload — hidden assets often fail video reference with PERMISSION_DENIED
+                    hidden=False,
+                )
+                set_media_id(project_id, image_bytes, media_id)
+                return media_id
+            except ProviderError as exc:
+                if self.account:
+                    from app.services.account_store import account_store
+                    account = account_store.get(self.account.id)
+                    if account:
+                        creds = dict(account.credentials)
+                        if "project_id" in creds:
+                            logger.warning(
+                                "Upload failed with stale project %s for %s. Clearing project_id and retrying...",
+                                project_id,
+                                self.account.label,
+                            )
+                            del creds["project_id"]
+                            account_store.update(account.id, credentials=creds)
+                            self.account = account_store.get(account.id) or account
+                            
+                            # Invalidate cache
+                            invalidate_for_bytes(image_bytes)
+                            
+                            # Obtain fresh session with new project_id
+                            new_session = await self._session(force_refresh=True)
+                            session["project_id"] = new_session["project_id"]
+                            session["access_token"] = new_session["access_token"]
+                            
+                            # Retry uploading to the new project
+                            new_project_id = session["project_id"]
+                            media_id = await google_flow_client.upload_image(
+                                access_token=session["access_token"],
+                                project_id=new_project_id,
+                                image_bytes=image_bytes,
+                                mime_type=mime_type,
+                                hidden=False,
+                            )
+                            set_media_id(new_project_id, image_bytes, media_id)
+                            return media_id
+                raise
 
     async def _ensure_flow_media_id_resilient(
         self,
