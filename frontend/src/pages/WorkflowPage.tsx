@@ -1611,8 +1611,8 @@ function layoutWorkflowNodes(
 ): Node[] {
   if (nodes.length === 0) return nodes;
 
-  const COL_W = 300;
-  const ROW_H = 210;
+  const COL_W = 380;
+  const ROW_H = 500;
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
 
