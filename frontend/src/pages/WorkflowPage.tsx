@@ -1201,6 +1201,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [bulkMode, setBulkMode] = useState<"input" | "preview">("input");
+  const [bulkPrompts, setBulkPrompts] = useState("");
   const [bulkSteps, setBulkSteps] = useState<Array<{ id: string; type: "generate" | "video_generate"; prompt: string }>>([
     { id: "step_init", type: "generate", prompt: "" }
   ]);
@@ -1959,6 +1961,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
     setDirty(true);
     setBulkSteps([{ id: nid("step"), type: "generate", prompt: "" }]);
+    setBulkPrompts("");
+    setBulkMode("input");
   }
 
   const moveStep = (index: number, direction: "up" | "down") => {
@@ -1969,6 +1973,34 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     next[index] = next[targetIndex];
     next[targetIndex] = temp;
     setBulkSteps(next);
+  };
+
+  const handleAnalyze = () => {
+    const lines = bulkPrompts.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    const parsed = lines.map((line, idx) => {
+      const match = line.match(/^(\d+(?:\.\d+)?)(v)?\s*(.*)$/i);
+      if (match) {
+        const rawCode = match[1];
+        const isExplicitVideo = Boolean(match[2]);
+        const promptText = match[3].trim() || "No prompt";
+        const isContinuation = rawCode.includes(".");
+        const isVideo = isExplicitVideo || isContinuation;
+        return {
+          id: `step_${idx}_${Date.now()}`,
+          type: isVideo ? ("video_generate" as const) : ("generate" as const),
+          prompt: promptText,
+        };
+      } else {
+        return {
+          id: `step_${idx}_${Date.now()}`,
+          type: "generate" as const,
+          prompt: line,
+        };
+      }
+    });
+    setBulkSteps(parsed);
+    setBulkMode("preview");
   };
 
   // auto-save after successful run (debounced light)
@@ -2615,6 +2647,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 className="wf-node-add-btn"
                 onClick={() => {
                   setBulkSteps([{ id: nid("step"), type: "generate", prompt: "" }]);
+                  setBulkPrompts("");
+                  setBulkMode("input");
                   setShowBulkPopup(true);
                 }}
                 style={{
@@ -3047,158 +3081,229 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               gap: 12,
             }}
           >
-            <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>⚡ Dựng Chuỗi Node Hàng Loạt</span>
-              <button
-                type="button"
-                onClick={() => setShowBulkPopup(false)}
-                style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
-              >
-                ×
-              </button>
-            </h3>
+            {bulkMode === "input" ? (
+              <>
+                <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>⚡ Thêm Node Hàng Loạt</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkPopup(false)}
+                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
+                  >
+                    ×
+                  </button>
+                </h3>
 
-            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-              <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 2 }}>💡 Thứ tự kết nối chuỗi node:</strong>
-              Các node được xếp từ trên xuống dưới. Hộp phía trên là nguồn đầu vào (bên trước), hộp phía dưới nối tiếp sau (bên sau).
-            </div>
+                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                  <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 4 }}>💡 Cách nhập prompt hàng loạt để tự động tách node:</strong>
+                  <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 3 }}>
+                    <li>Mỗi dòng đại diện cho một node.</li>
+                    <li>Mặc định sẽ tạo node <strong>Ảnh</strong>.</li>
+                    <li>Dòng bắt đầu bằng mã số có chữ <code>v</code> (ví dụ: <code>001v</code>) hoặc chứa dấu chấm (ví dụ: <code>001.1</code>) sẽ tự động nhận diện là node <strong>Video</strong>.</li>
+                  </ul>
+                </div>
 
-            <div style={{ maxHeight: "350px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 6 }}>
-              {bulkSteps.map((step, index) => {
-                const nextStep = bulkSteps[index + 1];
-                let connectorLabel = "";
-                if (nextStep) {
-                  if (step.type === "generate" && nextStep.type === "video_generate") {
-                    connectorLabel = "Ảnh ➔ Video";
-                  } else if (step.type === "video_generate" && nextStep.type === "video_generate") {
-                    connectorLabel = "Tách frame ➔ Video";
-                  } else {
-                    connectorLabel = "Nhánh mới (Ảnh)";
-                  }
-                }
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, color: "#94a3b8" }}>Nhập danh sách prompts (mỗi dòng 1 prompt):</label>
+                  <textarea
+                    rows={8}
+                    placeholder={"Ví dụ:\n001 Cảnh bình minh trên bãi biển\n001v Sóng biển vỗ nhẹ vào bờ cát\n001.1 Mặt trời mọc lên cao chiếu sáng rực rỡ"}
+                    value={bulkPrompts}
+                    onChange={(e) => setBulkPrompts(e.target.value)}
+                    style={{
+                      width: "100%",
+                      background: "rgba(0,0,0,0.35)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8,
+                      color: "inherit",
+                      padding: 10,
+                      fontSize: 12,
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                      lineHeight: 1.5,
+                    }}
+                  />
+                </div>
 
-                return (
-                  <div key={step.id}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", width: 45 }}>
-                        Box {index + 1}
-                      </span>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setShowBulkPopup(false)}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={!bulkPrompts.trim()}
+                    onClick={handleAnalyze}
+                  >
+                    Tiếp tục &amp; Phân tích
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>⚡ Xem Trước &amp; Điều Chỉnh Chuỗi Node</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkPopup(false)}
+                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
+                  >
+                    ×
+                  </button>
+                </h3>
 
-                      <select
-                        value={step.type}
-                        onChange={(e) => {
-                          const next = [...bulkSteps];
-                          next[index].type = e.target.value as "generate" | "video_generate";
-                          setBulkSteps(next);
-                        }}
-                        style={{
-                          background: "#2a2d3d",
-                          border: "1px solid rgba(255,255,255,0.1)",
-                          borderRadius: 4,
-                          color: "inherit",
-                          fontSize: 11,
-                          padding: "2px 4px",
-                          outline: "none",
-                        }}
-                      >
-                        <option value="generate">🎨 Ảnh</option>
-                        <option value="video_generate">🎬 Video</option>
-                      </select>
+                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                  <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 2 }}>💡 Thứ tự kết nối chuỗi node:</strong>
+                  Các node được xếp từ trên xuống dưới. Hộp phía trên là nguồn đầu vào (bên trước), hộp phía dưới nối tiếp sau (bên sau).
+                </div>
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <input
-                          value={step.prompt}
-                          placeholder={step.type === "generate" ? "Nhập prompt tạo ảnh..." : "Nhập prompt tạo video..."}
-                          onChange={(e) => {
-                            const next = [...bulkSteps];
-                            next[index].prompt = e.target.value;
-                            setBulkSteps(next);
-                          }}
-                          style={{
-                            width: "100%",
-                            background: "transparent",
-                            border: "none",
-                            borderBottom: "1px dashed rgba(255,255,255,0.1)",
-                            color: "inherit",
-                            fontSize: 12,
-                            padding: "2px 0",
-                            outline: "none",
-                          }}
-                        />
+                <div style={{ maxHeight: "300px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 6 }}>
+                  {bulkSteps.map((step, index) => {
+                    const nextStep = bulkSteps[index + 1];
+                    let connectorLabel = "";
+                    if (nextStep) {
+                      if (step.type === "generate" && nextStep.type === "video_generate") {
+                        connectorLabel = "Ảnh ➔ Video";
+                      } else if (step.type === "video_generate" && nextStep.type === "video_generate") {
+                        connectorLabel = "Tách frame ➔ Video";
+                      } else {
+                        connectorLabel = "Nhánh mới (Ảnh)";
+                      }
+                    }
+
+                    return (
+                      <div key={step.id}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", width: 45 }}>
+                            Box {index + 1}
+                          </span>
+
+                          <select
+                            value={step.type}
+                            onChange={(e) => {
+                              const next = [...bulkSteps];
+                              next[index].type = e.target.value as "generate" | "video_generate";
+                              setBulkSteps(next);
+                            }}
+                            style={{
+                              background: "#2a2d3d",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                              borderRadius: 4,
+                              color: "inherit",
+                              fontSize: 11,
+                              padding: "2px 4px",
+                              outline: "none",
+                            }}
+                          >
+                            <option value="generate">🎨 Ảnh</option>
+                            <option value="video_generate">🎬 Video</option>
+                          </select>
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <input
+                              value={step.prompt}
+                              placeholder={step.type === "generate" ? "Nhập prompt tạo ảnh..." : "Nhập prompt tạo video..."}
+                              onChange={(e) => {
+                                const next = [...bulkSteps];
+                                next[index].prompt = e.target.value;
+                                setBulkSteps(next);
+                              }}
+                              style={{
+                                width: "100%",
+                                background: "transparent",
+                                border: "none",
+                                borderBottom: "1px dashed rgba(255,255,255,0.1)",
+                                color: "inherit",
+                                fontSize: 12,
+                                padding: "2px 0",
+                                outline: "none",
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={index === 0}
+                              onClick={() => moveStep(index, "up")}
+                              style={{ padding: "2px 6px", height: "auto" }}
+                              title="Lên"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={index === bulkSteps.length - 1}
+                              onClick={() => moveStep(index, "down")}
+                              style={{ padding: "2px 6px", height: "auto" }}
+                              title="Xuống"
+                            >
+                              ▼
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm danger"
+                              onClick={() => setBulkSteps(bulkSteps.filter(s => s.id !== step.id))}
+                              style={{ padding: "2px 6px", height: "auto" }}
+                              title="Xóa"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        {connectorLabel && (
+                          <div style={{ display: "flex", justifyContent: "center", margin: "2px 0", color: connectorLabel.includes("frame") ? "#f59e0b" : connectorLabel.includes("Ảnh") && connectorLabel.includes("Video") ? "#22c55e" : "#64748b", fontSize: 10, fontWeight: 600 }}>
+                            ⬇ {connectorLabel}
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
+                </div>
 
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          disabled={index === 0}
-                          onClick={() => moveStep(index, "up")}
-                          style={{ padding: "2px 6px", height: "auto" }}
-                          title="Lên"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          disabled={index === bulkSteps.length - 1}
-                          onClick={() => moveStep(index, "down")}
-                          style={{ padding: "2px 6px", height: "auto" }}
-                          title="Xuống"
-                        >
-                          ▼
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm danger"
-                          disabled={bulkSteps.length <= 1}
-                          onClick={() => setBulkSteps(bulkSteps.filter(s => s.id !== step.id))}
-                          style={{ padding: "2px 6px", height: "auto" }}
-                          title="Xóa"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                    {connectorLabel && (
-                      <div style={{ display: "flex", justifyContent: "center", margin: "2px 0", color: connectorLabel.includes("frame") ? "#f59e0b" : connectorLabel.includes("Ảnh") && connectorLabel.includes("Video") ? "#22c55e" : "#64748b", fontSize: 10, fontWeight: 600 }}>
-                        ⬇ {connectorLabel}
-                      </div>
-                    )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setBulkSteps([...bulkSteps, { id: nid("step"), type: "generate", prompt: "" }])}
+                  style={{ width: "100%", borderStyle: "dashed", borderColor: "rgba(129, 140, 248, 0.4)", color: "#a5b4fc", background: "rgba(129, 140, 248, 0.03)", marginTop: 4 }}
+                >
+                  + Thêm node
+                </button>
+
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setBulkMode("input")}
+                  >
+                    Quay lại
+                  </button>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setShowBulkPopup(false)}
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={bulkSteps.length === 0 || !bulkSteps.some(s => s.prompt.trim())}
+                      onClick={addBulkNodes}
+                    >
+                      Tạo &amp; Tự Động Kết Nối
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => setBulkSteps([...bulkSteps, { id: nid("step"), type: "generate", prompt: "" }])}
-              style={{ width: "100%", borderStyle: "dashed", borderColor: "rgba(129, 140, 248, 0.4)", color: "#a5b4fc", background: "rgba(129, 140, 248, 0.03)", marginTop: 4 }}
-            >
-              + Thêm node
-            </button>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setShowBulkPopup(false)}
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!bulkSteps.some(s => s.prompt.trim())}
-                onClick={() => {
-                  addBulkNodes();
-                  setShowBulkPopup(false);
-                }}
-              >
-                Tạo &amp; Tự Động Kết Nối
-              </button>
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
