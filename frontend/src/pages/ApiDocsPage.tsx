@@ -13,7 +13,7 @@ export default function ApiDocsPage() {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const handleTriggerDemo = async (demoType: "complex" | "continuous" | "images", action: "create" | "run") => {
+  const handleTriggerDemo = async (demoType: "complex" | "continuous" | "images" | "life", action: "create" | "run") => {
     let payload: any = {};
     let projectName = "";
 
@@ -96,7 +96,7 @@ export default function ApiDocsPage() {
           }
         ]
       };
-    } else {
+    } else if (demoType === "images") {
       projectName = `Demo 10 Prompt Ảnh Tham Chiếu (${action === "create" ? "Thô" : "Chạy"})`;
       payload = {
         project_name: projectName,
@@ -116,6 +116,59 @@ export default function ApiDocsPage() {
               "008. Portrait of @MODERNYOU wearing a wizard hat, holding a magic wand, doodle style.\n" +
               "009. Portrait of @MODERNYOU looking exhausted, tongue hanging out, doodle style.\n" +
               "010. Portrait of @MODERNYOU wearing cool sunglasses, thumbs up, doodle style."
+            )
+          }
+        ],
+        references: [
+          {
+            name: "MODERNYOU",
+            image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXUpAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAnUlEQVR42u3TQQ0AIBDAsIG/tL+0i4spQA6Sg7xWp/2qPwEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgcDkAWN0Abe1D1JcAAAAAElFTkSuQmCC"
+          }
+        ]
+      };
+    } else {
+      // life: Cuộc đời tôi hoạt hình đầy tâm trạng (9 cảnh nối tiếp dài 1 phút)
+      projectName = `Cuộc Đời Tôi - Phim 1 Phút (${action === "create" ? "Thô" : "Chạy"})`;
+      payload = {
+        project_name: projectName,
+        aspect_ratio: "16:9",
+        model_image: "nano_banana_2_lite",
+        model_video: "veo_31_fast",
+        boxes: [
+          {
+            type: "generate",
+            prompts: (
+              "001. A boy looking out of a window at the rain, dreaming of technology, hand-drawn 2D doodle cartoon.\n" +
+              "002. A young man sitting alone in a dark room, glowing laptop screen reflecting on his face, hand-drawn 2D doodle cartoon.\n" +
+              "003. @MODERNYOU facing a failed project on screen, head in hands, feeling depressed, hand-drawn 2D doodle cartoon.\n" +
+              "004. @MODERNYOU walking alone in the heavy rain on a crowded city street, dark blue tone, hand-drawn 2D doodle cartoon.\n" +
+              "005. @MODERNYOU looking up at the starry night sky through an attic window, eyes wide with hope, hand-drawn 2D doodle cartoon.\n" +
+              "006. @MODERNYOU typing furiously on a glowing keyboard, coding lines morphing into magical energy, hand-drawn 2D doodle cartoon.\n" +
+              "007. A vibrant workflow diagram shining bright in a dark room, connecting ideas together, hand-drawn 2D doodle cartoon.\n" +
+              "008. Colorful cartoon characters flying out from the screen, lighting up the dark room, hand-drawn 2D doodle cartoon.\n" +
+              "009. @MODERNYOU standing on a windy hill at sunrise, smiling at the horizon, bright future ahead, hand-drawn 2D doodle cartoon."
+            )
+          },
+          {
+            type: "video_generate",
+            prompts: (
+              "001. Raindrops falling on the window glass, boy's reflection blinking, hand-drawn 2D doodle cartoon animation.\n" +
+              "002. Shadows moving in the room, screen light flickering on his face, hand-drawn 2D doodle cartoon animation.\n" +
+              "003. @MODERNYOU taking a deep breath and looking up with a look of determination, hand-drawn 2D doodle cartoon animation.\n" +
+              "004. Neon lights reflecting in puddles as @MODERNYOU walks under rain, people passing by, hand-drawn 2D doodle cartoon animation.\n" +
+              "005. A shooting star crossing the sky, eyes of @MODERNYOU tracking it with a smile, hand-drawn 2D doodle cartoon animation.\n" +
+              "006. Keyboard keys glowing as coding lines float upwards like sparks, hand-drawn 2D doodle cartoon animation.\n" +
+              "007. Energy flows connecting the nodes on the diagram, pulsing bright lights, hand-drawn 2D doodle cartoon animation.\n" +
+              "008. Cartoon shapes swirl and dance around the desk, creating a warm glow, hand-drawn 2D doodle cartoon animation.\n" +
+              "009. Wind blowing through his hair, sun rising slowly behind the hills, camera pan, hand-drawn 2D doodle cartoon animation."
+            )
+          },
+          {
+            type: "video_generate",
+            prompts: (
+              "001. Rain stops and sunlight breaks through the dark clouds, hand-drawn 2D doodle cartoon animation.\n" +
+              "003. Screen error turns into a green success checkmark, illuminating the workspace, hand-drawn 2D doodle cartoon animation.\n" +
+              "006. Coding particles combine to form a glowing sphere of light, hand-drawn 2D doodle cartoon animation."
             )
           }
         ],
@@ -220,6 +273,34 @@ curl -X POST http://localhost:8765/api/workflows/run-bulk \\
       {
         "type": "generate",
         "prompts": "001. Chân dung @MODERNYOU cười vui vẻ...\\n002. Chân dung @MODERNYOU tức giận...\\n[Gõ tiếp đến 010]"
+      }
+    ],
+    "references": [
+      {
+        "name": "MODERNYOU",
+        "image": "data:image/png;base64,iVBORw0KGgoAAA..."
+      }
+    ]
+  }'`;
+
+  const codeLifeCurl = `# 🎬 Gọi API tạo dự án "Cuộc Đời Tôi" 1 phút (9 cảnh hoạt hình đầy tâm trạng)
+curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "project_name": "Cuoc Doi Toi - Phim 1 Phut",
+    "aspect_ratio": "16:9",
+    "boxes": [
+      {
+        "type": "generate",
+        "prompts": "001. A boy looking out of a window at the rain...\\n002. A young man sitting in a dark room...\\n003. @MODERNYOU facing a failed project...\\n004. @MODERNYOU walking alone in heavy rain...\\n005. @MODERNYOU looking at starry sky...\\n006. @MODERNYOU typing on keyboard coding...\\n007. A vibrant workflow diagram shining...\\n008. Colorful cartoon characters flying...\\n009. @MODERNYOU standing on a hill at sunrise..."
+      },
+      {
+        "type": "video_generate",
+        "prompts": "001. Raindrops falling on window...\\n002. Shadows moving in room...\\n003. @MODERNYOU taking a deep breath...\\n004. Neon lights reflecting in puddles...\\n005. A shooting star crossing sky...\\n006. Keyboard keys glowing...\\n007. Energy flows connecting nodes...\\n008. Cartoon shapes swirl and dance...\\n009. Wind blowing through hair..."
+      },
+      {
+        "type": "video_generate",
+        "prompts": "001. Rain stops and sunlight breaks through...\\n003. Screen error turns into green checkmark...\\n006. Coding particles form glowing sphere..."
       }
     ],
     "references": [
@@ -464,6 +545,30 @@ curl -X POST http://localhost:8765/api/workflows/run-bulk \\
               </div>
               <pre style={{ background: "rgba(0,0,0,0.4)", padding: 14, borderRadius: 6, overflowX: "auto", border: "1px solid var(--border)", color: "#e2e8f0", fontSize: "12px", fontFamily: "monospace", marginTop: 8 }}>
                 {codeImagesCurl}
+              </pre>
+            </section>
+
+            {/* Demo 4: Cuộc đời tôi hoạt hình đầy tâm trạng (1 phút) */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #c084fc" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <h2>4. Cuộc Đời Tôi (Phim hoạt hình 1 phút đầy tâm trạng - 9 Cảnh nối tiếp)</h2>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => handleTriggerDemo("life", "create")} className="btn btn-primary btn-sm">🎨 Dựng dự án thô</button>
+                  <button onClick={() => handleTriggerDemo("life", "run")} className="btn btn-ghost btn-sm">🚀 Chạy tự động</button>
+                </div>
+              </div>
+              <p className="muted" style={{ fontSize: "13px", marginTop: 8 }}>
+                *Đặc điểm*: Kịch bản điện ảnh ý nghĩa dài 1 phút kể về hành trình vượt khó của lập trình viên/editor sáng tạo nhân vật `@MODERNYOU`. Gồm **9 cảnh** được dàn dựng kết hợp giữa Tạo ảnh, Tạo video, và Tách frame cuối nối tiếp xuyên suốt 3 Box video liền mạch.
+              </p>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Mẫu code gửi request:</strong>
+                <button onClick={() => handleCopy(codeLifeCurl, "demo4")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "demo4" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.4)", padding: 14, borderRadius: 6, overflowX: "auto", border: "1px solid var(--border)", color: "#e2e8f0", fontSize: "12px", fontFamily: "monospace", marginTop: 8 }}>
+                {codeLifeCurl}
               </pre>
             </section>
           </div>
