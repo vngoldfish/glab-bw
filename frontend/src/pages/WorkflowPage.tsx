@@ -1623,11 +1623,15 @@ function layoutWorkflowNodes(
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
 
-  // Helper to dynamically estimate a node's height based on whether it has output images/videos
+  // Helper to dynamically estimate a node's height based on measured heights or media state
   const getNodeHeight = (n: Node): number => {
+    const measuredHeight = (n as any).measured?.height || n.height;
+    if (measuredHeight && measuredHeight > 50) {
+      return measuredHeight;
+    }
     const d = n.data || {};
     const hasMedia = !!(d.resultUrls?.length || d.imageUrl || d.videoUrl || d.image || d.video);
-    return hasMedia ? 480 : 180;
+    return hasMedia ? 720 : 260;
   };
 
   if (mode === "grid") {
@@ -1652,7 +1656,7 @@ function layoutWorkflowNodes(
         .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
         .forEach((n) => {
           pos.set(n.id, { x: ORIGIN_X + col * COL_W, y: currentY });
-          currentY += getNodeHeight(n) + 80; // dynamic height + 80px gap
+          currentY += getNodeHeight(n) + 100; // dynamic height + 100px gap
         });
       col += 1;
     }
@@ -1834,8 +1838,8 @@ function layoutWorkflowNodes(
   const sortedRows = Array.from(rowHeights.keys()).sort((a, b) => a - b);
   for (const row of sortedRows) {
     rowY.set(row, currentY);
-    const height = rowHeights.get(row) || 180;
-    currentY += height + 80; // dynamic height + 80px gap
+    const height = rowHeights.get(row) || 260;
+    currentY += height + 100; // dynamic height + 100px gap
   }
 
   const positioned = new Map<string, { x: number; y: number }>();
@@ -1852,7 +1856,7 @@ function layoutWorkflowNodes(
     let posKey = `${x}:${y}`;
     let safety = 0;
     while (seenPositions.has(posKey) && safety < 100) {
-      y += getNodeHeight(n) + 80; // shift down by node's height + gap
+      y += getNodeHeight(n) + 100; // shift down by node's height + gap
       posKey = `${x}:${y}`;
       safety++;
     }
