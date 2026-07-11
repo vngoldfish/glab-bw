@@ -240,6 +240,7 @@ function Shell({
 
   return (
     <div
+      className={runStatus === "running" ? "node-running-glow" : ""}
       style={{
         minWidth: 260,
         maxWidth: 320,
@@ -288,7 +289,14 @@ function Shell({
                 letterSpacing: 0.2,
               }}
             >
-              {runStatus === "running" ? "⟳ chạy" : st.label}
+              {runStatus === "running" ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <span className="spin-icon" style={{ fontSize: 11, lineHeight: 1 }}>⟳</span>
+                  chạy
+                </span>
+              ) : (
+                st.label
+              )}
             </span>
           ) : null}
           <span style={{ opacity: 0.45, fontWeight: 400, fontSize: 10 }}>{type}</span>
