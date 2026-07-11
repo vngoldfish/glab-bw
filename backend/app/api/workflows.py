@@ -244,29 +244,12 @@ def build_bulk_graph(
         row = box_line_row_map.get(key, 0)
 
         gen_id = f"{ntype}_{uuid.uuid4().hex[:8]}"
-        p_id = f"prompt_{uuid.uuid4().hex[:8]}"
         node_id_map[key] = gen_id
 
         x = origin_x + box_idx * lane_gap
         y = origin_y + row * box_gap
-        prompt_x = x + prompt_offset_x
-        prompt_y = y - 40
 
-        title_prompt = f"Prompt {line_idx + 1}" if prefix.startswith("__auto") else f"Prompt {prefix}"
         title_gen = f"Tạo video {prefix}" if ntype == "video_generate" else f"Tạo ảnh {prefix}"
-
-        prompt_node = {
-            "id": p_id,
-            "type": "prompt",
-            "position": {"x": prompt_x, "y": prompt_y},
-            "data": {
-                "title": title_prompt,
-                "prompt": text,
-                "promptKind": "video" if ntype == "video_generate" else "image",
-                "runStatus": "idle",
-            }
-        }
-        nodes.append(prompt_node)
 
         gen_node = {
             "id": gen_id,
@@ -280,22 +263,13 @@ def build_bulk_graph(
         }
         if ntype == "generate":
             gen_node["data"]["model"] = model_image
+            gen_node["data"]["prompt"] = text
         else:
             gen_node["data"]["model"] = model_video
             gen_node["data"]["mode"] = "text_to_video"
+            gen_node["data"]["prompt_hint"] = text
 
         nodes.append(gen_node)
-
-        # Edge prompt -> generator
-        edges.append({
-            "id": f"edge_p_{p_id}_{gen_id}",
-            "source": p_id,
-            "sourceHandle": "prompt",
-            "target": gen_id,
-            "targetHandle": "prompt",
-            "animated": True,
-            "style": {"stroke": "#64748b", "strokeWidth": 2}
-        })
 
     # Cross-box connections
     for prefix, entries in prefix_groups.items():
@@ -376,14 +350,14 @@ def build_bulk_graph(
     MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_]*)")
     mention_to_gen_ids = defaultdict(list)
 
-    for edge in edges:
-        if edge.get("sourceHandle") != "prompt" or edge.get("targetHandle") != "prompt":
+    for g_node in nodes:
+        if g_node.get("type") not in {"generate", "video_generate"}:
             continue
-        p_node = next((n for n in nodes if n["id"] == edge["source"]), None)
-        g_node = next((n for n in nodes if n["id"] == edge["target"]), None)
-        if not p_node or not g_node:
-            continue
-        prompt_text = p_node["data"].get("prompt") or ""
+        prompt_text = ""
+        if g_node["type"] == "generate":
+            prompt_text = g_node["data"].get("prompt") or ""
+        else:
+            prompt_text = g_node["data"].get("prompt_hint") or ""
 
         seen = set()
         for match in MENTION_PATTERN.finditer(prompt_text):
