@@ -51,7 +51,7 @@ import {
 import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
-import { parseMentions, findLibraryRef } from "../referenceUtils";
+import { findLibraryRef } from "../referenceUtils";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
@@ -1516,6 +1516,19 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     })();
   }, [picker, pickerTab, onError]);
 
+  // Fetch library whenever bulk popup opens (ensure @mention auto-link has fresh data)
+  useEffect(() => {
+    if (!showBulkPopup) return;
+    void (async () => {
+      try {
+        const data = await fetchReferenceLibrary();
+        setLibrary(data.references.map(mapReferenceRecord));
+      } catch {
+        // silent – library hint will just be empty
+      }
+    })();
+  }, [showBulkPopup]);
+
   function applyPickedImage(url: string, refName?: string) {
     if (!picker) return;
     const { nodeId, field } = picker;
@@ -1956,79 +1969,75 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     });
 
     // ──────────────────────────────────────────────────────────────────────────
-    // AUTO-INJECT REFERENCE NODES: scan all prompt texts for @mentions
-    // For each unique mention found in library → create Reference node + edges
+    // AUTO-INJECT REFERENCE NODES: scan ALL @mentions in every prompt text.
+    // If mention found in library  → Reference node gets the library image.
+    // If mention NOT in library    → Reference node created empty (user fills in).
+    // One Reference node per unique @mention name.
     // ──────────────────────────────────────────────────────────────────────────
-    if (library.length > 0) {
-      // Collect all (promptNodeId, genNodeId, mentionedRefNames) from new prompt nodes
-      // We need to pair prompt nodes with their generator nodes
-      type RefCandidate = { genId: string; genType: string; refNames: string[] };
-      const refCandidates: RefCandidate[] = [];
+    {
+      const MENTION_RE = /@([a-zA-Z][a-zA-Z0-9_]*)/g;
 
-      // Walk newNodes to find prompt nodes and pair them with generator siblings
-      // We stored pId → genId mapping implicitly through creation order; rebuild from edges
+      // Map mention (lowercase) → list of generator node IDs whose prompts reference it
+      const mentionToGenIds = new Map<string, { genId: string; genType: string }[]>();
+
       newEdges.forEach(edge => {
-        if (edge.sourceHandle === "prompt" && edge.targetHandle === "prompt") {
-          const pNode = newNodes.find(n => n.id === edge.source);
-          const gNode = newNodes.find(n => n.id === edge.target);
-          if (!pNode || !gNode) return;
-          const promptText = (pNode.data as WNodeData).prompt || "";
-          const mentions = parseMentions(promptText, library);
-          if (mentions.length > 0) {
-            refCandidates.push({ genId: gNode.id, genType: gNode.type || "", refNames: mentions });
-          }
+        // Only prompt→generator edges
+        if (edge.sourceHandle !== "prompt" || edge.targetHandle !== "prompt") return;
+        const pNode = newNodes.find(n => n.id === edge.source);
+        const gNode = newNodes.find(n => n.id === edge.target);
+        if (!pNode || !gNode) return;
+        const promptText = (pNode.data as WNodeData).prompt || "";
+
+        // Collect all @mentions via raw regex (no library dependency)
+        const seen = new Set<string>();
+        for (const match of promptText.matchAll(MENTION_RE)) {
+          const key = match[1].toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (!mentionToGenIds.has(key)) mentionToGenIds.set(key, []);
+          mentionToGenIds.get(key)!.push({ genId: gNode.id, genType: gNode.type || "" });
         }
       });
 
-      if (refCandidates.length > 0) {
-        // Deduplicate: one Reference node per unique @mention
-        const mentionRefNodeMap = new Map<string, string>(); // mention → refNodeId
+      if (mentionToGenIds.size > 0) {
         let refNodeCounter = 0;
 
-        refCandidates.forEach(({ genId, genType, refNames }) => {
-          const gNode = newNodes.find(n => n.id === genId);
-          if (!gNode) return;
+        mentionToGenIds.forEach((targets, mention) => {
+          // Look up library for image data
+          const libItem = findLibraryRef(library, mention);
 
-          refNames.forEach(mention => {
-            const libItem = findLibraryRef(library, mention);
-            if (!libItem) return;
+          const refId = nid("reference");
 
-            // Create Reference node only once per mention
-            if (!mentionRefNodeMap.has(mention)) {
-              const refId = nid("reference");
-              mentionRefNodeMap.set(mention, refId);
+          // Position: column far to the left, stacked vertically per mention
+          const refX = origin.x + PROMPT_OFFSET_X - 340;
+          const refY = origin.y + refNodeCounter * 240;
+          refNodeCounter++;
 
-              // Position: far left, stacked vertically
-              const refX = origin.x + PROMPT_OFFSET_X - 340;
-              const refY = origin.y + refNodeCounter * 240;
-              refNodeCounter++;
+          const refData: WNodeData = {
+            title: libItem ? `@${libItem.name}` : `@${mention}`,
+            image: libItem ? (libItem.filePath || libItem.image) : "",
+            refName: libItem ? libItem.name : mention,
+            runStatus: "idle",
+            onChange: patchNode,
+            onPreview: openPreview,
+            onError,
+            getWorkflowContext,
+            onRerun: (nid: string) => rerunRef.current(nid),
+            onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+          };
 
-              const refData: WNodeData = {
-                title: `@${libItem.name}`,
-                image: libItem.filePath || libItem.image,
-                refName: libItem.name,
-                runStatus: "idle",
-                onChange: patchNode,
-                onPreview: openPreview,
-                onError,
-                getWorkflowContext,
-                onRerun: (nid: string) => rerunRef.current(nid),
-                onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
-              };
+          newNodes.push({
+            id: refId,
+            type: "reference",
+            position: { x: refX, y: refY },
+            data: refData,
+          });
 
-              newNodes.push({
-                id: refId,
-                type: "reference",
-                position: { x: refX, y: refY },
-                data: refData,
-              });
-            }
-
-            const refId = mentionRefNodeMap.get(mention)!;
-            // Connect Reference → Generator
+          // Connect this Reference node → every generator that mentions it
+          targets.forEach(({ genId, genType }) => {
             const targetHandle = genType === "video_generate" ? "start_image" : "image";
             newEdges.push({
-              id: `edge_ref_${refId}_${genId}_${mention}`,
+              id: `edge_ref_${refId}_${genId}`,
               source: refId,
               sourceHandle: "image",
               target: genId,
