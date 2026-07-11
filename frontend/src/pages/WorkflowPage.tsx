@@ -1624,25 +1624,16 @@ function layoutWorkflowNodes(
   const ORIGIN_Y = 40;
 
   // Helper to dynamically estimate a node's height based on measured heights or media state
+  // Helper to dynamically estimate a node's height based on its type's maximum possible dimensions
   const getNodeHeight = (n: Node): number => {
-    const d = n.data || {};
-    const hasMedia = !!(d.resultUrls?.length || d.imageUrl || d.videoUrl || d.image || d.video);
     const t = n.type || "";
-
-    let minHeight = 260;
-    if (hasMedia) {
-      if (t === "reference" || t === "video_reference") {
-        minHeight = 400;
-      } else {
-        minHeight = 640;
-      }
-    }
-
-    const measuredHeight = (n as any).measured?.height || n.height;
-    if (measuredHeight && measuredHeight > 50) {
-      return Math.max(measuredHeight, minHeight);
-    }
-    return minHeight;
+    if (t === "reference") return 350;
+    if (t === "video_reference") return 450;
+    if (t === "prompt") return 180;
+    if (t === "generate") return 640;
+    if (t === "video_generate") return 680;
+    if (t === "frame_extract") return 400;
+    return 400;
   };
 
   if (mode === "grid") {
