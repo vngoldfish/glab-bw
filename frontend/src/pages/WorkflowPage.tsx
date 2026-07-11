@@ -1202,7 +1202,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [bulkPrompts, setBulkPrompts] = useState("");
-  const [bulkNodeType, setBulkNodeType] = useState<"generate" | "video_generate">("generate");
   const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
   const [canvasReady, setCanvasReady] = useState(false);
@@ -1791,15 +1790,114 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
 
-    lines.forEach((line, index) => {
-      const yOffset = index * (bulkNodeType === "generate" ? 280 : 360);
-      const currentY = centerPos.y + yOffset;
+    // Parse all prompt lines first
+    type ParsedItem = {
+      code: string;           // E.g. "001", "001v", "001.1"
+      baseCode: string;       // E.g. "001"
+      promptText: string;
+      isVideo: boolean;       // True if Explicit video ('v') or Continuation ('.')
+      isContinuation: boolean;
+      subIndex?: number;      // E.g. 1 for "001.1"
+    };
 
+    const parsedItems: ParsedItem[] = [];
+    let fallbackCounter = 1;
+
+    lines.forEach((line) => {
+      // Matches prefix like 001, 001v, 001.1, 001.1v at start of line
+      const match = line.match(/^(\d+(?:\.\d+)?)(v)?\s*(.*)$/i);
+      if (match) {
+        const rawCode = match[1];
+        const isExplicitVideo = Boolean(match[2]);
+        const promptText = match[3].trim() || "No prompt";
+        const isContinuation = rawCode.includes(".");
+        const isVideo = isExplicitVideo || isContinuation;
+        
+        let baseCode = rawCode;
+        let subIndex: number | undefined;
+        if (isContinuation) {
+          const parts = rawCode.split(".");
+          baseCode = parts[0];
+          subIndex = parseInt(parts[1], 10) || 1;
+        }
+
+        parsedItems.push({
+          code: rawCode + (isExplicitVideo ? "v" : ""),
+          baseCode,
+          promptText,
+          isVideo,
+          isContinuation,
+          subIndex,
+        });
+      } else {
+        // Fallback for non-prefixed lines
+        const fallbackCode = `auto_${fallbackCounter++}`;
+        parsedItems.push({
+          code: fallbackCode,
+          baseCode: fallbackCode,
+          promptText: line,
+          isVideo: false,
+          isContinuation: false,
+        });
+      }
+    });
+
+    const generatorNodeIds: Record<string, string> = {};
+    const nodePositionMap: Record<string, { genNodeId: string; x: number; y: number }> = {};
+    let baseItemIndex = 0;
+
+    parsedItems.forEach((item) => {
+      const type = item.isVideo ? "video_generate" : "generate";
+      const id = nid(type);
       const pId = nid("prompt");
+
+      // Calculate position coordinates
+      let x = centerPos.x;
+      let y = centerPos.y;
+
+      if (!item.isContinuation) {
+        if (item.isVideo && parsedItems.some(p => p.baseCode === item.baseCode && !p.isVideo)) {
+          // If this is a video base node (001v) and there's a corresponding image base node (001)
+          const imgNode = nodePositionMap[item.baseCode];
+          if (imgNode) {
+            x = imgNode.x + 120 + 320;
+            y = imgNode.y;
+          } else {
+            x = centerPos.x;
+            y = centerPos.y + baseItemIndex * 380;
+            baseItemIndex++;
+          }
+        } else {
+          x = centerPos.x;
+          y = centerPos.y + baseItemIndex * 380;
+          baseItemIndex++;
+        }
+      } else {
+        const sub = item.subIndex ?? 1;
+        let parentCode = sub === 1 ? item.baseCode : `${item.baseCode}.${sub - 1}`;
+        if (sub === 1 && parsedItems.some(p => p.code === `${item.baseCode}v`)) {
+          parentCode = `${item.baseCode}v`;
+        }
+
+        const parentNode = nodePositionMap[parentCode];
+        if (parentNode) {
+          x = parentNode.x + 260 + 180 + 320;
+          y = parentNode.y;
+        } else {
+          x = centerPos.x;
+          y = centerPos.y + baseItemIndex * 380;
+          baseItemIndex++;
+        }
+      }
+
+      const promptX = x - 320;
+      const promptY = y - 40;
+
+      // 1) Create Prompt Node
       const promptData: WNodeData = {
-        title: `Prompt ${index + 1}`,
-        prompt: line,
-        promptKind: bulkNodeType === "video_generate" ? "video" : "image",
+        title: `Prompt ${item.code}`,
+        prompt: item.promptText,
+        promptKind: item.isVideo ? "video" : "image",
         runStatus: "idle",
         onChange: patchNode,
         onPreview: openPreview,
@@ -1808,17 +1906,17 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         onRerun: (nid: string) => rerunRef.current(nid),
         onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
       };
-      
+
       newNodes.push({
         id: pId,
         type: "prompt",
-        position: { x: centerPos.x, y: currentY },
+        position: { x: promptX, y: promptY },
         data: promptData,
       });
 
-      const genId = nid(bulkNodeType);
+      // 2) Create Generator Node
       const genData: WNodeData = {
-        title: bulkNodeType === "generate" ? `Tạo ảnh ${index + 1}` : `Tạo video ${index + 1}`,
+        title: item.isVideo ? `Tạo video ${item.code}` : `Tạo ảnh ${item.code}`,
         runStatus: "idle",
         onChange: patchNode,
         onPreview: openPreview,
@@ -1828,31 +1926,107 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
       };
 
-      if (bulkNodeType === "generate") {
+      if (!item.isVideo) {
         genData.model = "nano_banana_2_lite";
         genData.aspect_ratio = "16:9";
       } else {
         genData.model = "veo_31_fast";
         genData.mode = "start_image";
         genData.aspect_ratio = "16:9";
+        genData.hasStartImageInput = true;
       }
 
       newNodes.push({
-        id: genId,
-        type: bulkNodeType,
-        position: { x: centerPos.x + 320, y: currentY },
+        id,
+        type,
+        position: { x, y },
         data: genData,
       });
 
+      // 3) Connect Prompt -> Generator
       newEdges.push({
-        id: `edge_${pId}_to_${genId}`,
+        id: `edge_${pId}_to_${id}`,
         source: pId,
         sourceHandle: "prompt",
-        target: genId,
+        target: id,
         targetHandle: "prompt",
         animated: true,
         style: { stroke: "#64748b", strokeWidth: 2 },
       });
+
+      generatorNodeIds[item.code] = id;
+      nodePositionMap[item.code] = { genNodeId: id, x, y };
+
+      // 4) Auto Link: Image -> Video (001 -> 001v)
+      if (item.isVideo && !item.isContinuation) {
+        const imgNode = nodePositionMap[item.baseCode];
+        if (imgNode) {
+          newEdges.push({
+            id: `edge_image_link_${item.baseCode}_to_${item.code}`,
+            source: imgNode.genNodeId,
+            sourceHandle: "image",
+            target: id,
+            targetHandle: "start_image",
+            animated: true,
+            style: { stroke: "#22c55e", strokeWidth: 2 },
+          });
+        }
+      }
+
+      // 5) Auto Link: Video Continuation (001v -> FE -> 001.1)
+      if (item.isContinuation) {
+        const sub = item.subIndex ?? 1;
+        let parentCode = sub === 1 ? item.baseCode : `${item.baseCode}.${sub - 1}`;
+        if (sub === 1 && parsedItems.some(p => p.code === `${item.baseCode}v`)) {
+          parentCode = `${item.baseCode}v`;
+        }
+
+        const parentNode = nodePositionMap[parentCode];
+        if (parentNode) {
+          const feId = nid("frame_extract");
+          const feX = parentNode.x + 220;
+          const feY = parentNode.y + 40;
+
+          const feData: WNodeData = {
+            title: `Tách frame ${parentCode}`,
+            positions: "end",
+            runStatus: "idle",
+            onChange: patchNode,
+            onPreview: openPreview,
+            onError,
+            getWorkflowContext,
+            onRerun: (nid: string) => rerunRef.current(nid),
+            onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+          };
+
+          newNodes.push({
+            id: feId,
+            type: "frame_extract",
+            position: { x: feX, y: feY },
+            data: feData,
+          });
+
+          newEdges.push({
+            id: `edge_fe_in_${feId}`,
+            source: parentNode.genNodeId,
+            sourceHandle: "video",
+            target: feId,
+            targetHandle: "video",
+            animated: true,
+            style: { stroke: "#f59e0b", strokeWidth: 2 },
+          });
+
+          newEdges.push({
+            id: `edge_fe_out_${feId}`,
+            source: feId,
+            sourceHandle: "end_image",
+            target: id,
+            targetHandle: "start_image",
+            animated: true,
+            style: { stroke: "#ec4899", strokeWidth: 2 },
+          });
+        }
+      }
     });
 
     setNodes((nds) => [...nds, ...newNodes]);
@@ -2507,7 +2681,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 className="wf-node-add-btn"
                 onClick={() => {
                   setBulkPrompts("");
-                  setBulkNodeType("generate");
                   setShowBulkPopup(true);
                 }}
                 style={{
@@ -2928,8 +3101,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             className="wf-panel-card"
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "500px",
-              maxWidth: "90vw",
+              width: "550px",
+              maxWidth: "92vw",
               background: "#181a22",
               border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: 14,
@@ -2941,7 +3114,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             }}
           >
             <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>⚡ Thêm Node Hàng Loạt</span>
+              <span>⚡ Tự Động Lắp Ráp &amp; Liên Kết Node Hàng Loạt</span>
               <button
                 type="button"
                 onClick={() => setShowBulkPopup(false)}
@@ -2950,36 +3123,23 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 ×
               </button>
             </h3>
-            
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <label style={{ fontSize: 12, color: "#94a3b8" }}>Loại node muốn tạo:</label>
-              <div style={{ display: "flex", gap: 20 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                  <input
-                    type="radio"
-                    name="bulkNodeType"
-                    checked={bulkNodeType === "generate"}
-                    onChange={() => setBulkNodeType("generate")}
-                  />
-                  🎨 Tạo ảnh (Prompt + Node Tạo ảnh)
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
-                  <input
-                    type="radio"
-                    name="bulkNodeType"
-                    checked={bulkNodeType === "video_generate"}
-                    onChange={() => setBulkNodeType("video_generate")}
-                  />
-                  🎬 Tạo video (Prompt + Node Tạo video)
-                </label>
-              </div>
+
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+              <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 4 }}>💡 Quy tắc viết mã số đầu prompt để tự nối dây:</strong>
+              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 3 }}>
+                <li><code>001 [prompt...]</code> &mdash; Tạo node Ảnh 001</li>
+                <li><code>001v [prompt...]</code> &mdash; Tạo node Video 001, tự động lấy ảnh 001 làm đầu vào (Ảnh &rarr; Video)</li>
+                <li><code>001.1 [prompt...]</code> &mdash; Tạo node Video tiếp theo, tự động chèn node <strong>Tách frame</strong> nối tiếp sau Video 001v</li>
+                <li><code>001.2 [prompt...]</code> &mdash; Tạo node Video tiếp tục nối sau Video 001.1 (tương tự)</li>
+                <li><em>Dòng không có mã số &mdash; Tự tạo node ảnh đơn lẻ</em></li>
+              </ul>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-              <label style={{ fontSize: 12, color: "#94a3b8" }}>Danh sách prompts (mỗi dòng tạo 1 cặp node):</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, color: "#94a3b8" }}>Nhập danh sách prompts hàng loạt:</label>
               <textarea
-                rows={6}
-                placeholder="Nhập mỗi prompt một dòng..."
+                rows={8}
+                placeholder={"Ví dụ:\n001 Cảnh bình minh trên bãi biển\n001v Camera bay từ trên cao xuống mặt nước\n001.1 Mặt trời nhô lên cao phản chiếu ánh sáng cực đẹp"}
                 value={bulkPrompts}
                 onChange={(e) => setBulkPrompts(e.target.value)}
                 style={{
@@ -2997,7 +3157,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               />
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 }}>
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -3014,7 +3174,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   setShowBulkPopup(false);
                 }}
               >
-                Thêm hàng loạt
+                Tạo &amp; Tự Động Kết Nối
               </button>
             </div>
           </div>
