@@ -1623,6 +1623,19 @@ function layoutWorkflowNodes(
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
 
+  // Helper to get sort index (from sortIndex or matching prefix numbers in title)
+  const getSortKey = (n: Node): number => {
+    if (n.data?.sortIndex !== undefined) {
+      return Number(n.data.sortIndex);
+    }
+    const title = String(n.data?.title || "");
+    const m = title.match(/\d+/);
+    if (m) {
+      return Number(m[0]);
+    }
+    return 999999;
+  };
+
   // Helper to dynamically estimate a node's height based on measured heights or media state
   // Helper to dynamically estimate a node's height based on its type's maximum possible dimensions
   const getNodeHeight = (n: Node): number => {
@@ -1655,7 +1668,7 @@ function layoutWorkflowNodes(
       let currentY = ORIGIN_Y;
       list
         .slice()
-        .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+        .sort((a, b) => getSortKey(a) - getSortKey(b))
         .forEach((n) => {
           pos.set(n.id, { x: ORIGIN_X + col * COL_W, y: currentY });
           currentY += getNodeHeight(n) + 100; // dynamic height + 100px gap
@@ -1789,9 +1802,7 @@ function layoutWorkflowNodes(
     neighbors.sort((a, b) => {
       const na = nodes.find((x) => x.id === a)!;
       const nb = nodes.find((x) => x.id === b)!;
-      const nameA = String(na.data?.refName || na.data?.title || na.id);
-      const nameB = String(nb.data?.refName || nb.data?.title || nb.id);
-      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
+      return getSortKey(na) - getSortKey(nb);
     });
     neighbors.forEach((neigh, idx) => {
       if (idx === 0) {
@@ -1807,9 +1818,7 @@ function layoutWorkflowNodes(
   rootIds.sort((a, b) => {
     const na = nodes.find((x) => x.id === a)!;
     const nb = nodes.find((x) => x.id === b)!;
-    const nameA = String(na.data?.refName || na.data?.title || na.id);
-    const nameB = String(nb.data?.refName || nb.data?.title || nb.id);
-    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
+    return getSortKey(na) - getSortKey(nb);
   });
 
   for (const rId of rootIds) {
@@ -1834,9 +1843,7 @@ function layoutWorkflowNodes(
   const positioned = new Map<string, { x: number; y: number }>();
   for (const [r, list] of cols.entries()) {
     list.sort((a, b) => {
-      const rowA = rowMap.get(a.id) ?? 0;
-      const rowB = rowMap.get(b.id) ?? 0;
-      return rowA - rowB;
+      return getSortKey(a) - getSortKey(b);
     });
 
     let currentY = ORIGIN_Y;

@@ -258,6 +258,7 @@ def build_bulk_graph(
                 "title": title_gen,
                 "runStatus": "idle",
                 "aspect_ratio": aspect_ratio,
+                "sortIndex": row,
             }
         }
         if ntype == "generate":
@@ -315,7 +316,8 @@ def build_bulk_graph(
                     "data": {
                         "title": f"Tách frame {prefix}",
                         "positions": "end",
-                        "runStatus": "idle"
+                        "runStatus": "idle",
+                        "sortIndex": src_row,
                     }
                 }
                 nodes.append(fe_node)
@@ -444,7 +446,8 @@ def build_bulk_graph(
                     "image": image_url,
                     "resultUrls": [image_url] if image_url else None,
                     "refName": ref_item["name"] if ref_item else mention,
-                    "runStatus": "idle"
+                    "runStatus": "idle",
+                    "sortIndex": -1,
                 }
             }
             nodes.append(ref_node)
