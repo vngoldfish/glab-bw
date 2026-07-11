@@ -466,10 +466,6 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         setRows((prev) =>
           prev.map((r) => (r.id === newId ? updatedRow : r))
         );
-        // Tự động chạy dòng mới ngay khi trích xuất xong và React cập nhật state
-        setTimeout(() => {
-          void runRows([updatedRow]);
-        }, 100);
       } else {
         throw new Error("Không lấy được khung hình cuối");
       }
