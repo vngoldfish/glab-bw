@@ -31,6 +31,12 @@ def _save_outputs(
         filename = f"{prefix}_{index:03d}.{ext}"
         saved = upscale_service.save_bytes(data, filename, output_dir)
         urls.append(file_url_from_path(saved))
+        
+        # Copy to central directory
+        from app.services.output_storage import copy_to_central_dir
+        file_type = "video" if ext == "mp4" else "anh"
+        copy_to_central_dir(saved, "workflow", file_type)
+        
     return urls
 
 

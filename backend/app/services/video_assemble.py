@@ -416,6 +416,10 @@ def assemble_clips(
         if not dest.is_file() or dest.stat().st_size < 200:
             raise RuntimeError("Xuất video thất bại — file rỗng")
 
+        # Copy to central directory
+        from app.services.output_storage import copy_to_central_dir
+        copy_to_central_dir(dest, "trinhdungvideo", "video")
+
         meta = probe_clip(dest)
         rel = dest.resolve().relative_to(settings.data_dir.resolve()).as_posix()
         return {
@@ -686,6 +690,10 @@ def assemble_timeline(
         base_path.parent.rmdir()
     except Exception:
         pass
+
+    # Copy to central directory
+    from app.services.output_storage import copy_to_central_dir
+    copy_to_central_dir(dest, "trinhdungvideo", "video")
 
     meta = probe_clip(dest)
     rel = dest.resolve().relative_to(settings.data_dir.resolve()).as_posix()

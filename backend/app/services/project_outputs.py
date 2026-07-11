@@ -48,34 +48,41 @@ def _kind_of(path: Path) -> str:
 
 
 def list_assets(project_id: str, *, kind: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-    root = project_root(project_id)
+    roots = [
+        project_root(project_id),
+        settings.data_dir / "workflow" / "anh",
+        settings.data_dir / "workflow" / "video"
+    ]
     data_root = settings.data_dir.resolve()
     items: list[dict[str, Any]] = []
-    for p in root.rglob("*"):
-        if not p.is_file() or not _is_media(p):
+    for root in roots:
+        if not root.exists():
             continue
-        k = _kind_of(p)
-        if kind in {"image", "images"} and k != "image":
-            continue
-        if kind in {"video", "videos"} and k != "video":
-            continue
-        try:
-            rel = p.resolve().relative_to(data_root).as_posix()
-            st = p.stat()
-        except Exception:
-            continue
-        items.append(
-            {
-                "path": rel,
-                "name": p.name,
-                "kind": k,
-                "url": file_url_from_path(p),
-                "bytes": st.st_size,
-                "mb": round(st.st_size / (1024 * 1024), 3),
-                "mtime": st.st_mtime,
-                "folder": p.parent.relative_to(data_root).as_posix(),
-            }
-        )
+        for p in root.rglob("*"):
+            if not p.is_file() or not _is_media(p):
+                continue
+            k = _kind_of(p)
+            if kind in {"image", "images"} and k != "image":
+                continue
+            if kind in {"video", "videos"} and k != "video":
+                continue
+            try:
+                rel = p.resolve().relative_to(data_root).as_posix()
+                st = p.stat()
+            except Exception:
+                continue
+            items.append(
+                {
+                    "path": rel,
+                    "name": p.name,
+                    "kind": k,
+                    "url": file_url_from_path(p),
+                    "bytes": st.st_size,
+                    "mb": round(st.st_size / (1024 * 1024), 3),
+                    "mtime": st.st_mtime,
+                    "folder": p.parent.relative_to(data_root).as_posix(),
+                }
+            )
     # Dedupe by path (same file can appear twice via rglob edge cases / links)
     seen_paths: set[str] = set()
     unique: list[dict[str, Any]] = []

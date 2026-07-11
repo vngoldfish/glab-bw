@@ -58,3 +58,16 @@ def resolve_data_folder(folder_path: str) -> Path:
     if full.is_file():
         full = full.parent
     return full
+
+
+def copy_to_central_dir(src_path: Path, category: str, file_type: str) -> None:
+    import shutil
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        dest_dir = settings.data_dir / category / file_type
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / src_path.name
+        shutil.copy2(str(src_path), str(dest_path))
+    except Exception as e:
+        logger.error(f"Error copying to central dir {category}/{file_type}: {e}")
