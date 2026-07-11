@@ -218,7 +218,7 @@ def build_bulk_graph(
     # Coordinates layout
     origin_x, origin_y = 100, 100
     lane_gap = 520
-    box_gap = 320
+    box_gap = 260
     prompt_offset_x = -310
 
     node_id_map = {}

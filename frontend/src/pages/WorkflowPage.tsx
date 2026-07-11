@@ -1620,9 +1620,15 @@ function layoutWorkflowNodes(
   if (nodes.length === 0) return nodes;
 
   const COL_W = 380;
-  const ROW_H = 500;
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
+
+  // Helper to dynamically estimate a node's height based on whether it has output images/videos
+  const getNodeHeight = (n: Node): number => {
+    const d = n.data || {};
+    const hasMedia = !!(d.resultUrls?.length || d.imageUrl || d.videoUrl || d.image || d.video);
+    return hasMedia ? 480 : 180;
+  };
 
   if (mode === "grid") {
     const groups = new Map<string, Node[]>();
@@ -1639,11 +1645,14 @@ function layoutWorkflowNodes(
     for (const t of typeCols) {
       const list = groups.get(t);
       if (!list?.length) continue;
+      
+      let currentY = ORIGIN_Y;
       list
         .slice()
         .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
-        .forEach((n, i) => {
-          pos.set(n.id, { x: ORIGIN_X + col * COL_W, y: ORIGIN_Y + i * ROW_H });
+        .forEach((n) => {
+          pos.set(n.id, { x: ORIGIN_X + col * COL_W, y: currentY });
+          currentY += getNodeHeight(n) + 80; // dynamic height + 80px gap
         });
       col += 1;
     }
@@ -1809,13 +1818,33 @@ function layoutWorkflowNodes(
     }
   }
 
+  // Calculate dynamic heights and cumulative Y offsets for each row
+  const rowHeights = new Map<number, number>();
+  for (const n of nodes) {
+    const row = rowMap.get(n.id) ?? 0;
+    const nodeHeight = getNodeHeight(n);
+    const currentMax = rowHeights.get(row) || 0;
+    if (nodeHeight > currentMax) {
+      rowHeights.set(row, nodeHeight);
+    }
+  }
+
+  const rowY = new Map<number, number>();
+  let currentY = ORIGIN_Y;
+  const sortedRows = Array.from(rowHeights.keys()).sort((a, b) => a - b);
+  for (const row of sortedRows) {
+    rowY.set(row, currentY);
+    const height = rowHeights.get(row) || 180;
+    currentY += height + 80; // dynamic height + 80px gap
+  }
+
   const positioned = new Map<string, { x: number; y: number }>();
   for (const n of nodes) {
     const r = finalRank.get(n.id) || 0;
     const row = rowMap.get(n.id) ?? 0;
     positioned.set(n.id, {
       x: ORIGIN_X + r * COL_W,
-      y: ORIGIN_Y + row * ROW_H,
+      y: rowY.get(row) ?? ORIGIN_Y,
     });
   }
 
