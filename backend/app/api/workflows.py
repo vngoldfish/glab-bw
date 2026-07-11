@@ -393,16 +393,25 @@ def build_bulk_graph(
         # Merge with API references and save base64 to persistent library
         from app.services.reference_image_loader import _decode_data_url
         for ref in references:
-            if ref.image.startswith("data:") or "base64," in ref.image:
-                try:
-                    parsed = _decode_data_url(ref.image)
-                    if parsed:
-                        raw_bytes, mime_type = parsed
-                        existing_refs = reference_storage._load_manifest()
-                        existing_item = next((item for item in existing_refs if item.get("name") == ref.name), None)
-                        if existing_item:
-                            ref_record = reference_storage.replace_reference_image(existing_item["id"], raw_bytes, mime_type)
-                        else:
+            ref_name_lower = ref.name.lower()
+            existing_refs = reference_storage._load_manifest()
+            existing_item = next((item for item in existing_refs if item.get("name", "").lower() == ref_name_lower), None)
+            
+            if existing_item:
+                # Character already exists! Use the existing local image from library
+                ref_record = reference_storage._public_item(existing_item)
+                local_ref_map[ref_name_lower] = {
+                    "name": existing_item["name"],
+                    "image": ref_record["image_url"],
+                    "file_path": ref_record["file_path"]
+                }
+            else:
+                # Character does not exist! Save the base64 image to library
+                if ref.image.startswith("data:") or "base64," in ref.image:
+                    try:
+                        parsed = _decode_data_url(ref.image)
+                        if parsed:
+                            raw_bytes, mime_type = parsed
                             ref_record = reference_storage.add_reference(
                                 raw_bytes,
                                 mime_type,
@@ -410,21 +419,21 @@ def build_bulk_graph(
                                 label=ref.name,
                                 category="character"
                             )
-                        local_ref_map[ref.name.lower()] = {
+                            local_ref_map[ref_name_lower] = {
+                                "name": ref_record["name"],
+                                "image": ref_record["image_url"],
+                                "file_path": ref_record["file_path"]
+                            }
+                    except Exception:
+                        local_ref_map[ref_name_lower] = {
                             "name": ref.name,
-                            "image": ref_record["image_url"],
-                            "file_path": ref_record["file_path"]
+                            "image": ref.image
                         }
-                except Exception:
-                    local_ref_map[ref.name.lower()] = {
+                else:
+                    local_ref_map[ref_name_lower] = {
                         "name": ref.name,
                         "image": ref.image
                     }
-            else:
-                local_ref_map[ref.name.lower()] = {
-                    "name": ref.name,
-                    "image": ref.image
-                }
 
         ref_node_counter = 0
         for mention, targets in mention_to_gen_ids.items():
@@ -518,4 +527,49 @@ async def run_bulk_workflow(body: BulkRunRequest) -> dict:
         "project_id": pid,
         "project_name": name,
         "status": "running"
+    }
+
+
+@router.post("/create-bulk", status_code=201)
+async def create_bulk_workflow(body: BulkRunRequest) -> dict:
+    """
+    Create a project graph from bulk boxes JSON, saves it to projects index,
+    and returns project info WITHOUT executing the workflow.
+    """
+    from app.services.project_store import get_project, save_project
+    import datetime
+
+    pid = body.project_id
+    if pid:
+        existing = get_project(pid)
+        if not existing:
+            raise HTTPException(status_code=404, detail={"error": f"Project ID {pid} not found"})
+        name = body.project_name or existing.get("name") or "Project mới"
+    else:
+        pid = secrets.token_hex(6)
+        name = body.project_name or f"Bulk Project {datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Build React Flow nodes and edges structure
+    nodes, edges = build_bulk_graph(
+        boxes=body.boxes,
+        references=body.references,
+        model_image=body.model_image,
+        model_video=body.model_video,
+        aspect_ratio=body.aspect_ratio,
+    )
+
+    # Save to disk as a Project so users can see/resume it on the UI
+    project_payload = {
+        "name": name,
+        "nodes": nodes,
+        "edges": edges,
+    }
+    save_project(project_payload, project_id=pid)
+
+    return {
+        "project_id": pid,
+        "project_name": name,
+        "nodes_count": len(nodes),
+        "edges_count": len(edges),
+        "status": "created"
     }
