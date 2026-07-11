@@ -296,14 +296,29 @@ async def _execute_node(
                     ref_data.append(await _url_to_data_url(str(r)))
                 except Exception:
                     pass
+        engine = data.get("engine") or "flow"
+        provider = "image"
+        if engine == "grok":
+            provider = "grok"
+        elif engine == "meta":
+            provider = "meta"
+        elif engine == "openai":
+            provider = "openai"
+
         custom_prefix = _build_custom_filename_prefix(data, project_id)
         params = {
-            "model": data.get("model") or "nano_banana_2_lite",
+            "model": data.get("model") or (
+                "nano_banana_2_lite" if engine == "flow" else
+                "grok-3" if engine == "grok" else
+                "midjen-base" if engine == "meta" else
+                "dall-e-3"
+            ),
             "aspect_ratio": data.get("aspect_ratio") or "1:1",
             "count": int(data.get("count") or 1),
             "save_mode": "task",
             "output_folder": img_folder,
             "custom_prefix": custom_prefix,
+            "mode": "t2i",
         }
         if ref_data:
             params["reference_images"] = ref_data
@@ -312,7 +327,7 @@ async def _execute_node(
             params["named_references"] = reference_storage.list_references().get("references", [])
         except Exception as e:
             logger.exception("Failed to inject named_references: %s", e)
-        out = await handle_batch_item(prompt, "image", params)
+        out = await handle_batch_item(prompt, provider, params)
         urls = out["urls"]
         outputs[nid]["image"] = urls
         return {
@@ -372,11 +387,23 @@ async def _execute_node(
                 break
         
         # Default mode: components if we have reference edges, otherwise start_image if start_refs, otherwise text_to_video
+        # Determine provider
+        engine = data.get("engine") or "flow"
+        provider = "video"
+        if engine == "grok":
+            provider = "grok"
+        elif engine == "meta":
+            provider = "meta"
+
         has_ref_conn = len(connected_references) > 0
         mode = data.get("mode") or ("components" if has_ref_conn else "start_image" if start_refs else "text_to_video")
         custom_prefix = _build_custom_filename_prefix(data, project_id)
         params: dict[str, Any] = {
-            "model": data.get("model") or "veo_31_fast",
+            "model": data.get("model") or (
+                "veo_31_fast" if engine == "flow" else
+                "grok-3" if engine == "grok" else
+                "meta-video"
+            ),
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
             "mode": mode,
             "save_mode": "task",
@@ -401,6 +428,10 @@ async def _execute_node(
                 params["mode"] = "start_end_image"
             elif mode == "text_to_video" and not has_ref_conn:
                 params["mode"] = "start_image"
+
+        # Override mode for Grok and Meta to match their API expectations (t2v / i2v)
+        if provider in {"grok", "meta"}:
+            params["mode"] = "i2v" if (ref_list or has_ref_conn) else "t2v"
         
         # Inject named references from library
         try:
@@ -425,7 +456,7 @@ async def _execute_node(
                 logger.error("Failed to convert connected reference %s to data URL: %s", ref["name"], e)
                 
         params["named_references"] = active_named_refs
-        out = await handle_batch_item(prompt, "video", params)
+        out = await handle_batch_item(prompt, provider, params)
         urls = out["urls"]
         outputs[nid]["video"] = urls
         return {

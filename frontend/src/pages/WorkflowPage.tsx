@@ -58,6 +58,14 @@ import {
 import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
+import {
+  IMAGE_MODELS,
+  GROK_IMAGE_MODELS,
+  META_IMAGE_MODELS,
+  VIDEO_MODELS,
+  GROK_VIDEO_MODELS,
+  META_VIDEO_MODELS,
+} from "../types";
 import { findLibraryRef } from "../referenceUtils";
 
 interface WorkflowPageProps {
@@ -71,6 +79,7 @@ type ImageField = "image" | "start_image" | "end_image" | "video";
 type WNodeData = {
   title: string;
   prompt?: string;
+  engine?: string;
   model?: string;
   aspect_ratio?: string;
   mode?: string;
@@ -873,15 +882,49 @@ function GenerateNode({ id, data, selected }: NodeProps) {
       />
       <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Công cụ
+        <select
+          value={d.engine || "flow"}
+          onChange={(e) => {
+            const nextEngine = e.target.value;
+            const defaultModel =
+              nextEngine === "grok" ? "grok-3"
+              : nextEngine === "meta" ? "midjen-base"
+              : "nano_banana_2_lite";
+            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
+          }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="flow">Google Flow</option>
+          <option value="grok">Grok Imagine</option>
+          <option value="meta">Meta AI</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
-          value={d.model || "nano_banana_2_lite"}
+          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "midjen-base" : "nano_banana_2_lite")}
           onChange={(e) => d.onChange?.(id, { model: e.target.value })}
           style={{ ...fieldStyle(), marginTop: 2 }}
         >
-          <option value="nano_banana_2_lite">Nano Banana 2 Lite</option>
-          <option value="nano_banana_2">Nano Banana 2</option>
-          <option value="nano_banana_pro">Nano Banana Pro</option>
+          {(!d.engine || d.engine === "flow") &&
+            IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "grok" &&
+            GROK_IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "meta" &&
+            META_IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
         </select>
       </label>
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
@@ -1061,15 +1104,49 @@ function VideoNode({ id, data, selected }: NodeProps) {
       />
       <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Công cụ
+        <select
+          value={d.engine || "flow"}
+          onChange={(e) => {
+            const nextEngine = e.target.value;
+            const defaultModel =
+              nextEngine === "grok" ? "grok-3"
+              : nextEngine === "meta" ? "meta-video"
+              : "veo_31_fast";
+            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
+          }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="flow">Google Flow</option>
+          <option value="grok">Grok Imagine</option>
+          <option value="meta">Meta AI</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
-          value={d.model || "veo_31_fast"}
+          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "meta-video" : "veo_31_fast")}
           onChange={(e) => d.onChange?.(id, { model: e.target.value })}
           style={{ ...fieldStyle(), marginTop: 2 }}
         >
-          <option value="veo_31_fast">Veo 3.1 Fast</option>
-          <option value="veo_31_quality">Veo 3.1 Quality</option>
-          <option value="omni_flash">Omni Flash</option>
+          {(!d.engine || d.engine === "flow") &&
+            VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "grok" &&
+            GROK_VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "meta" &&
+            META_VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
         </select>
       </label>
       <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
