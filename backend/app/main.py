@@ -137,6 +137,14 @@ async def lifespan(_app: FastAPI):
             AUTH_BRIDGE_PORT,
         )
 
+    # Log CORS config khi khởi động để dễ debug
+    _cors = settings.cors_origins
+    if "*" in _cors:
+        logger.warning(
+            "CORS: allow_all=TRUE — mọi origin được phép. CHỈ dùng cho debug/nội bộ!"
+        )
+    else:
+        logger.info("CORS origins (%s): %s", len(_cors), ", ".join(_cors))
     logger.info(
         "G-Labs BW ready — API http://%s:%s  max_concurrent=%s",
         settings.host,
@@ -205,6 +213,24 @@ async def app_info() -> dict:
 async def extension_status() -> dict:
     # Read in-process state (extension talks to :18923 in the same process)
     return auth_bridge_state.status_payload()
+
+
+@app.get("/api/cors-status")
+async def cors_status() -> dict:
+    """Xem cấu hình CORS hiện tại — hữu ích khi debug VPS.
+    Truy cập: http://your-vps:8765/api/cors-status
+    """
+    origins = settings.cors_origins
+    is_open = "*" in origins
+    return {
+        "cors_allow_all": settings.cors_allow_all,
+        "is_open_to_all": is_open,
+        "vps_domain": settings.vps_domain or None,
+        "allowed_origins": origins,
+        "origin_count": len(origins),
+        "warning": "CORS mở toàn bộ! Chỉ dùng nội bộ." if is_open else None,
+        "tip": "Đặt VPS_DOMAIN=yourdomain.com trong .env để thêm domain VPS tự động",
+    }
 
 
 if _HAS_STATIC:
