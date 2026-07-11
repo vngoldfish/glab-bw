@@ -324,9 +324,27 @@ async def _execute_node(
             params["reference_images"] = ref_data
         try:
             from app.services import reference_storage
-            params["named_references"] = reference_storage.list_references().get("references", [])
+            library_refs = reference_storage.list_references().get("references", [])
         except Exception as e:
             logger.exception("Failed to inject named_references: %s", e)
+            library_refs = []
+
+        active_named_refs = list(library_refs)
+        inline_ref_img = data.get("image")
+        inline_ref_name = data.get("refName")
+        if inline_ref_img and inline_ref_name:
+            try:
+                data_url = await _url_to_data_url(inline_ref_img)
+                # Override if name conflicts
+                active_named_refs = [r for r in active_named_refs if r.get("name") != inline_ref_name]
+                active_named_refs.append({
+                    "name": inline_ref_name,
+                    "data": data_url
+                })
+            except Exception as e:
+                logger.error("Failed to convert inline reference image to data URL: %s", e)
+
+        params["named_references"] = active_named_refs
         out = await handle_batch_item(prompt, provider, params)
         urls = out["urls"]
         outputs[nid]["image"] = urls
