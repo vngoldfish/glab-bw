@@ -2170,7 +2170,36 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     setNodes((nds) => {
       let changed = false;
       const next = nds.map((n) => {
-        if (n.type !== "video_generate") return n;
+        if (n.type !== "video_generate" && n.type !== "generate") return n;
+
+        if (n.type === "generate") {
+          const hasPrompt = edges.some(
+            (e) => e.target === n.id && e.targetHandle === "prompt",
+          );
+          const hasRef = edges.some(
+            (e) => e.target === n.id && e.targetHandle === "image",
+          );
+          const d = n.data as WNodeData;
+          if (d.hasPromptInput === hasPrompt && d.hasReferenceInput === hasRef) {
+            return n;
+          }
+          changed = true;
+          return {
+            ...n,
+            data: {
+              ...d,
+              hasPromptInput: hasPrompt,
+              hasReferenceInput: hasRef,
+              onChange: patchNode,
+              onPreview: openPreview,
+              onError,
+              getWorkflowContext,
+              onRerun: (nid: string) => rerunRef.current(nid),
+              onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+            }
+          };
+        }
+
         const hasStart = edges.some(
           (e) =>
             e.target === n.id &&
