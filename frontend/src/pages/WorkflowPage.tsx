@@ -1662,21 +1662,9 @@ function layoutWorkflowNodes(
   const roots = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
   const seed = roots.length ? roots : [...ids];
 
-  // Longest-path rank from roots
-  const typeRank = (nId: string) => {
-    const node = nodes.find((x) => x.id === nId);
-    const t = String(node?.type || "");
-    if (t === "reference") return 0;
-    if (t === "generate") return 1;
-    if (t === "video_generate") return 2;
-    if (t === "frame_extract") return 3;
-    return 0;
-  };
-
+  // Longest-path rank from roots (relative to 0)
   const rank = new Map<string, number>();
-  for (const n of nodes) {
-    rank.set(n.id, typeRank(n.id));
-  }
+  for (const id of seed) rank.set(id, 0);
   const q = [...seed];
   const guard = new Set<string>();
   while (q.length) {
@@ -1697,10 +1685,48 @@ function layoutWorkflowNodes(
     if (!rank.has(id)) rank.set(id, 0);
   }
 
-  const maxRank = Math.max(0, ...[...rank.values()]);
+  // Adjust rank by offset of root node type to support type-based columns
+  const typeRank = (nId: string) => {
+    const node = nodes.find((x) => x.id === nId);
+    const t = String(node?.type || "");
+    if (t === "reference") return 0;
+    if (t === "generate") return 1;
+    if (t === "video_generate") return 2;
+    if (t === "frame_extract") return 3;
+    return 0;
+  };
+
+  const getSourceRoots = (nId: string): string[] => {
+    const rts: string[] = [];
+    const visited = new Set<string>();
+    const dfs = (id: string) => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const parents = incoming.get(id) || [];
+      if (parents.length === 0) {
+        rts.push(id);
+      } else {
+        for (const p of parents) {
+          dfs(p);
+        }
+      }
+    };
+    dfs(nId);
+    return rts;
+  };
+
+  const finalRank = new Map<string, number>();
+  for (const id of ids) {
+    const depth = rank.get(id) || 0;
+    const rts = getSourceRoots(id);
+    const offset = rts.length ? Math.max(...rts.map(typeRank)) : 0;
+    finalRank.set(id, depth + offset);
+  }
+
+  const maxRank = Math.max(0, ...[...finalRank.values()]);
   const layers: Node[][] = Array.from({ length: maxRank + 1 }, () => []);
   for (const n of nodes) {
-    layers[rank.get(n.id) || 0].push(n);
+    layers[finalRank.get(n.id) || 0].push(n);
   }
 
   const positioned = new Map<string, { x: number; y: number }>();
