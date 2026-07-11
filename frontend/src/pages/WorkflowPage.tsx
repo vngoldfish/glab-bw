@@ -1201,6 +1201,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [bulkPrompts, setBulkPrompts] = useState("");
+  const [bulkNodeType, setBulkNodeType] = useState<"prompt" | "generate" | "video_generate">("prompt");
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
   const [canvasReady, setCanvasReady] = useState(false);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
@@ -1764,6 +1766,102 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       { id, type, position: pos, data: baseData },
     ]);
     setDirty(true);
+  }
+
+  function addBulkNodes() {
+    const lines = bulkPrompts
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return;
+
+    let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    if (canvasWrapRef.current) {
+      const rect = canvasWrapRef.current.getBoundingClientRect();
+      screenPos = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }
+    const centerPos = rf.current
+      ? rf.current.screenToFlowPosition(screenPos)
+      : { x: 140, y: 120 };
+
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+
+    lines.forEach((line, index) => {
+      const yOffset = index * (bulkNodeType === "prompt" ? 170 : bulkNodeType === "generate" ? 280 : 360);
+      const currentY = centerPos.y + yOffset;
+
+      const pId = nid("prompt");
+      const promptData: WNodeData = {
+        title: `Prompt ${index + 1}`,
+        prompt: line,
+        promptKind: bulkNodeType === "video_generate" ? "video" : "image",
+        runStatus: "idle",
+        onChange: patchNode,
+        onPreview: openPreview,
+        onError,
+        getWorkflowContext,
+        onRerun: (nid: string) => rerunRef.current(nid),
+        onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+      };
+      
+      newNodes.push({
+        id: pId,
+        type: "prompt",
+        position: { x: centerPos.x, y: currentY },
+        data: promptData,
+      });
+
+      if (bulkNodeType !== "prompt") {
+        const genId = nid(bulkNodeType);
+        const genData: WNodeData = {
+          title: bulkNodeType === "generate" ? `Tạo ảnh ${index + 1}` : `Tạo video ${index + 1}`,
+          runStatus: "idle",
+          onChange: patchNode,
+          onPreview: openPreview,
+          onError,
+          getWorkflowContext,
+          onRerun: (nid: string) => rerunRef.current(nid),
+          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+        };
+
+        if (bulkNodeType === "generate") {
+          genData.model = "nano_banana_2_lite";
+          genData.aspect_ratio = "16:9";
+        } else {
+          genData.model = "veo_31_fast";
+          genData.mode = "start_image";
+          genData.aspect_ratio = "16:9";
+        }
+
+        newNodes.push({
+          id: genId,
+          type: bulkNodeType,
+          position: { x: centerPos.x + 320, y: currentY },
+          data: genData,
+        });
+
+        newEdges.push({
+          id: `edge_${pId}_to_${genId}`,
+          source: pId,
+          sourceHandle: "prompt",
+          target: genId,
+          targetHandle: "prompt",
+          animated: true,
+          style: { stroke: "#64748b", strokeWidth: 2 },
+        });
+      }
+    });
+
+    setNodes((nds) => [...nds, ...newNodes]);
+    if (newEdges.length > 0) {
+      setEdges((eds) => [...eds, ...newEdges]);
+    }
+    setDirty(true);
+    setBulkPrompts("");
   }
 
   // auto-save after successful run (debounced light)
@@ -2407,6 +2505,40 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               ))}
             </div>
           </div>
+
+          <div className="wf-panel-card" style={{ marginTop: 10 }}>
+            <h3>Thêm hàng loạt</h3>
+            <textarea
+              rows={4}
+              placeholder="Nhập nhiều prompt... Phân tách bằng xuống dòng."
+              value={bulkPrompts}
+              onChange={(e) => setBulkPrompts(e.target.value)}
+              className="wf-input"
+              style={{ width: "100%", fontSize: 11, resize: "vertical", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "inherit", padding: 6, fontFamily: "inherit" }}
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <select
+                value={bulkNodeType}
+                onChange={(e) => setBulkNodeType(e.target.value as any)}
+                className="wf-input"
+                style={{ fontSize: 11, flex: 1, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "inherit", padding: 6 }}
+              >
+                <option value="prompt">Node Prompt</option>
+                <option value="generate">Node Tạo ảnh</option>
+                <option value="video_generate">Node Tạo video</option>
+              </select>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!bulkPrompts.trim()}
+                onClick={addBulkNodes}
+                style={{ fontSize: 11, padding: "4px 10px" }}
+              >
+                Thêm
+              </button>
+            </div>
+          </div>
+
           <div className="wf-panel-card" style={{ flex: 1, minHeight: 0 }}>
             <h3>Projects</h3>
             <input
