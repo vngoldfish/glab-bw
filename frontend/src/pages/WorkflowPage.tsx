@@ -1619,7 +1619,7 @@ function layoutWorkflowNodes(
 ): Node[] {
   if (nodes.length === 0) return nodes;
 
-  const COL_W = 380;
+  const COL_W = 420;
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
 
@@ -1839,13 +1839,26 @@ function layoutWorkflowNodes(
   }
 
   const positioned = new Map<string, { x: number; y: number }>();
+  const seenPositions = new Set<string>();
+
   for (const n of nodes) {
     const r = finalRank.get(n.id) || 0;
     const row = rowMap.get(n.id) ?? 0;
-    positioned.set(n.id, {
-      x: ORIGIN_X + r * COL_W,
-      y: rowY.get(row) ?? ORIGIN_Y,
-    });
+    
+    let x = ORIGIN_X + r * COL_W;
+    let y = rowY.get(row) ?? ORIGIN_Y;
+    
+    // Exact coordinate collision resolver (safety net to prevent any two nodes from overlapping)
+    let posKey = `${x}:${y}`;
+    let safety = 0;
+    while (seenPositions.has(posKey) && safety < 100) {
+      y += getNodeHeight(n) + 80; // shift down by node's height + gap
+      posKey = `${x}:${y}`;
+      safety++;
+    }
+    seenPositions.add(posKey);
+    
+    positioned.set(n.id, { x, y });
   }
 
   return nodes.map((n) => ({
