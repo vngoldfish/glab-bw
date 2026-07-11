@@ -1833,47 +1833,29 @@ function layoutWorkflowNodes(
     }
   }
 
-  // Calculate dynamic heights and cumulative Y offsets for each row
-  const rowHeights = new Map<number, number>();
+  const cols = new Map<number, Node[]>();
   for (const n of nodes) {
-    const row = rowMap.get(n.id) ?? 0;
-    const nodeHeight = getNodeHeight(n);
-    const currentMax = rowHeights.get(row) || 0;
-    if (nodeHeight > currentMax) {
-      rowHeights.set(row, nodeHeight);
-    }
-  }
-
-  const rowY = new Map<number, number>();
-  let currentY = ORIGIN_Y;
-  const sortedRows = Array.from(rowHeights.keys()).sort((a, b) => a - b);
-  for (const row of sortedRows) {
-    rowY.set(row, currentY);
-    const height = rowHeights.get(row) || 260;
-    currentY += height + 100; // dynamic height + 100px gap
+    const r = finalRank.get(n.id) || 0;
+    if (!cols.has(r)) cols.set(r, []);
+    cols.get(r)!.push(n);
   }
 
   const positioned = new Map<string, { x: number; y: number }>();
-  const seenPositions = new Set<string>();
+  for (const [r, list] of cols.entries()) {
+    list.sort((a, b) => {
+      const rowA = rowMap.get(a.id) ?? 0;
+      const rowB = rowMap.get(b.id) ?? 0;
+      return rowA - rowB;
+    });
 
-  for (const n of nodes) {
-    const r = finalRank.get(n.id) || 0;
-    const row = rowMap.get(n.id) ?? 0;
-    
-    let x = ORIGIN_X + r * COL_W;
-    let y = rowY.get(row) ?? ORIGIN_Y;
-    
-    // Exact coordinate collision resolver (safety net to prevent any two nodes from overlapping)
-    let posKey = `${x}:${y}`;
-    let safety = 0;
-    while (seenPositions.has(posKey) && safety < 100) {
-      y += getNodeHeight(n) + 100; // shift down by node's height + gap
-      posKey = `${x}:${y}`;
-      safety++;
+    let currentY = ORIGIN_Y;
+    for (const n of list) {
+      positioned.set(n.id, {
+        x: ORIGIN_X + r * COL_W,
+        y: currentY,
+      });
+      currentY += getNodeHeight(n) + 120; // clean 120px vertical gap!
     }
-    seenPositions.add(posKey);
-    
-    positioned.set(n.id, { x, y });
   }
 
   return nodes.map((n) => ({
