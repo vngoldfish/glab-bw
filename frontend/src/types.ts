@@ -5,6 +5,7 @@ export type NavPage =
   | "references"
   | "prompt-hub"
   | "workflow"
+  | "workflow-templates"
   | "video-editor"
   | "projects"
   | "docs"

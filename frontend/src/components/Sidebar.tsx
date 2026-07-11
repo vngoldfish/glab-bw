@@ -11,6 +11,7 @@ import {
   Workflow,
   Film,
   FolderKanban,
+  Library,
   BookOpen,
   Code2,
   Webhook,
@@ -47,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "flow-video", label: "Flow Tạo Video", icon: Video },
       { id: "prompt-hub", label: "Prompt Hub", icon: Wand2 },
       { id: "workflow", label: "Workflow Editor", icon: Workflow },
+      { id: "workflow-templates", label: "Mẫu Workflow", icon: Library },
       { id: "video-editor", label: "Trình Dựng Video", icon: Film },
     ]
   },

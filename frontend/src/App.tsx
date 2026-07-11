@@ -23,6 +23,7 @@ import SettingsPage from "./pages/SettingsPage";
 import VideoEditorPage from "./pages/VideoEditorPage";
 import WebhookPage from "./pages/WebhookPage";
 import WorkflowPage from "./pages/WorkflowPage";
+import WorkflowTemplatesPage from "./pages/WorkflowTemplatesPage";
 import { ReferenceLibraryProvider } from "./referenceLibraryContext";
 import { DEFAULT_ROUTE, NAV_ROUTES } from "./routes";
 
@@ -252,6 +253,14 @@ export default function App() {
                 element={
                   <div className="page-panel" style={{ height: "100%" }}>
                     <WorkflowPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES["workflow-templates"]}
+                element={
+                  <div className="page-panel">
+                    <WorkflowTemplatesPage onError={setError} />
                   </div>
                 }
               />

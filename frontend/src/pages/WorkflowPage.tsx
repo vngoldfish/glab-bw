@@ -39,8 +39,10 @@ import {
   fetchSampleProductPlacement,
   fetchSampleVideoChain,
   fetchSampleWorkflow,
+  fetchWorkflow,
   fetchWorkflowRun,
   listProjects,
+  saveWorkflow,
   mapReferenceRecord,
   mediaUrl,
   normalizeFileUrl,
@@ -1532,7 +1534,7 @@ function layoutWorkflowNodes(
 
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const dialog = useUiDialog();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [name, setName] = useState("Project mới");
@@ -1942,6 +1944,47 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     void (async () => {
       try {
         await refreshProjects();
+
+        // Check for template parameters
+        const tKey = searchParams.get("template");
+        const ctId = searchParams.get("customTemplate");
+
+        if (tKey) {
+          let s = null;
+          if (tKey === "default") s = await fetchSampleWorkflow();
+          else if (tKey === "video-chain") s = await fetchSampleVideoChain();
+          else if (tKey === "product-isolate") s = await fetchSampleProductIsolate();
+          else if (tKey === "product-placement") s = await fetchSampleProductPlacement();
+          else if (tKey === "multi-product-isolate") s = await fetchSampleMultiProductIsolate();
+
+          if (s) {
+            setProjectId(null);
+            setName(s.name || "Mẫu");
+            setDescription("");
+            setNodes(attachHandlers((s.nodes as Node[]) || []));
+            setEdges((s.edges as Edge[]) || []);
+            setDirty(true);
+            setProjectAssets([]);
+            setSearchParams({});
+            requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
+            return;
+          }
+        } else if (ctId) {
+          const s = await fetchWorkflow(ctId);
+          if (s) {
+            setProjectId(null);
+            setName(s.name || "Mẫu Custom");
+            setDescription(s.description || "");
+            setNodes(attachHandlers((s.nodes as Node[]) || []));
+            setEdges((s.edges as Edge[]) || []);
+            setDirty(true);
+            setProjectAssets([]);
+            setSearchParams({});
+            requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
+            return;
+          }
+        }
+
         const qid = searchParams.get("project");
         const list = await listProjects();
         const openId = qid && list.find((p) => p.id === qid) ? qid : list[0]?.id;
@@ -2004,7 +2047,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         onError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [attachHandlers, onError, refreshProjectAssets, refreshProjects, searchParams, setEdges, setNodes]);
+  }, [attachHandlers, onError, refreshProjectAssets, refreshProjects, searchParams, setSearchParams, setEdges, setNodes]);
 
   // mark dirty when graph edits
   const onNodesChangeTracked: typeof onNodesChange = useCallback(
@@ -2574,6 +2617,30 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
   }
 
+  async function handleSaveAsTemplate() {
+    const tName = prompt("Nhập tên cho Mẫu Workflow mới của bạn:", name);
+    if (tName === null) return;
+    const cleanName = tName.trim();
+    if (!cleanName) {
+      alert("Tên mẫu không được để trống!");
+      return;
+    }
+    const tDesc = prompt("Nhập mô tả ngắn cho mẫu (không bắt buộc):", description) || "";
+    try {
+      const g = graphPayload();
+      await saveWorkflow({
+        name: cleanName,
+        description: tDesc,
+        nodes: g.nodes,
+        edges: g.edges,
+        viewport: g.viewport,
+      });
+      alert(`Đã lưu mẫu "${cleanName}" thành công! Bạn có thể xem trong trang Mẫu Workflow.`);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleNewProject() {
     if (dirty) {
       const ok = await dialog.confirm({
@@ -3025,6 +3092,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             >
               Lưu như…
             </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleSaveAsTemplate()}
+              title="Lưu cấu trúc node hiện tại thành mẫu để dùng lại"
+            >
+              Lưu thành mẫu
+            </button>
             <button type="button" className="wf-btn" onClick={() => void handleNewProject()}>
               + Project
             </button>
@@ -3226,151 +3301,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             </label>
             <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mẫu graph</span>
-              <button
-                type="button"
-                className="wf-preset-btn"
-                onClick={async () => {
-                  if (dirty) {
-                    const ok = await dialog.confirm({
-                      title: "Áp dụng mẫu?",
-                      message: "Graph hiện tại sẽ bị thay bằng mẫu Ảnh→Video.",
-                      confirmLabel: "Áp dụng",
-                      cancelLabel: "Hủy",
-                      tone: "danger",
-                    });
-                    if (!ok) return;
-                  }
-                  const s = await fetchSampleWorkflow();
-                  setName(s.name || "Mẫu Ảnh→Video");
-                  setNodes(attachHandlers((s.nodes as Node[]) || []));
-                  setEdges((s.edges as Edge[]) || []);
-                  setRunResult(null);
-                  setDirty(true);
-                  requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
-                }}
+              <Link
+                to={NAV_ROUTES["workflow-templates"]}
+                className="wf-btn wf-btn-secondary"
+                style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 11 }}
               >
-                Mẫu: Ảnh→Video
-              </button>
-              <button
-                type="button"
-                className="wf-preset-btn"
-                title="Ảnh → Video1 → lấy frame cuối → Video2 tiếp"
-                onClick={async () => {
-                  try {
-                    if (dirty) {
-                      const ok = await dialog.confirm({
-                        title: "Áp dụng mẫu?",
-                        message: "Graph hiện tại sẽ bị thay bằng mẫu nối video.",
-                        confirmLabel: "Áp dụng",
-                        cancelLabel: "Hủy",
-                        tone: "danger",
-                      });
-                      if (!ok) return;
-                    }
-                    const s = await fetchSampleVideoChain();
-                    setName(s.name || "Mẫu nối video");
-                    setNodes(attachHandlers((s.nodes as Node[]) || []));
-                    setEdges((s.edges as Edge[]) || []);
-                    setRunResult(null);
-                    setDirty(true);
-                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
-                  } catch (e) {
-                    onError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
-              >
-                Mẫu: Nối video (frame cuối)
-              </button>
-              <button
-                type="button"
-                className="wf-preset-btn"
-                title="Bóc tách sản phẩm: Ảnh sản phẩm gốc -> Prompt bóc tách -> Tạo ảnh sản phẩm sạch nền trắng"
-                onClick={async () => {
-                  try {
-                    if (dirty) {
-                      const ok = await dialog.confirm({
-                        title: "Áp dụng mẫu?",
-                        message: "Graph hiện tại sẽ bị thay bằng mẫu bóc tách sản phẩm.",
-                        confirmLabel: "Áp dụng",
-                        cancelLabel: "Hủy",
-                        tone: "danger",
-                      });
-                      if (!ok) return;
-                    }
-                    const s = await fetchSampleProductIsolate();
-                    setName(s.name || "Mẫu bóc tách sản phẩm");
-                    setNodes(attachHandlers((s.nodes as Node[]) || []));
-                    setEdges((s.edges as Edge[]) || []);
-                    setRunResult(null);
-                    setDirty(true);
-                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
-                  } catch (e) {
-                    onError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
-              >
-                Mẫu: Bóc tách sản phẩm
-              </button>
-              <button
-                type="button"
-                className="wf-preset-btn"
-                title="Ghép sản phẩm vào nhân vật: Ảnh sản phẩm + Ảnh nhân vật -> Prompt ghép -> Tạo ảnh mới"
-                onClick={async () => {
-                  try {
-                    if (dirty) {
-                      const ok = await dialog.confirm({
-                        title: "Áp dụng mẫu?",
-                        message: "Graph hiện tại sẽ bị thay bằng mẫu ghép sản phẩm vào nhân vật.",
-                        confirmLabel: "Áp dụng",
-                        cancelLabel: "Hủy",
-                        tone: "danger",
-                      });
-                      if (!ok) return;
-                    }
-                    const s = await fetchSampleProductPlacement();
-                    setName(s.name || "Mẫu ghép sản phẩm");
-                    setNodes(attachHandlers((s.nodes as Node[]) || []));
-                    setEdges((s.edges as Edge[]) || []);
-                    setRunResult(null);
-                    setDirty(true);
-                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
-                  } catch (e) {
-                    onError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
-              >
-                Mẫu: Ghép sản phẩm
-              </button>
-              <button
-                type="button"
-                className="wf-preset-btn"
-                title="Bóc tách nhiều sản phẩm: 1 Ảnh gốc nhiều đồ -> 3 Prompt bóc tách riêng -> 3 Ảnh sản phẩm sạch khác nhau"
-                onClick={async () => {
-                  try {
-                    if (dirty) {
-                      const ok = await dialog.confirm({
-                        title: "Áp dụng mẫu?",
-                        message: "Graph hiện tại sẽ bị thay bằng mẫu bóc tách nhiều sản phẩm.",
-                        confirmLabel: "Áp dụng",
-                        cancelLabel: "Hủy",
-                        tone: "danger",
-                      });
-                      if (!ok) return;
-                    }
-                    const s = await fetchSampleMultiProductIsolate();
-                    setName(s.name || "Mẫu bóc tách nhiều sản phẩm");
-                    setNodes(attachHandlers((s.nodes as Node[]) || []));
-                    setEdges((s.edges as Edge[]) || []);
-                    setRunResult(null);
-                    setDirty(true);
-                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
-                  } catch (e) {
-                    onError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
-              >
-                Mẫu: Tách nhiều sản phẩm
-              </button>
+                🗃️ Quản lý mẫu graph
+              </Link>
             </div>
           </div>
         </aside>

@@ -839,6 +839,7 @@ export async function fetchDashboard(): Promise<Record<string, unknown>> {
 export interface WorkflowMeta {
   id: string;
   name: string;
+  description?: string;
   updated_at?: number;
   created_at?: number;
   node_count?: number;
@@ -847,6 +848,7 @@ export interface WorkflowMeta {
 export interface WorkflowDoc {
   id?: string | null;
   name: string;
+  description?: string;
   nodes: Array<Record<string, unknown>>;
   edges: Array<Record<string, unknown>>;
   viewport?: { x: number; y: number; zoom: number };
