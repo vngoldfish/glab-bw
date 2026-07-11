@@ -221,11 +221,49 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     navigate(NAV_ROUTES["flow-video"] || "/flow-video");
   };
 
-  const handleContinueImage = (imageUrl: string, promptText: string) => {
+  const handleContinueImage = async (imageUrl: string, promptText: string) => {
+    const nextAction = window.prompt(
+      "TẠO CẢNH TIẾP THEO (Tạo Ảnh)\n\nNhập hành động/góc máy tiếp theo cho nhân vật (ví dụ: running, side profile, laughing...):\n(Để trống nếu muốn AI tự động gợi ý kịch bản tiếp theo)",
+      ""
+    );
+    if (nextAction === null) return; // user cancelled
+
+    let finalPrompt = promptText;
+    if (nextAction.trim()) {
+      try {
+        const response = await rewritePromptAi({
+          prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${nextAction.trim()}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${promptText}"`,
+          kind: "image",
+          locale: "vi",
+        });
+        if (response && response.prompt) {
+          finalPrompt = response.prompt;
+        } else {
+          finalPrompt = `${promptText}, ${nextAction.trim()}`;
+        }
+      } catch {
+        finalPrompt = `${promptText}, ${nextAction.trim()}`;
+      }
+    } else {
+      // AI automatic suggestion
+      try {
+        const response = await rewritePromptAi({
+          prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${promptText}"`,
+          kind: "image",
+          locale: "vi",
+        });
+        if (response && response.prompt) {
+          finalPrompt = response.prompt;
+        }
+      } catch {
+        // fallback to original
+      }
+    }
+
     const newRow: QueueRow = {
       id: createId(),
       selected: true,
-      prompt: promptText,
+      prompt: finalPrompt,
       referenceImage: imageUrl,
       referenceName: "style_ref",
       startFrameName: null,
@@ -237,8 +275,13 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       error: null,
       savedFolder: null,
     };
+
     setRows((prev) => [newRow, ...prev]);
+
+    // Tự động chạy hàng chờ mới vừa tạo lập tức
+    void runRows([newRow]);
   };
+
 
 
 

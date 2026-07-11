@@ -365,11 +365,49 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const handleContinueVideo = async (videoUrl: string, originalPrompt: string) => {
+    const nextAction = window.prompt(
+      "TẠO CẢNH TIẾP THEO (Tạo Video)\n\nNhập hành động/góc máy tiếp theo trong video (ví dụ: zoom cận cảnh, running, dancing...):\n(Để trống nếu muốn AI tự động gợi ý kịch bản tiếp theo)",
+      ""
+    );
+    if (nextAction === null) return; // user cancelled
+
+    let finalPrompt = originalPrompt;
+    if (nextAction.trim()) {
+      try {
+        const response = await rewritePromptAi({
+          prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${nextAction.trim()}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${originalPrompt}"`,
+          kind: "video",
+          locale: "vi",
+        });
+        if (response && response.prompt) {
+          finalPrompt = response.prompt;
+        } else {
+          finalPrompt = `${originalPrompt}, ${nextAction.trim()}`;
+        }
+      } catch {
+        finalPrompt = `${originalPrompt}, ${nextAction.trim()}`;
+      }
+    } else {
+      // AI automatic suggestion
+      try {
+        const response = await rewritePromptAi({
+          prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${originalPrompt}"`,
+          kind: "video",
+          locale: "vi",
+        });
+        if (response && response.prompt) {
+          finalPrompt = response.prompt;
+        }
+      } catch {
+        // fallback to original
+      }
+    }
+
     const newId = createId();
     const newRow: QueueRow = {
       id: newId,
       selected: true,
-      prompt: originalPrompt,
+      prompt: finalPrompt,
       referenceImage: null,
       referenceName: null,
       startFrameName: "Đang trích xuất frame...",
@@ -382,7 +420,6 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       savedFolder: null,
     };
 
-
     // Thêm dòng mới lên đầu bảng hàng chờ
     setRows((prev) => [newRow, ...prev]);
 
@@ -391,17 +428,16 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       const frames = await extractFramesFromPath(videoUrl, ["end"]);
       const endFrame = frames.find((f) => f.position === "end") || frames[0];
       if (endFrame && endFrame.url) {
+        const updatedRow: QueueRow = {
+          ...newRow,
+          startFrameName: "frame_cuoi.png",
+          startFrameImage: endFrame.url,
+        };
         setRows((prev) =>
-          prev.map((r) =>
-            r.id === newId
-              ? {
-                  ...r,
-                  startFrameName: "frame_cuoi.png",
-                  startFrameImage: endFrame.url,
-                }
-              : r
-          )
+          prev.map((r) => (r.id === newId ? updatedRow : r))
         );
+        // Tự động chạy dòng mới ngay khi trích xuất xong!
+        void runRows([updatedRow]);
       } else {
         throw new Error("Không lấy được khung hình cuối");
       }
@@ -420,6 +456,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       );
     }
   };
+
 
 
   useEffect(() => {
