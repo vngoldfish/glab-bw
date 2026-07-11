@@ -1201,11 +1201,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
-  const [bulkMode, setBulkMode] = useState<"input" | "preview">("input");
-  const [bulkPrompts, setBulkPrompts] = useState("");
-  const [bulkSteps, setBulkSteps] = useState<Array<{ id: string; type: "generate" | "video_generate"; prompt: string }>>([
-    { id: "step_init", type: "generate", prompt: "" }
-  ]);
+  const [bulkBoxes, setBulkBoxes] = useState<Array<{ id: string; type: "generate" | "video_generate"; prompts: string }>>([]);
   const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
   const [canvasReady, setCanvasReady] = useState(false);
@@ -1773,65 +1769,84 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   function addBulkNodes() {
-    if (bulkSteps.length === 0) return;
+    if (bulkBoxes.length === 0) return;
 
     let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     if (canvasWrapRef.current) {
       const rect = canvasWrapRef.current.getBoundingClientRect();
-      screenPos = {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      };
+      screenPos = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
-    const centerPos = rf.current
-      ? rf.current.screenToFlowPosition(screenPos)
-      : { x: 140, y: 120 };
+    const origin = rf.current ? rf.current.screenToFlowPosition(screenPos) : { x: 140, y: 120 };
 
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
 
-    let lastGenNodeId = "";
-    let lastGenNodeType: "generate" | "video_generate" | "" = "";
-    let lastGenX = centerPos.x;
-    let lastGenY = centerPos.y;
-    let baseItemIndex = 0;
+    // Parse each box's prompt lines, extracting numeric prefix and text
+    type ParsedPrompt = { prefix: string; text: string; boxIndex: number; lineIndex: number };
+    const allPrompts: ParsedPrompt[] = [];
 
-    bulkSteps.forEach((step, index) => {
-      const promptText = step.prompt.trim() || "No prompt";
-      const type = step.type; // "generate" or "video_generate"
-      const id = nid(type);
-      const pId = nid("prompt");
-
-      let x = centerPos.x;
-      let y = centerPos.y;
-
-      if (type === "generate") {
-        x = centerPos.x + 320;
-        y = centerPos.y + baseItemIndex * 380;
-        baseItemIndex++;
-      } else {
-        if (!lastGenNodeId) {
-          x = centerPos.x + 320;
-          y = centerPos.y + baseItemIndex * 380;
-          baseItemIndex++;
+    bulkBoxes.forEach((box, boxIndex) => {
+      const lines = box.prompts.split("\n").map(l => l.trim()).filter(Boolean);
+      lines.forEach((line, lineIndex) => {
+        const m = line.match(/^(\d+(?:\.\d+)?)\s*(.*)/);
+        if (m) {
+          allPrompts.push({ prefix: m[1], text: m[2].trim() || "No prompt", boxIndex, lineIndex });
         } else {
-          if (lastGenNodeType === "generate") {
-            x = lastGenX + 120 + 320;
-            y = lastGenY;
-          } else {
-            x = lastGenX + 220 + 180 + 320;
-            y = lastGenY;
-          }
+          // No prefix → treat as auto-numbered standalone
+          allPrompts.push({ prefix: `__auto_${boxIndex}_${lineIndex}`, text: line, boxIndex, lineIndex });
         }
-      }
+      });
+    });
 
-      const promptX = x - 320;
+    // Group by prefix: prefix → ordered list of entries (preserves box order)
+    const prefixGroups = new Map<string, ParsedPrompt[]>();
+    allPrompts.forEach(p => {
+      if (!prefixGroups.has(p.prefix)) prefixGroups.set(p.prefix, []);
+      prefixGroups.get(p.prefix)!.push(p);
+    });
+
+    // Build a stable global row index per (boxIndex, lineIndex) for Y positioning
+    // Each box stacks vertically; each row inside a box adds to y offset
+    const BOX_GAP = 320;  // vertical gap between row groups
+    const LANE_GAP = 520; // horizontal gap between boxes (columns)
+    const PROMPT_OFFSET_X = -310;
+
+    // nodeId map: key = `${boxIndex}_${lineIndex}` → generated node id
+    const nodeIdMap = new Map<string, string>();
+
+    // Track global row for each box's line
+    const boxLineRowMap = new Map<string, number>(); // `${boxIndex}_${lineIndex}` → row
+    let globalRow = 0;
+
+    // Assign rows by walking all prompts in box order
+    bulkBoxes.forEach((box, boxIndex) => {
+      const lines = box.prompts.split("\n").map(l => l.trim()).filter(Boolean);
+      lines.forEach((_, lineIndex) => {
+        boxLineRowMap.set(`${boxIndex}_${lineIndex}`, globalRow);
+        globalRow++;
+      });
+    });
+
+    // Create all nodes first (prompt + generator per entry)
+    allPrompts.forEach((entry) => {
+      const { boxIndex, lineIndex, text, prefix } = entry;
+      const box = bulkBoxes[boxIndex];
+      const type = box.type;
+      const key = `${boxIndex}_${lineIndex}`;
+      const row = boxLineRowMap.get(key) ?? 0;
+
+      const genId = nid(type);
+      const pId = nid("prompt");
+      nodeIdMap.set(key, genId);
+
+      const x = origin.x + boxIndex * LANE_GAP;
+      const y = origin.y + row * BOX_GAP;
+      const promptX = x + PROMPT_OFFSET_X;
       const promptY = y - 40;
 
-      // 1) Create Prompt Node
       const promptData: WNodeData = {
-        title: `Prompt ${index + 1}`,
-        prompt: promptText,
+        title: `Prompt ${prefix}${prefix.startsWith("__auto") ? "" : ""}`,
+        prompt: text,
         promptKind: type === "video_generate" ? "video" : "image",
         runStatus: "idle",
         onChange: patchNode,
@@ -1842,16 +1857,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
       };
 
-      newNodes.push({
-        id: pId,
-        type: "prompt",
-        position: { x: promptX, y: promptY },
-        data: promptData,
-      });
+      newNodes.push({ id: pId, type: "prompt", position: { x: promptX, y: promptY }, data: promptData });
 
-      // 2) Create Generator Node
       const genData: WNodeData = {
-        title: type === "video_generate" ? `Tạo video ${index + 1}` : `Tạo ảnh ${index + 1}`,
+        title: type === "video_generate" ? `Tạo video ${prefix}` : `Tạo ảnh ${prefix}`,
         runStatus: "idle",
         onChange: patchNode,
         onPreview: openPreview,
@@ -1871,43 +1880,49 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         genData.hasStartImageInput = true;
       }
 
-      newNodes.push({
-        id,
-        type,
-        position: { x, y },
-        data: genData,
-      });
+      newNodes.push({ id: genId, type, position: { x, y }, data: genData });
 
-      // 3) Connect Prompt -> Generator
+      // Prompt → Generator edge
       newEdges.push({
-        id: `edge_${pId}_to_${id}`,
-        source: pId,
-        sourceHandle: "prompt",
-        target: id,
-        targetHandle: "prompt",
+        id: `edge_p_${pId}_${genId}`,
+        source: pId, sourceHandle: "prompt",
+        target: genId, targetHandle: "prompt",
         animated: true,
         style: { stroke: "#64748b", strokeWidth: 2 },
       });
+    });
 
-      // 4) Connect to parent for video chain
-      if (type === "video_generate" && lastGenNodeId) {
-        if (lastGenNodeType === "generate") {
+    // Cross-box connections: for each prefix group, connect consecutive entries
+    prefixGroups.forEach((entries) => {
+      if (entries.length < 2) return;
+      // Sort by boxIndex to ensure left-to-right chain
+      const sorted = [...entries].sort((a, b) => a.boxIndex - b.boxIndex);
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const src = sorted[i];
+        const dst = sorted[i + 1];
+        const srcId = nodeIdMap.get(`${src.boxIndex}_${src.lineIndex}`);
+        const dstId = nodeIdMap.get(`${dst.boxIndex}_${dst.lineIndex}`);
+        if (!srcId || !dstId) continue;
+
+        const srcType = bulkBoxes[src.boxIndex].type;
+        const dstType = bulkBoxes[dst.boxIndex].type;
+
+        if (srcType === "generate" && dstType === "video_generate") {
           newEdges.push({
-            id: `edge_img_to_vid_${lastGenNodeId}_to_${id}`,
-            source: lastGenNodeId,
-            sourceHandle: "image",
-            target: id,
-            targetHandle: "start_image",
+            id: `edge_img_vid_${srcId}_${dstId}`,
+            source: srcId, sourceHandle: "image",
+            target: dstId, targetHandle: "start_image",
             animated: true,
             style: { stroke: "#22c55e", strokeWidth: 2 },
           });
-        } else if (lastGenNodeType === "video_generate") {
+        } else if (srcType === "video_generate" && dstType === "video_generate") {
           const feId = nid("frame_extract");
-          const feX = lastGenX + 220;
-          const feY = lastGenY + 40;
+          const srcRow = boxLineRowMap.get(`${src.boxIndex}_${src.lineIndex}`) ?? 0;
+          const feX = origin.x + src.boxIndex * LANE_GAP + 220;
+          const feY = origin.y + srcRow * BOX_GAP + 40;
 
           const feData: WNodeData = {
-            title: `Tách frame ${index}`,
+            title: `Tách frame ${src.prefix ?? ""}`,
             positions: "end",
             runStatus: "idle",
             onChange: patchNode,
@@ -1918,89 +1933,40 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
           };
 
-          newNodes.push({
-            id: feId,
-            type: "frame_extract",
-            position: { x: feX, y: feY },
-            data: feData,
-          });
+          newNodes.push({ id: feId, type: "frame_extract", position: { x: feX, y: feY }, data: feData });
 
-          // parent video -> Tách frame
           newEdges.push({
             id: `edge_fe_in_${feId}`,
-            source: lastGenNodeId,
-            sourceHandle: "video",
-            target: feId,
-            targetHandle: "video",
+            source: srcId, sourceHandle: "video",
+            target: feId, targetHandle: "video",
             animated: true,
             style: { stroke: "#f59e0b", strokeWidth: 2 },
           });
-
-          // Tách frame end_image -> start_image
           newEdges.push({
             id: `edge_fe_out_${feId}`,
-            source: feId,
-            sourceHandle: "end_image",
-            target: id,
-            targetHandle: "start_image",
+            source: feId, sourceHandle: "end_image",
+            target: dstId, targetHandle: "start_image",
             animated: true,
             style: { stroke: "#ec4899", strokeWidth: 2 },
           });
         }
+        // Image → Image: no chain edge (each stands alone)
       }
-
-      lastGenNodeId = id;
-      lastGenNodeType = type;
-      lastGenX = x;
-      lastGenY = y;
     });
 
-    setNodes((nds) => [...nds, ...newNodes]);
-    if (newEdges.length > 0) {
-      setEdges((eds) => [...eds, ...newEdges]);
-    }
+    setNodes(nds => [...nds, ...newNodes]);
+    if (newEdges.length > 0) setEdges(eds => [...eds, ...newEdges]);
     setDirty(true);
-    setBulkSteps([{ id: nid("step"), type: "generate", prompt: "" }]);
-    setBulkPrompts("");
-    setBulkMode("input");
+    setBulkBoxes([]);
+    setShowBulkPopup(false);
   }
 
-  const moveStep = (index: number, direction: "up" | "down") => {
+  const moveBulkBox = (index: number, direction: "up" | "down") => {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= bulkSteps.length) return;
-    const next = [...bulkSteps];
-    const temp = next[index];
-    next[index] = next[targetIndex];
-    next[targetIndex] = temp;
-    setBulkSteps(next);
-  };
-
-  const handleAnalyze = () => {
-    const lines = bulkPrompts.split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length === 0) return;
-    const parsed = lines.map((line, idx) => {
-      const match = line.match(/^(\d+(?:\.\d+)?)(v)?\s*(.*)$/i);
-      if (match) {
-        const rawCode = match[1];
-        const isExplicitVideo = Boolean(match[2]);
-        const promptText = match[3].trim() || "No prompt";
-        const isContinuation = rawCode.includes(".");
-        const isVideo = isExplicitVideo || isContinuation;
-        return {
-          id: `step_${idx}_${Date.now()}`,
-          type: isVideo ? ("video_generate" as const) : ("generate" as const),
-          prompt: promptText,
-        };
-      } else {
-        return {
-          id: `step_${idx}_${Date.now()}`,
-          type: "generate" as const,
-          prompt: line,
-        };
-      }
-    });
-    setBulkSteps(parsed);
-    setBulkMode("preview");
+    if (targetIndex < 0 || targetIndex >= bulkBoxes.length) return;
+    const next = [...bulkBoxes];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    setBulkBoxes(next);
   };
 
   // auto-save after successful run (debounced light)
@@ -2646,9 +2612,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 type="button"
                 className="wf-node-add-btn"
                 onClick={() => {
-                  setBulkSteps([{ id: nid("step"), type: "generate", prompt: "" }]);
-                  setBulkPrompts("");
-                  setBulkMode("input");
+                  setBulkBoxes([]);
                   setShowBulkPopup(true);
                 }}
                 style={{
@@ -3069,244 +3033,222 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             className="wf-panel-card"
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "550px",
-              maxWidth: "92vw",
+              width: "640px",
+              maxWidth: "96vw",
+              maxHeight: "90vh",
               background: "#181a22",
               border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: 14,
               padding: 20,
-              boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
               display: "flex",
               flexDirection: "column",
               gap: 12,
+              overflowY: "auto",
             }}
           >
-            {bulkMode === "input" ? (
-              <>
-                <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>⚡ Thêm Node Hàng Loạt</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkPopup(false)}
-                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
-                  >
-                    ×
-                  </button>
-                </h3>
+            {/* Header */}
+            <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              <span>⚡ Quản lý Node Hàng Loạt</span>
+              <button
+                type="button"
+                onClick={() => setShowBulkPopup(false)}
+                style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </h3>
 
-                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                  <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 4 }}>💡 Cách nhập prompt hàng loạt để tự động tách node:</strong>
-                  <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 3 }}>
-                    <li>Mỗi dòng đại diện cho một node.</li>
-                    <li>Mặc định sẽ tạo node <strong>Ảnh</strong>.</li>
-                    <li>Dòng bắt đầu bằng mã số có chữ <code>v</code> (ví dụ: <code>001v</code>) hoặc chứa dấu chấm (ví dụ: <code>001.1</code>) sẽ tự động nhận diện là node <strong>Video</strong>.</li>
-                  </ul>
+            {/* Hint */}
+            <div style={{ background: "rgba(165,180,252,0.06)", border: "1px solid rgba(165,180,252,0.15)", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#94a3b8", lineHeight: 1.5, flexShrink: 0 }}>
+              <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 4 }}>💡 Cách dùng</strong>
+              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 2 }}>
+                <li>Nhấn <strong>+ Thêm Box</strong> để tạo một nhóm node (Ảnh hoặc Video).</li>
+                <li>Trong mỗi Box, nhập nhiều dòng prompt — mỗi dòng bắt đầu bằng số (<code>001</code>, <code>002</code>…).</li>
+                <li>Các dòng có <strong>cùng số</strong> ở các Box khác nhau sẽ tự động được nối với nhau.</li>
+                <li>Thứ tự các Box quyết định chiều kết nối (Box trên/trái → Box dưới/phải).</li>
+              </ul>
+            </div>
+
+            {/* Box list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+              {bulkBoxes.length === 0 && (
+                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--muted)", fontSize: 12 }}>
+                  Chưa có Box nào. Nhấn <strong>+ Thêm Box</strong> để bắt đầu.
                 </div>
+              )}
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 12, color: "#94a3b8" }}>Nhập danh sách prompts (mỗi dòng 1 prompt):</label>
-                  <textarea
-                    rows={8}
-                    placeholder={"Ví dụ:\n001 Cảnh bình minh trên bãi biển\n001v Sóng biển vỗ nhẹ vào bờ cát\n001.1 Mặt trời mọc lên cao chiếu sáng rực rỡ"}
-                    value={bulkPrompts}
-                    onChange={(e) => setBulkPrompts(e.target.value)}
-                    style={{
-                      width: "100%",
-                      background: "rgba(0,0,0,0.35)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 8,
-                      color: "inherit",
-                      padding: 10,
-                      fontSize: 12,
-                      resize: "vertical",
-                      fontFamily: "inherit",
-                      lineHeight: 1.5,
-                    }}
-                  />
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setShowBulkPopup(false)}
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!bulkPrompts.trim()}
-                    onClick={handleAnalyze}
-                  >
-                    Tiếp tục &amp; Phân tích
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>⚡ Xem Trước &amp; Điều Chỉnh Chuỗi Node</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkPopup(false)}
-                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
-                  >
-                    ×
-                  </button>
-                </h3>
-
-                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, padding: 10, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                  <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 2 }}>💡 Thứ tự kết nối chuỗi node:</strong>
-                  Các node được xếp từ trên xuống dưới. Hộp phía trên là nguồn đầu vào (bên trước), hộp phía dưới nối tiếp sau (bên sau).
-                </div>
-
-                <div style={{ maxHeight: "300px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 6 }}>
-                  {bulkSteps.map((step, index) => {
-                    const nextStep = bulkSteps[index + 1];
-                    let connectorLabel = "";
-                    if (nextStep) {
-                      if (step.type === "generate" && nextStep.type === "video_generate") {
-                        connectorLabel = "Ảnh ➔ Video";
-                      } else if (step.type === "video_generate" && nextStep.type === "video_generate") {
-                        connectorLabel = "Tách frame ➔ Video";
-                      } else {
-                        connectorLabel = "Nhánh mới (Ảnh)";
-                      }
-                    }
-
-                    return (
-                      <div key={step.id}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", width: 45 }}>
-                            Box {index + 1}
-                          </span>
-
-                          <select
-                            value={step.type}
-                            onChange={(e) => {
-                              const next = [...bulkSteps];
-                              next[index].type = e.target.value as "generate" | "video_generate";
-                              setBulkSteps(next);
-                            }}
-                            style={{
-                              background: "#2a2d3d",
-                              border: "1px solid rgba(255,255,255,0.1)",
-                              borderRadius: 4,
-                              color: "inherit",
-                              fontSize: 11,
-                              padding: "2px 4px",
-                              outline: "none",
-                            }}
-                          >
-                            <option value="generate">🎨 Ảnh</option>
-                            <option value="video_generate">🎬 Video</option>
-                          </select>
-
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <input
-                              value={step.prompt}
-                              placeholder={step.type === "generate" ? "Nhập prompt tạo ảnh..." : "Nhập prompt tạo video..."}
-                              onChange={(e) => {
-                                const next = [...bulkSteps];
-                                next[index].prompt = e.target.value;
-                                setBulkSteps(next);
-                              }}
-                              style={{
-                                width: "100%",
-                                background: "transparent",
-                                border: "none",
-                                borderBottom: "1px dashed rgba(255,255,255,0.1)",
-                                color: "inherit",
-                                fontSize: 12,
-                                padding: "2px 0",
-                                outline: "none",
-                              }}
-                            />
-                          </div>
-
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              disabled={index === 0}
-                              onClick={() => moveStep(index, "up")}
-                              style={{ padding: "2px 6px", height: "auto" }}
-                              title="Lên"
-                            >
-                              ▲
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              disabled={index === bulkSteps.length - 1}
-                              onClick={() => moveStep(index, "down")}
-                              style={{ padding: "2px 6px", height: "auto" }}
-                              title="Xuống"
-                            >
-                              ▼
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm danger"
-                              onClick={() => setBulkSteps(bulkSteps.filter(s => s.id !== step.id))}
-                              style={{ padding: "2px 6px", height: "auto" }}
-                              title="Xóa"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                        {connectorLabel && (
-                          <div style={{ display: "flex", justifyContent: "center", margin: "2px 0", color: connectorLabel.includes("frame") ? "#f59e0b" : connectorLabel.includes("Ảnh") && connectorLabel.includes("Video") ? "#22c55e" : "#64748b", fontSize: 10, fontWeight: 600 }}>
-                            ⬇ {connectorLabel}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setBulkSteps([...bulkSteps, { id: nid("step"), type: "generate", prompt: "" }])}
-                  style={{ width: "100%", borderStyle: "dashed", borderColor: "rgba(129, 140, 248, 0.4)", color: "#a5b4fc", background: "rgba(129, 140, 248, 0.03)", marginTop: 4 }}
+              {bulkBoxes.map((box, index) => (
+                <div
+                  key={box.id}
+                  style={{
+                    background: "rgba(255,255,255,0.025)",
+                    border: box.type === "generate"
+                      ? "1px solid rgba(99,179,237,0.25)"
+                      : "1px solid rgba(167,139,250,0.25)",
+                    borderRadius: 10,
+                    overflow: "hidden",
+                  }}
                 >
-                  + Thêm node
-                </button>
+                  {/* Box header */}
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "8px 12px",
+                    background: box.type === "generate"
+                      ? "rgba(99,179,237,0.07)"
+                      : "rgba(167,139,250,0.07)",
+                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", minWidth: 52 }}>
+                      Box {index + 1}
+                    </span>
 
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setBulkMode("input")}
-                  >
-                    Quay lại
-                  </button>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => setShowBulkPopup(false)}
+                    <select
+                      value={box.type}
+                      onChange={(e) => {
+                        const next = [...bulkBoxes];
+                        next[index] = { ...next[index], type: e.target.value as "generate" | "video_generate" };
+                        setBulkBoxes(next);
+                      }}
+                      style={{
+                        background: "#2a2d3d",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: 5,
+                        color: "inherit",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        padding: "3px 6px",
+                        outline: "none",
+                        cursor: "pointer",
+                      }}
                     >
-                      Hủy
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={bulkSteps.length === 0 || !bulkSteps.some(s => s.prompt.trim())}
-                      onClick={addBulkNodes}
-                    >
-                      Tạo &amp; Tự Động Kết Nối
-                    </button>
+                      <option value="generate">🎨 Ảnh</option>
+                      <option value="video_generate">🎬 Video</option>
+                    </select>
+
+                    <span style={{ flex: 1 }} />
+
+                    {/* Connection preview badge */}
+                    {(() => {
+                      const prev = bulkBoxes[index - 1];
+                      const next = bulkBoxes[index + 1];
+                      const badges: React.ReactElement[] = [];
+                      if (prev) {
+                        const fromPrev = prev.type === "generate" && box.type === "video_generate"
+                          ? <span key="p" style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>← Ảnh nhận</span>
+                          : prev.type === "video_generate" && box.type === "video_generate"
+                            ? <span key="p" style={{ fontSize: 10, background: "rgba(245,158,11,0.15)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>← Frame</span>
+                            : null;
+                        if (fromPrev) badges.push(fromPrev);
+                      }
+                      if (next) {
+                        const toNext = box.type === "generate" && next.type === "video_generate"
+                          ? <span key="n" style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>→ Video</span>
+                          : box.type === "video_generate" && next.type === "video_generate"
+                            ? <span key="n" style={{ fontSize: 10, background: "rgba(245,158,11,0.15)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>→ Frame</span>
+                            : null;
+                        if (toNext) badges.push(toNext);
+                      }
+                      return badges.length > 0 ? <div style={{ display: "flex", gap: 4 }}>{badges}</div> : null;
+                    })()}
+
+                    {/* Reorder & Delete */}
+                    <div style={{ display: "flex", gap: 3 }}>
+                      <button type="button" className="btn btn-ghost btn-sm" disabled={index === 0}
+                        onClick={() => moveBulkBox(index, "up")}
+                        style={{ padding: "2px 7px", height: "auto", fontSize: 12 }} title="Lên">▲</button>
+                      <button type="button" className="btn btn-ghost btn-sm" disabled={index === bulkBoxes.length - 1}
+                        onClick={() => moveBulkBox(index, "down")}
+                        style={{ padding: "2px 7px", height: "auto", fontSize: 12 }} title="Xuống">▼</button>
+                      <button type="button" className="btn btn-ghost btn-sm danger"
+                        onClick={() => setBulkBoxes(bulkBoxes.filter(b => b.id !== box.id))}
+                        style={{ padding: "2px 7px", height: "auto", fontSize: 13 }} title="Xóa Box">×</button>
+                    </div>
+                  </div>
+
+                  {/* Prompt textarea */}
+                  <div style={{ padding: "10px 12px" }}>
+                    <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 5 }}>
+                      Danh sách prompt (mỗi dòng bắt đầu bằng số):
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={box.prompts}
+                      onChange={(e) => {
+                        const next = [...bulkBoxes];
+                        next[index] = { ...next[index], prompts: e.target.value };
+                        setBulkBoxes(next);
+                      }}
+                      placeholder={
+                        box.type === "generate"
+                          ? "001 Cảnh bình minh trên bãi biển\n002 Cảnh hoàng hôn rực rỡ\n003 Cảnh đêm tối lung linh"
+                          : "001 Sóng biển vỗ nhẹ vào bờ\n002 Mặt trời lặn xuống biển\n003 Ánh trăng chiếu mặt nước"
+                      }
+                      style={{
+                        width: "100%",
+                        background: "rgba(0,0,0,0.3)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 7,
+                        color: "inherit",
+                        padding: "8px 10px",
+                        fontSize: 12,
+                        fontFamily: "monospace",
+                        lineHeight: 1.6,
+                        resize: "vertical",
+                        outline: "none",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {/* Line count badge */}
+                    {box.prompts.trim() && (
+                      <div style={{ fontSize: 10, color: "#475569", marginTop: 4, textAlign: "right" }}>
+                        {box.prompts.split("\n").filter(l => l.trim()).length} dòng
+                      </div>
+                    )}
                   </div>
                 </div>
-              </>
-            )}
+              ))}
+            </div>
+
+            {/* Add box button */}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setBulkBoxes([...bulkBoxes, { id: `box_${Date.now()}`, type: "generate", prompts: "" }])}
+              style={{
+                width: "100%",
+                borderStyle: "dashed",
+                borderColor: "rgba(129,140,248,0.4)",
+                color: "#a5b4fc",
+                background: "rgba(129,140,248,0.04)",
+                padding: "8px 0",
+                fontSize: 13,
+                flexShrink: 0,
+              }}
+            >
+              + Thêm Box
+            </button>
+
+            {/* Footer */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, flexShrink: 0 }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowBulkPopup(false)}>
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={bulkBoxes.length === 0 || !bulkBoxes.some(b => b.prompts.trim())}
+                onClick={addBulkNodes}
+              >
+                ✓ Tạo &amp; Kết Nối
+              </button>
+            </div>
           </div>
         </div>
       )}
+    
     </div>
   );
 }
