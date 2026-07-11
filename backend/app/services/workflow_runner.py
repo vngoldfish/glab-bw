@@ -135,6 +135,7 @@ async def _execute_node(
     outputs: dict[str, dict[str, list[Any]]],
     *,
     project_id: str | None = None,
+    workflow: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one node; mutates outputs; returns node_results entry."""
     # Project-scoped output folders
@@ -240,20 +241,24 @@ async def _execute_node(
         
         # Look up Reference nodes connected to the "reference" handle of this node to preserve refNames
         connected_references = []
-        for e in edges:
-            if str(e.get("target")) == nid and str(e.get("targetHandle")) == "reference":
-                src_id = str(e.get("source"))
-                src_node = nmap.get(src_id)
-                if src_node and src_node.get("type") == "reference":
-                    src_data = src_node.get("data") or {}
-                    ref_name = src_data.get("refName")
-                    img_val = outputs.get(src_id, {}).get("image")
-                    img_url = img_val[0] if img_val else src_data.get("image")
-                    if ref_name and img_url:
-                        connected_references.append({
-                            "name": ref_name,
-                            "url": img_url
-                        })
+        if workflow:
+            edges_list = list(workflow.get("edges") or [])
+            nodes_list = list(workflow.get("nodes") or [])
+            nodes_map = {str(n["id"]): n for n in nodes_list}
+            for e in edges_list:
+                if str(e.get("target")) == nid and str(e.get("targetHandle")) == "reference":
+                    src_id = str(e.get("source"))
+                    src_node = nodes_map.get(src_id)
+                    if src_node and src_node.get("type") == "reference":
+                        src_data = src_node.get("data") or {}
+                        ref_name = src_data.get("refName")
+                        img_val = outputs.get(src_id, {}).get("image")
+                        img_url = img_val[0] if img_val else src_data.get("image")
+                        if ref_name and img_url:
+                            connected_references.append({
+                                "name": ref_name,
+                                "url": img_url
+                            })
 
         # Node-attached images (pick from library / upload without edge)
         for key in ("start_image", "image", "startImage"):
@@ -530,7 +535,9 @@ async def run_workflow(
                 # Start node execution asynchronously
                 task = asyncio.create_task(
                     _execute_node(
-                        nid, ntype, data, inputs, outputs, project_id=str(pid) if pid else None
+                        nid, ntype, data, inputs, outputs, 
+                        project_id=str(pid) if pid else None,
+                        workflow=workflow
                     )
                 )
                 running_tasks[nid] = task
