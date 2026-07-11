@@ -426,6 +426,23 @@ function ImageAttachBar({
     </div>
   );
 }
+const handleLabelStyle = (side: "left" | "right", top: string | number): CSSProperties => ({
+  position: "absolute",
+  top,
+  transform: "translateY(-50%)",
+  [side === "left" ? "right" : "left"]: "100%",
+  [side === "left" ? "marginRight" : "marginLeft"]: "8px",
+  fontSize: "8px",
+  fontWeight: "bold",
+  color: "#f8fafc",
+  pointerEvents: "none",
+  whiteSpace: "nowrap",
+  background: "rgba(15, 23, 42, 0.9)",
+  padding: "2px 5px",
+  borderRadius: "3px",
+  border: "1px solid rgba(255,255,255,0.15)",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+});
 
 function PromptNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
@@ -502,7 +519,14 @@ function PromptNode({ id, data, selected }: NodeProps) {
       runStatus={d.runStatus}
       runError={d.runError}
     >
-      <Handle type="source" position={Position.Right} id="prompt" style={{ background: "#6366f1" }} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="prompt"
+        style={{ background: "#6366f1" }}
+        title="Cổng xuất Prompt: Nối sang cổng Prompt của node Tạo ảnh hoặc Tạo video"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Prompt →</div>
       <div className="nodrag node-prompt-toolbar">
         <label className="node-prompt-kind">
           Gợi ý AI
@@ -575,7 +599,14 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
       runStatus={d.runStatus}
       runError={d.runError}
     >
-      <Handle type="source" position={Position.Right} id="image" style={{ background: "#14b8a6" }} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="image"
+        style={{ background: "#14b8a6" }}
+        title="Cổng xuất Ảnh: Nối sang cổng Ảnh ref của Tạo ảnh hoặc Nhân vật ref của Tạo video"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Ảnh ref →</div>
       <ImageAttachBar
         nodeId={id}
         field="image"
@@ -621,9 +652,32 @@ function GenerateNode({ id, data, selected }: NodeProps) {
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
     >
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="image" style={{ top: "42%", background: "#14b8a6" }} />
-      <Handle type="source" position={Position.Right} id="image" style={{ background: "#22c55e" }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="prompt"
+        style={{ top: "22%", background: "#6366f1" }}
+        title="Cổng nhận Prompt: Nối từ node Prompt"
+      />
+      <div style={handleLabelStyle("left", "22%")}>← Prompt</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="image"
+        style={{ top: "42%", background: "#14b8a6" }}
+        title="Cổng nhận Ảnh ref: Nối từ Ảnh có sẵn hoặc ảnh kết quả khác"
+      />
+      <div style={handleLabelStyle("left", "42%")}>← Ảnh ref</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="image"
+        style={{ background: "#22c55e" }}
+        title="Cổng xuất Ảnh kết quả: Nối sang cổng Ảnh đầu hoặc Khung cuối của Tạo video"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
@@ -731,11 +785,50 @@ function VideoNode({ id, data, selected }: NodeProps) {
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
     >
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "18%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "38%", background: "#22c55e" }} />
-      <Handle type="target" position={Position.Left} id="reference" style={{ top: "58%", background: "#06b6d4" }} />
-      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "78%", background: "#14b8a6" }} />
-      <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="prompt"
+        style={{ top: "18%", background: "#6366f1" }}
+        title="Cổng nhận Prompt: Nối từ node Prompt"
+      />
+      <div style={handleLabelStyle("left", "18%")}>← Prompt</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="start_image"
+        style={{ top: "38%", background: "#22c55e" }}
+        title="Cổng nhận Ảnh đầu: Nối từ node Tạo ảnh hoặc cổng end_image của Tách frame"
+      />
+      <div style={handleLabelStyle("left", "38%")}>← Ảnh đầu</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="reference"
+        style={{ top: "58%", background: "#06b6d4" }}
+        title="Cổng nhận Nhân vật ref: Nối từ node Ảnh có sẵn để giữ nhất quán nhân vật"
+      />
+      <div style={handleLabelStyle("left", "58%")}>← Nhân vật ref</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="end_image"
+        style={{ top: "78%", background: "#14b8a6" }}
+        title="Cổng nhận Khung cuối: Nối từ cổng end_image của node Tách frame (Video-to-Video)"
+      />
+      <div style={handleLabelStyle("left", "78%")}>← Khung cuối</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="video"
+        style={{ background: "#f59e0b" }}
+        title="Cổng xuất Video kết quả: Nối sang cổng Video của node Tách frame"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
         <select
@@ -852,10 +945,41 @@ function FrameNode({ id, data, selected }: NodeProps) {
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
     >
-      <Handle type="target" position={Position.Left} id="video" style={{ background: "#f59e0b" }} />
-      <Handle type="source" position={Position.Right} id="image" style={{ top: "40%", background: "#22c55e" }} />
-      <Handle type="source" position={Position.Right} id="start_image" style={{ top: "62%", background: "#14b8a6" }} />
-      <Handle type="source" position={Position.Right} id="end_image" style={{ top: "82%", background: "#ec4899" }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="video"
+        style={{ background: "#f59e0b" }}
+        title="Cổng nhận Video gốc: Nối từ cổng Video của node Tạo video"
+      />
+      <div style={handleLabelStyle("left", "50%")}>← Video gốc</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="image"
+        style={{ top: "40%", background: "#22c55e" }}
+        title="Cổng xuất Mọi frame: Trích xuất tất cả các frame của video"
+      />
+      <div style={handleLabelStyle("right", "40%")}>Mọi frame →</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="start_image"
+        style={{ top: "62%", background: "#14b8a6" }}
+        title="Cổng xuất Khung đầu: Chỉ lấy frame đầu tiên của video"
+      />
+      <div style={handleLabelStyle("right", "62%")}>Khung đầu →</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="end_image"
+        style={{ top: "82%", background: "#ec4899" }}
+        title="Cổng xuất Khung cuối: Chỉ lấy frame cuối cùng để nối video tiếp theo"
+      />
+      <div style={handleLabelStyle("right", "82%")}>Khung cuối →</div>
       <label className="nodrag">
         Lấy frame
         <select
