@@ -557,11 +557,8 @@ function PromptNode({ id, data, selected }: NodeProps) {
 
 function ReferenceNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
-  const preview = d.image
-    ? [d.image]
-    : d.resultUrls?.length
-      ? d.resultUrls
-      : [];
+  // MediaPreview: only use resultUrls (ImageAttachBar already shows thumb for d.image)
+  const previewUrls = d.resultUrls?.length ? d.resultUrls : [];
   return (
     <Shell
       type="reference"
@@ -585,12 +582,16 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
           Sử dụng trong prompt: <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>
         </div>
       )}
-      {preview.length > 0 && !d.image ? (
-        <MediaPreview urls={preview} onPreview={d.onPreview} max={1} label="Preview" />
-      ) : null}
+      {previewUrls.length > 0 && !d.image && (
+        <MediaPreview urls={previewUrls} onPreview={d.onPreview} max={1} label="Preview" />
+      )}
       <input
         className="nodrag"
-        value={d.image?.startsWith("data:") ? "(đã gắn file local)" : d.image || ""}
+        value={
+          d.image?.startsWith("data:") ? "(đã gắn file local)"
+          : d.image ? (d.refName ? `@${d.refName}` : d.image)
+          : ""
+        }
         onChange={(e) => d.onChange?.(id, { image: e.target.value, resultUrls: e.target.value ? [e.target.value] : undefined })}
         placeholder="Hoặc dán URL /api/files/..."
         style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
@@ -1859,7 +1860,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       const promptY = y - 40;
 
       const promptData: WNodeData = {
-        title: `Prompt ${prefix}${prefix.startsWith("__auto") ? "" : ""}`,
+        title: prefix.startsWith("__auto") ? `Prompt ${lineIndex + 1}` : `Prompt ${prefix}`,
         prompt: text,
         promptKind: type === "video_generate" ? "video" : "image",
         runStatus: "idle",
@@ -1889,9 +1890,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         genData.aspect_ratio = "16:9";
       } else {
         genData.model = "veo_31_fast";
-        genData.mode = "start_image";
+        genData.mode = "text_to_video"; // default: no image edge yet
         genData.aspect_ratio = "16:9";
-        genData.hasStartImageInput = true;
+        // hasStartImageInput NOT set here — set below when cross-box edge is created
       }
 
       newNodes.push({ id: genId, type, position: { x, y }, data: genData });
@@ -1929,10 +1930,17 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             animated: true,
             style: { stroke: "#22c55e", strokeWidth: 2 },
           });
+          // Update dst node data so VideoNode shows "Ảnh đầu lấy từ node ảnh đã nối"
+          const dstNode = newNodes.find(n => n.id === dstId);
+          if (dstNode) {
+            (dstNode.data as WNodeData).hasStartImageInput = true;
+            (dstNode.data as WNodeData).mode = "start_image";
+          }
         } else if (srcType === "video_generate" && dstType === "video_generate") {
           const feId = nid("frame_extract");
           const srcRow = boxLineRowMap.get(`${src.boxIndex}_${src.lineIndex}`) ?? 0;
-          const feX = origin.x + src.boxIndex * LANE_GAP + 220;
+          // Position frame node between src column and dst column
+          const feX = origin.x + src.boxIndex * LANE_GAP + Math.floor(LANE_GAP / 2);
           const feY = origin.y + srcRow * BOX_GAP + 40;
 
           const feData: WNodeData = {
@@ -1963,6 +1971,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             animated: true,
             style: { stroke: "#ec4899", strokeWidth: 2 },
           });
+          // Update dst node data
+          const dstNode = newNodes.find(n => n.id === dstId);
+          if (dstNode) {
+            (dstNode.data as WNodeData).hasStartImageInput = true;
+            (dstNode.data as WNodeData).hasEndImageInput = true;
+            (dstNode.data as WNodeData).mode = "start_end_image";
+          }
         }
         // Image → Image: no chain edge (each stands alone)
       }
