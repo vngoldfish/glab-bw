@@ -29,6 +29,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   deleteProject,
   duplicateProject,
+  fetchAllProjectAssets,
   fetchProject,
   fetchProjectAssets,
   fetchReferenceLibrary,
@@ -94,8 +95,12 @@ type WNodeData = {
   hasEndImageInput?: boolean;
   /** true if reference edge connected (for character reference) */
   hasReferenceInput?: boolean;
+  /** true if a prompt node is connected via prompt edge */
+  hasPromptInput?: boolean;
   /** AI rewrite style for this prompt node */
   promptKind?: "image" | "video";
+  /** Inline prompt hint for VideoNode (when no PromptNode connected) */
+  prompt_hint?: string;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -666,11 +671,14 @@ function GenerateNode({ id, data, selected }: NodeProps) {
 
 function VideoNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
+  const [aiBusy, setAiBusy] = useState(false);
   // Ảnh đầu: từ edge (node ảnh) HOẶC upload khi không nối
   const fromEdge = Boolean(d.hasStartImageInput);
   const hasStart = fromEdge || Boolean(d.start_image);
   const hasEndEdge = Boolean(d.hasEndImageInput);
   const hasRefEdge = Boolean(d.hasReferenceInput);
+  // Check xem có PromptNode nối vào không
+  const hasPromptEdge = Boolean(d.hasPromptInput);
 
   // Mode tự suy: text | start | start+end | components (reference)
   const modeLabel = hasEndEdge
@@ -680,6 +688,36 @@ function VideoNode({ id, data, selected }: NodeProps) {
       : hasRefEdge
         ? "Từ text → video (Tham chiếu nhân vật)"
         : "Từ text → video";
+
+  async function handleAiVideoPrompt() {
+    const source = (d.prompt_hint || "").trim();
+    if (!source) {
+      d.onError?.("Nhập ý/prompt video trên node này trước khi dùng AI");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      const res = await rewritePromptAi({
+        prompt: source,
+        kind: "video",
+        locale: "vi",
+        current_node_id: id,
+        workflow_context,
+      });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
+        return;
+      }
+      d.onChange?.(id, { prompt_hint: next });
+    } catch (err) {
+      d.onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   return (
     <Shell
@@ -712,6 +750,42 @@ function VideoNode({ id, data, selected }: NodeProps) {
       <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
         <span>{modeLabel}</span>
       </div>
+
+      {/* Prompt hint + AI button — hiện khi không có PromptNode nối */}
+      {!hasPromptEdge && (
+        <div className="nodrag" style={{ marginBottom: 8 }}>
+          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt video</span>
+            <button
+              type="button"
+              className="node-ai-btn"
+              disabled={aiBusy || !(d.prompt_hint || "").trim()}
+              onClick={() => void handleAiVideoPrompt()}
+              title="AI viết lại prompt video cho tốt"
+            >
+              {aiBusy ? "AI…" : "✦ AI"}
+            </button>
+          </div>
+          <textarea
+            className="nodrag nowheel"
+            rows={3}
+            value={d.prompt_hint || ""}
+            onChange={(e) => d.onChange?.(id, { prompt_hint: e.target.value })}
+            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt video hoàn chỉnh"
+            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
+            disabled={aiBusy}
+          />
+          {aiBusy && (
+            <div className="node-ai-status">AI đang viết prompt video…</div>
+          )}
+        </div>
+      )}
+
+      {hasPromptEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
+          ✓ Đã nối node Prompt
+        </div>
+      )}
 
       {hasRefEdge && (
         <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(6,182,212,0.3)", color: "#06b6d4" }}>
@@ -1213,9 +1287,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   /** Sidebar media column: Image / Video tabs (newest first) */
   const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
   const [picker, setPicker] = useState<{ nodeId: string; field: ImageField } | null>(null);
-  const [pickerTab, setPickerTab] = useState<"project" | "library">("project");
+  const [pickerTab, setPickerTab] = useState<"project" | "library" | "all_projects">("project");
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+  const [allProjectsAssets, setAllProjectsAssets] = useState<ProjectAsset[]>([]);
   const [bulkBoxes, setBulkBoxes] = useState<Array<{ id: string; type: "generate" | "video_generate"; prompts: string }>>([]);
   const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
@@ -1518,6 +1593,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         if (pickerTab === "library") {
           const data = await fetchReferenceLibrary();
           setLibrary(data.references.map(mapReferenceRecord));
+        } else if (pickerTab === "all_projects") {
+          const data = await fetchAllProjectAssets("image", 300);
+          setAllProjectsAssets(data.assets);
         } else if (projectIdRef.current) {
           const data = await fetchProjectAssets(projectIdRef.current, "image");
           setProjectAssets(data.assets);
@@ -1695,12 +1773,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         const hasRef = edges.some(
           (e) => e.target === n.id && e.targetHandle === "reference",
         );
+        const hasPrompt = edges.some(
+          (e) => e.target === n.id && e.targetHandle === "prompt",
+        );
         const startFlag = hasStartStrict || hasStart;
         const d = n.data as WNodeData;
         if (
           d.hasStartImageInput === startFlag &&
           d.hasEndImageInput === hasEnd &&
-          d.hasReferenceInput === hasRef
+          d.hasReferenceInput === hasRef &&
+          d.hasPromptInput === hasPrompt
         ) {
           return n;
         }
@@ -1718,6 +1800,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             hasStartImageInput: startFlag,
             hasEndImageInput: hasEnd,
             hasReferenceInput: hasRef,
+            hasPromptInput: hasPrompt,
             mode,
             // clear local start upload when edge provides image
             ...(startFlag ? { start_image: undefined } : {}),
@@ -1733,6 +1816,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       return changed ? next : nds;
     });
   }, [edges, getWorkflowContext, onError, openPreview, patchNode, setNodes]);
+
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
@@ -1783,7 +1867,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
     }
-    if (type === "frame_extract") baseData.positions = "start,middle,end";
+    if (type === "frame_extract") baseData.positions = "end";
     if (type === "reference") baseData.image = "";
 
     let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -3063,7 +3147,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 onClick={() => setPickerTab("project")}
                 disabled={!projectIdRef.current}
               >
-                Project media
+                Project này
+              </button>
+              <button
+                type="button"
+                className={`projects-tab${pickerTab === "all_projects" ? " active" : ""}`}
+                onClick={() => setPickerTab("all_projects")}
+              >
+                🗂 Tất cả Projects
               </button>
               <button
                 type="button"
@@ -3092,6 +3183,31 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     <span>{ref.name}</span>
                   </button>
                 ))}
+              </div>
+            ) : pickerTab === "all_projects" ? (
+              <div className="node-picker-grid">
+                {allProjectsAssets.length === 0 && (
+                  <p className="muted">Chưa có ảnh trong bất kỳ project nào.</p>
+                )}
+                {allProjectsAssets
+                  .filter((a) => a.kind === "image" || !/\.mp4/i.test(a.name))
+                  .map((a, i) => (
+                    <button
+                      key={`all-${a.path || a.url}-${i}`}
+                      type="button"
+                      className="node-picker-item"
+                      onClick={() => applyPickedImage(normalizeFileUrl(a.url))}
+                      title={`${(a as ProjectAsset & { project_name?: string }).project_name || ""} · ${a.name}`}
+                    >
+                      <img src={normalizeFileUrl(a.url)} alt={a.name} />
+                      <span style={{ fontSize: 9 }}>
+                        <span style={{ color: "#94a3b8", display: "block" }}>
+                          {(a as ProjectAsset & { project_name?: string }).project_name || ""}
+                        </span>
+                        {a.name}
+                      </span>
+                    </button>
+                  ))}
               </div>
             ) : (
               <div className="node-picker-grid">
@@ -3140,6 +3256,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           </div>
         </div>
       )}
+
 
       {lightbox && (
         <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>

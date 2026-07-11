@@ -112,6 +112,37 @@ async def duplicate_project(project_id: str) -> dict:
     return {"project": doc}
 
 
+@router.get("/assets/all")
+async def all_project_assets(
+    kind: str | None = Query(default="image", description="image|video|all"),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> dict:
+    """Lấy ảnh từ toàn bộ projects (dùng cho picker trong workflow)."""
+    projects = store.list_projects(with_assets=False)
+    combined: list[dict] = []
+    seen_paths: set[str] = set()
+    for proj in projects:
+        pid = proj.get("id")
+        if not pid:
+            continue
+        try:
+            assets = list_assets(pid, kind=kind, limit=limit)
+            for a in assets:
+                pth = str(a.get("path") or "")
+                if pth and pth in seen_paths:
+                    continue
+                if pth:
+                    seen_paths.add(pth)
+                combined.append({**a, "project_id": pid, "project_name": proj.get("name", pid)})
+        except Exception:
+            continue
+    combined.sort(key=lambda x: float(x.get("mtime") or 0), reverse=True)
+    return {
+        "assets": combined[:limit],
+        "total": len(combined),
+    }
+
+
 @router.get("/{project_id}/assets")
 async def project_assets(
     project_id: str,

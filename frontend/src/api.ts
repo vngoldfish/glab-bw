@@ -1051,6 +1051,15 @@ export async function fetchProjectAssets(
   return readJson(res);
 }
 
+export async function fetchAllProjectAssets(
+  kind: "image" | "video" | "all" = "image",
+  limit = 200,
+): Promise<{ assets: ProjectAsset[]; total: number }> {
+  const res = await apiFetch(`/api/projects/assets/all?kind=${kind}&limit=${limit}`);
+  await ensureOk(res, "Không tải media tất cả projects");
+  return readJson(res);
+}
+
 export async function deleteProjectAsset(id: string, path: string): Promise<void> {
   const res = await apiFetch(`/api/projects/${id}/assets`, {
     method: "DELETE",
