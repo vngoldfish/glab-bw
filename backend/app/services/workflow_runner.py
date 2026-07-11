@@ -402,11 +402,8 @@ async def run_workflow(
     project_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Execute graph. Updates run["node_results"] after each node (poll-friendly).
-
-    skip_completed + prior_results: reuse completed nodes' outputs.
-    only_node_ids: only re-run these nodes (others treated as skip_completed if prior exists).
-    project_id: save media under G-Labs BW/projects/{id}/...
+    Execute graph in parallel topological order.
+    Executes independent nodes concurrently while keeping correct execution sequence for dependents.
     """
     rid = run_id or secrets.token_hex(5)
     nodes = list(workflow.get("nodes") or [])
@@ -425,31 +422,42 @@ async def run_workflow(
         "node_results": {},
         "logs": [],
         "error": None,
-        "progress": {"done": 0, "total": 0, "current": None},
+        "progress": {"done": 0, "total": len(nodes), "current": None},
     }
     run["project_id"] = pid
     run["status"] = "running"
     run["error"] = None
     run["finished_at"] = None
-    # seed with prior for progressive UI
     if prior:
         run["node_results"] = {**prior, **run.get("node_results", {})}
     _runs[rid] = run
 
     def log(msg: str) -> None:
         run["logs"].append({"t": time.time(), "msg": msg})
-        # keep last 200 logs
         if len(run["logs"]) > 200:
             run["logs"] = run["logs"][-200:]
         logger.info("[wf %s] %s", rid, msg)
 
     try:
-        order = _topo_order(nodes, edges)
         nmap = _node_map(nodes)
-        run["progress"] = {"done": 0, "total": len(order), "current": None}
+        ids = {str(n["id"]) for n in nodes}
+        run["progress"] = {"done": 0, "total": len(ids), "current": None}
         outputs: dict[str, dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
 
-        for nid in order:
+        # Build dependency graph
+        adj: dict[str, list[str]] = defaultdict(list)
+        parents: dict[str, list[str]] = defaultdict(list)
+        for e in edges:
+            s, t = str(e.get("source")), str(e.get("target"))
+            if s not in ids or t not in ids:
+                continue
+            adj[s].append(t)
+            parents[t].append(s)
+
+        completed_nodes = set()
+
+        # 1. First Pass: Handle nodes that can be skipped or reused
+        for nid in ids:
             node = nmap.get(nid)
             if not node:
                 continue
@@ -457,75 +465,142 @@ async def run_workflow(
             data = dict(node.get("data") or {})
             prior_nr = prior.get(nid) if isinstance(prior.get(nid), dict) else None
 
-            # Decide skip
             should_skip = False
             if data.get("disabled") or data.get("skipped"):
                 should_skip = True
             elif only_set is not None:
-                # Re-run only listed nodes; restore others from prior_results
                 if nid not in only_set:
                     if prior_nr and prior_nr.get("status") == "completed":
                         should_skip = True
                     elif ntype in {"prompt", "reference"}:
-                        should_skip = False  # re-emit from node data
+                        should_skip = False
                     else:
-                        should_skip = bool(
-                            prior_nr and prior_nr.get("status") == "completed"
-                        )
-                # nid in only_set → always re-run
+                        should_skip = bool(prior_nr and prior_nr.get("status") == "completed")
             elif skip_completed and prior_nr and prior_nr.get("status") == "completed":
                 should_skip = True
 
-            if should_skip and prior_nr and prior_nr.get("status") == "completed":
-                log(f"Reuse {nid} ({ntype})")
-                _restore_outputs_from_result(nid, ntype, prior_nr, data, outputs)
-                run["node_results"][nid] = {**prior_nr, "status": "completed", "reused": True}
+            if should_skip:
+                if prior_nr and prior_nr.get("status") == "completed":
+                    log(f"Reuse {nid} ({ntype})")
+                    _restore_outputs_from_result(nid, ntype, prior_nr, data, outputs)
+                    run["node_results"][nid] = {**prior_nr, "status": "completed", "reused": True}
+                else:
+                    log(f"Skip disabled {nid}")
+                    run["node_results"][nid] = {"status": "skipped", "type": ntype}
+                
+                completed_nodes.add(nid)
                 run["progress"]["done"] = int(run["progress"]["done"]) + 1
+
+        # Track active incomplete parent counts
+        active_parent_count = {}
+        for nid in ids:
+            if nid in completed_nodes:
                 continue
+            active_parent_count[nid] = sum(1 for p in parents[nid] if p not in completed_nodes)
 
-            if should_skip and (data.get("disabled") or data.get("skipped")):
-                log(f"Skip disabled {nid}")
-                run["node_results"][nid] = {"status": "skipped", "type": ntype}
-                run["progress"]["done"] = int(run["progress"]["done"]) + 1
-                continue
+        # Nodes ready to execute (0 active parents)
+        ready_queue = [nid for nid in ids if nid not in completed_nodes and active_parent_count.get(nid, 0) == 0]
+        running_tasks: dict[str, asyncio.Task] = {}
+        failed_node_error = None
 
-            # gather inputs
-            inputs: dict[str, list[Any]] = defaultdict(list)
-            for e in _incoming(edges, nid):
-                src = str(e.get("source"))
-                sh = str(e.get("sourceHandle") or "out")
-                th = str(e.get("targetHandle") or "in")
-                vals = outputs.get(src, {}).get(sh) or outputs.get(src, {}).get("out") or []
-                inputs[th].extend(vals)
+        # 2. Parallel Event Loop
+        while (ready_queue or running_tasks) and not failed_node_error:
+            # Launch all ready nodes
+            while ready_queue and not failed_node_error:
+                nid = ready_queue.pop(0)
+                node = nmap.get(nid)
+                if not node:
+                    continue
+                ntype = str(node.get("type") or "")
+                data = dict(node.get("data") or {})
 
-            log(f"Run {nid} type={ntype}")
-            run["progress"]["current"] = nid
-            run["node_results"][nid] = {"status": "running", "type": ntype}
+                # Gather inputs
+                inputs: dict[str, list[Any]] = defaultdict(list)
+                for e in _incoming(edges, nid):
+                    src = str(e.get("source"))
+                    sh = str(e.get("sourceHandle") or "out")
+                    th = str(e.get("targetHandle") or "in")
+                    vals = outputs.get(src, {}).get(sh) or outputs.get(src, {}).get("out") or []
+                    inputs[th].extend(vals)
 
-            try:
-                result = await _execute_node(
-                    nid, ntype, data, inputs, outputs, project_id=str(pid) if pid else None
+                log(f"Run {nid} type={ntype} (Parallel)")
+                run["progress"]["current"] = nid
+                run["node_results"][nid] = {"status": "running", "type": ntype}
+
+                # Start node execution asynchronously
+                task = asyncio.create_task(
+                    _execute_node(
+                        nid, ntype, data, inputs, outputs, project_id=str(pid) if pid else None
+                    )
                 )
-                run["node_results"][nid] = result
-                run["progress"]["done"] = int(run["progress"]["done"]) + 1
-                log(f"OK {nid}")
-            except Exception as exc:
-                log(f"Node {nid} FAILED: {exc}")
-                run["node_results"][nid] = {
-                    "status": "failed",
-                    "type": ntype,
-                    "error": str(exc),
-                }
-                run["status"] = "failed"
-                run["error"] = f"Node {nid} ({ntype}): {exc}"
-                run["finished_at"] = time.time()
-                run["progress"]["current"] = None
-                return run
+                running_tasks[nid] = task
+
+            if not running_tasks:
+                break
+
+            # Wait for at least one node to finish
+            done, _ = await asyncio.wait(
+                list(running_tasks.values()),
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Process completed tasks
+            for task in done:
+                # Find corresponding node ID
+                finished_nid = None
+                for nid_key, t in running_tasks.items():
+                    if t == task:
+                        finished_nid = nid_key
+                        break
+                
+                if not finished_nid:
+                    continue
+
+                del running_tasks[finished_nid]
+                node = nmap.get(finished_nid)
+                ntype = str(node.get("type") or "") if node else ""
+
+                try:
+                    result = task.result()
+                    run["node_results"][finished_nid] = result
+                    run["progress"]["done"] = int(run["progress"]["done"]) + 1
+                    log(f"OK {finished_nid}")
+
+                    completed_nodes.add(finished_nid)
+
+                    # Trigger child nodes if all their parents are done
+                    for child in adj[finished_nid]:
+                        if child in completed_nodes:
+                            continue
+                        active_parent_count[child] -= 1
+                        if active_parent_count[child] == 0:
+                            ready_queue.append(child)
+
+                except Exception as exc:
+                    log(f"Node {finished_nid} FAILED: {exc}")
+                    run["node_results"][finished_nid] = {
+                        "status": "failed",
+                        "type": ntype,
+                        "error": str(exc),
+                    }
+                    failed_node_error = f"Node {finished_nid} ({ntype}): {exc}"
+                    run["status"] = "failed"
+                    run["error"] = failed_node_error
+                    run["finished_at"] = time.time()
+                    break
+
+        if failed_node_error:
+            # Cancel all other active tasks if one fails
+            for t in running_tasks.values():
+                t.cancel()
+            run["progress"]["current"] = None
+            return run
 
         run["status"] = "completed"
         run["finished_at"] = time.time()
         run["progress"]["current"] = None
-        log("Workflow completed")
+        log("Workflow completed (Parallel)")
+
     except Exception as exc:
         logger.exception("Workflow run failed")
         run["status"] = "failed"
