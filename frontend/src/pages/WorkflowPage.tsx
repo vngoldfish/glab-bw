@@ -377,10 +377,10 @@ function ImageAttachBar({
         <button
           type="button"
           className="node-attach-thumb"
-          onClick={() => value && onPreview?.(normalizeFileUrl(value))}
+          onClick={() => value && onPreview?.(mediaUrl(value))}
           title="Xem ảnh"
         >
-          <img src={normalizeFileUrl(value!)} alt="" />
+          <img src={mediaUrl(value!)} alt="" onError={e => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
         </button>
       ) : (
         <div className="node-attach-actions">
@@ -2013,9 +2013,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           const refY = origin.y + refNodeCounter * 240;
           refNodeCounter++;
 
+          const imageUrl = libItem?.image || undefined;
           const refData: WNodeData = {
             title: libItem ? `@${libItem.name}` : `@${mention}`,
-            image: libItem ? (libItem.filePath || libItem.image) : "",
+            image: imageUrl,
+            resultUrls: imageUrl ? [imageUrl] : undefined,
             refName: libItem ? libItem.name : mention,
             runStatus: "idle",
             onChange: patchNode,
