@@ -220,7 +220,7 @@ class FlowVeoProvider(BaseProvider):
 
         # Auto-upgrade plain T2V only when user did not pick an explicit frame mode
         if mode == "text_to_video" and named_items:
-            mode = "components" if len(named_items) >= 2 else "start_image"
+            mode = "components"
 
         # Strict validation for frame modes (do NOT silently rewrite to ingredients)
         if mode == "start_image" and not reference_items:

@@ -92,6 +92,8 @@ type WNodeData = {
   hasStartImageInput?: boolean;
   /** true if end_image edge connected (e.g. from frame extract) */
   hasEndImageInput?: boolean;
+  /** true if reference edge connected (for character reference) */
+  hasReferenceInput?: boolean;
   /** AI rewrite style for this prompt node */
   promptKind?: "image" | "video";
 };
@@ -668,12 +670,16 @@ function VideoNode({ id, data, selected }: NodeProps) {
   const fromEdge = Boolean(d.hasStartImageInput);
   const hasStart = fromEdge || Boolean(d.start_image);
   const hasEndEdge = Boolean(d.hasEndImageInput);
-  // Mode tự suy: text | start | start+end (end chỉ từ node tách frame)
+  const hasRefEdge = Boolean(d.hasReferenceInput);
+
+  // Mode tự suy: text | start | start+end | components (reference)
   const modeLabel = hasEndEdge
     ? "Ảnh đầu + khung cuối (từ node frame)"
     : hasStart
       ? "Từ ảnh → video"
-      : "Từ text → video";
+      : hasRefEdge
+        ? "Từ text → video (Tham chiếu nhân vật)"
+        : "Từ text → video";
 
   return (
     <Shell
@@ -686,9 +692,10 @@ function VideoNode({ id, data, selected }: NodeProps) {
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
     >
-      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "22%", background: "#6366f1" }} />
-      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "50%", background: "#22c55e" }} />
-      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "75%", background: "#14b8a6" }} />
+      <Handle type="target" position={Position.Left} id="prompt" style={{ top: "18%", background: "#6366f1" }} />
+      <Handle type="target" position={Position.Left} id="start_image" style={{ top: "38%", background: "#22c55e" }} />
+      <Handle type="target" position={Position.Left} id="reference" style={{ top: "58%", background: "#06b6d4" }} />
+      <Handle type="target" position={Position.Left} id="end_image" style={{ top: "78%", background: "#14b8a6" }} />
       <Handle type="source" position={Position.Right} id="video" style={{ background: "#f59e0b" }} />
       <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
         Model
@@ -705,6 +712,12 @@ function VideoNode({ id, data, selected }: NodeProps) {
       <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
         <span>{modeLabel}</span>
       </div>
+
+      {hasRefEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(6,182,212,0.3)", color: "#06b6d4" }}>
+          ✓ Đã nối nhân vật tham chiếu
+        </div>
+      )}
 
       {fromEdge ? (
         <div className="node-edge-hint">
@@ -1679,9 +1692,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         const hasEnd = edges.some(
           (e) => e.target === n.id && e.targetHandle === "end_image",
         );
+        const hasRef = edges.some(
+          (e) => e.target === n.id && e.targetHandle === "reference",
+        );
         const startFlag = hasStartStrict || hasStart;
         const d = n.data as WNodeData;
-        if (d.hasStartImageInput === startFlag && d.hasEndImageInput === hasEnd) {
+        if (
+          d.hasStartImageInput === startFlag &&
+          d.hasEndImageInput === hasEnd &&
+          d.hasReferenceInput === hasRef
+        ) {
           return n;
         }
         changed = true;
@@ -1689,6 +1709,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         let mode = d.mode;
         if (hasEnd && startFlag) mode = "start_end_image";
         else if (startFlag || d.start_image) mode = "start_image";
+        else if (hasRef) mode = "components";
         else if (!d.start_image) mode = "text_to_video";
         return {
           ...n,
@@ -1696,6 +1717,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             ...d,
             hasStartImageInput: startFlag,
             hasEndImageInput: hasEnd,
+            hasReferenceInput: hasRef,
             mode,
             // clear local start upload when edge provides image
             ...(startFlag ? { start_image: undefined } : {}),
@@ -2052,7 +2074,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
           // Connect this Reference node → every generator that mentions it
           targets.forEach(({ genId, genType }) => {
-            const targetHandle = genType === "video_generate" ? "start_image" : "image";
+            const targetHandle = genType === "video_generate" ? "reference" : "image";
             newEdges.push({
               id: `edge_ref_${refId}_${genId}`,
               source: refId,

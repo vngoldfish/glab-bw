@@ -237,6 +237,7 @@ async def _execute_node(
             raise ValueError("Video needs prompt")
         start_refs = list(inputs.get("start_image") or inputs.get("image") or [])
         end_refs = list(inputs.get("end_image") or [])
+        ref_refs = list(inputs.get("reference") or [])
         # Node-attached images (pick from library / upload without edge)
         for key in ("start_image", "image", "startImage"):
             val = data.get(key)
@@ -248,7 +249,9 @@ async def _execute_node(
             if val and val not in end_refs:
                 end_refs.insert(0, val)
                 break
-        mode = data.get("mode") or ("start_image" if start_refs else "text_to_video")
+        
+        # Default mode: components if we have reference edges, otherwise start_image if start_refs, otherwise text_to_video
+        mode = data.get("mode") or ("components" if ref_refs else "start_image" if start_refs else "text_to_video")
         params: dict[str, Any] = {
             "model": data.get("model") or "veo_31_fast",
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
@@ -268,11 +271,16 @@ async def _execute_node(
                 ref_list.append(str(r))
             else:
                 ref_list.append(await _url_to_data_url(str(r)))
+        for r in ref_refs:
+            if str(r).startswith("data:"):
+                ref_list.append(str(r))
+            else:
+                ref_list.append(await _url_to_data_url(str(r)))
         if ref_list:
             params["reference_images"] = ref_list
-            if len(ref_list) >= 2:
+            if len(ref_list) >= 2 and not ref_refs:
                 params["mode"] = "start_end_image"
-            elif mode == "text_to_video":
+            elif mode == "text_to_video" and not ref_refs:
                 params["mode"] = "start_image"
         try:
             from app.services import reference_storage
