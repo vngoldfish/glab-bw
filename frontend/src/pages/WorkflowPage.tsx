@@ -1762,9 +1762,11 @@ function layoutWorkflowNodes(
     rowMap.set(nodeId, row);
     const neighbors = [...(primaryOutgoing.get(nodeId) || [])];
     neighbors.sort((a, b) => {
-      const na = nodes.find((x) => x.id === a);
-      const nb = nodes.find((x) => x.id === b);
-      return (na?.position.y || 0) - (nb?.position.y || 0);
+      const na = nodes.find((x) => x.id === a)!;
+      const nb = nodes.find((x) => x.id === b)!;
+      const nameA = String(na.data?.refName || na.data?.title || na.id);
+      const nameB = String(nb.data?.refName || nb.data?.title || nb.id);
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
     });
     neighbors.forEach((neigh, idx) => {
       if (idx === 0) {
@@ -1778,9 +1780,11 @@ function layoutWorkflowNodes(
 
   const rootIds = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
   rootIds.sort((a, b) => {
-    const na = nodes.find((x) => x.id === a);
-    const nb = nodes.find((x) => x.id === b);
-    return (na?.position.y || 0) - (nb?.position.y || 0);
+    const na = nodes.find((x) => x.id === a)!;
+    const nb = nodes.find((x) => x.id === b)!;
+    const nameA = String(na.data?.refName || na.data?.title || na.id);
+    const nameB = String(nb.data?.refName || nb.data?.title || nb.id);
+    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
   });
 
   for (const rId of rootIds) {
