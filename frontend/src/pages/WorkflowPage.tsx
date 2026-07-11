@@ -1202,7 +1202,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [library, setLibrary] = useState<NamedReference[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [bulkPrompts, setBulkPrompts] = useState("");
-  const [bulkNodeType, setBulkNodeType] = useState<"prompt" | "generate" | "video_generate">("prompt");
+  const [bulkNodeType, setBulkNodeType] = useState<"generate" | "video_generate">("generate");
+  const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
   const [canvasReady, setCanvasReady] = useState(false);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
@@ -1791,7 +1792,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const newEdges: Edge[] = [];
 
     lines.forEach((line, index) => {
-      const yOffset = index * (bulkNodeType === "prompt" ? 170 : bulkNodeType === "generate" ? 280 : 360);
+      const yOffset = index * (bulkNodeType === "generate" ? 280 : 360);
       const currentY = centerPos.y + yOffset;
 
       const pId = nid("prompt");
@@ -1815,45 +1816,43 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         data: promptData,
       });
 
-      if (bulkNodeType !== "prompt") {
-        const genId = nid(bulkNodeType);
-        const genData: WNodeData = {
-          title: bulkNodeType === "generate" ? `Tạo ảnh ${index + 1}` : `Tạo video ${index + 1}`,
-          runStatus: "idle",
-          onChange: patchNode,
-          onPreview: openPreview,
-          onError,
-          getWorkflowContext,
-          onRerun: (nid: string) => rerunRef.current(nid),
-          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
-        };
+      const genId = nid(bulkNodeType);
+      const genData: WNodeData = {
+        title: bulkNodeType === "generate" ? `Tạo ảnh ${index + 1}` : `Tạo video ${index + 1}`,
+        runStatus: "idle",
+        onChange: patchNode,
+        onPreview: openPreview,
+        onError,
+        getWorkflowContext,
+        onRerun: (nid: string) => rerunRef.current(nid),
+        onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+      };
 
-        if (bulkNodeType === "generate") {
-          genData.model = "nano_banana_2_lite";
-          genData.aspect_ratio = "16:9";
-        } else {
-          genData.model = "veo_31_fast";
-          genData.mode = "start_image";
-          genData.aspect_ratio = "16:9";
-        }
-
-        newNodes.push({
-          id: genId,
-          type: bulkNodeType,
-          position: { x: centerPos.x + 320, y: currentY },
-          data: genData,
-        });
-
-        newEdges.push({
-          id: `edge_${pId}_to_${genId}`,
-          source: pId,
-          sourceHandle: "prompt",
-          target: genId,
-          targetHandle: "prompt",
-          animated: true,
-          style: { stroke: "#64748b", strokeWidth: 2 },
-        });
+      if (bulkNodeType === "generate") {
+        genData.model = "nano_banana_2_lite";
+        genData.aspect_ratio = "16:9";
+      } else {
+        genData.model = "veo_31_fast";
+        genData.mode = "start_image";
+        genData.aspect_ratio = "16:9";
       }
+
+      newNodes.push({
+        id: genId,
+        type: bulkNodeType,
+        position: { x: centerPos.x + 320, y: currentY },
+        data: genData,
+      });
+
+      newEdges.push({
+        id: `edge_${pId}_to_${genId}`,
+        source: pId,
+        sourceHandle: "prompt",
+        target: genId,
+        targetHandle: "prompt",
+        animated: true,
+        style: { stroke: "#64748b", strokeWidth: 2 },
+      });
     });
 
     setNodes((nds) => [...nds, ...newNodes]);
@@ -2503,38 +2502,23 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div className="wf-panel-card" style={{ marginTop: 10 }}>
-            <h3>Thêm hàng loạt</h3>
-            <textarea
-              rows={4}
-              placeholder="Nhập nhiều prompt... Phân tách bằng xuống dòng."
-              value={bulkPrompts}
-              onChange={(e) => setBulkPrompts(e.target.value)}
-              className="wf-input"
-              style={{ width: "100%", fontSize: 11, resize: "vertical", background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "inherit", padding: 6, fontFamily: "inherit" }}
-            />
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-              <select
-                value={bulkNodeType}
-                onChange={(e) => setBulkNodeType(e.target.value as any)}
-                className="wf-input"
-                style={{ fontSize: 11, flex: 1, background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "inherit", padding: 6 }}
-              >
-                <option value="prompt">Node Prompt</option>
-                <option value="generate">Node Tạo ảnh</option>
-                <option value="video_generate">Node Tạo video</option>
-              </select>
               <button
                 type="button"
-                className="btn btn-primary btn-sm"
-                disabled={!bulkPrompts.trim()}
-                onClick={addBulkNodes}
-                style={{ fontSize: 11, padding: "4px 10px" }}
+                className="wf-node-add-btn"
+                onClick={() => {
+                  setBulkPrompts("");
+                  setBulkNodeType("generate");
+                  setShowBulkPopup(true);
+                }}
+                style={{
+                  marginTop: 6,
+                  borderStyle: "dashed",
+                  borderColor: "rgba(129, 140, 248, 0.4)",
+                  color: "#a5b4fc",
+                  background: "rgba(129, 140, 248, 0.05)",
+                }}
               >
-                Thêm
+                ⚡ Thêm hàng loạt
               </button>
             </div>
           </div>
@@ -2935,6 +2919,105 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               onClick={(e) => e.stopPropagation()}
             />
           )}
+        </div>
+      )}
+
+      {showBulkPopup && (
+        <div className="ui-lightbox node-picker-overlay" onClick={() => setShowBulkPopup(false)}>
+          <div
+            className="wf-panel-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "500px",
+              maxWidth: "90vw",
+              background: "#181a22",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 14,
+              padding: 20,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>⚡ Thêm Node Hàng Loạt</span>
+              <button
+                type="button"
+                onClick={() => setShowBulkPopup(false)}
+                style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 18, cursor: "pointer" }}
+              >
+                ×
+              </button>
+            </h3>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ fontSize: 12, color: "#94a3b8" }}>Loại node muốn tạo:</label>
+              <div style={{ display: "flex", gap: 20 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="radio"
+                    name="bulkNodeType"
+                    checked={bulkNodeType === "generate"}
+                    onChange={() => setBulkNodeType("generate")}
+                  />
+                  🎨 Tạo ảnh (Prompt + Node Tạo ảnh)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+                  <input
+                    type="radio"
+                    name="bulkNodeType"
+                    checked={bulkNodeType === "video_generate"}
+                    onChange={() => setBulkNodeType("video_generate")}
+                  />
+                  🎬 Tạo video (Prompt + Node Tạo video)
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+              <label style={{ fontSize: 12, color: "#94a3b8" }}>Danh sách prompts (mỗi dòng tạo 1 cặp node):</label>
+              <textarea
+                rows={6}
+                placeholder="Nhập mỗi prompt một dòng..."
+                value={bulkPrompts}
+                onChange={(e) => setBulkPrompts(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "rgba(0,0,0,0.35)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 8,
+                  color: "inherit",
+                  padding: 10,
+                  fontSize: 12,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                  lineHeight: 1.5,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowBulkPopup(false)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!bulkPrompts.trim()}
+                onClick={() => {
+                  addBulkNodes();
+                  setShowBulkPopup(false);
+                }}
+              >
+                Thêm hàng loạt
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
