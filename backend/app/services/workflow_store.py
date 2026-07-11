@@ -412,3 +412,131 @@ def sample_product_placement() -> dict[str, Any]:
         "viewport": {"x": 0, "y": 0, "zoom": 0.8},
     }
 
+
+def sample_multi_product_isolate() -> dict[str, Any]:
+    """Bóc tách nhiều sản phẩm: 1 Ảnh gốc chứa nhiều đồ -> 3 Prompt bóc tách riêng -> 3 Ảnh sản phẩm sạch khác nhau."""
+    return {
+        "name": "Mẫu: Bóc tách nhiều sản phẩm",
+        "nodes": [
+            {
+                "id": "n_ref_raw",
+                "type": "reference",
+                "position": {"x": 40, "y": 280},
+                "data": {
+                    "title": "Ảnh gốc nhiều đồ",
+                    "image": "",
+                    "refName": "bo_do_dac",
+                },
+            },
+            # Item 1: Giày
+            {
+                "id": "n_prompt_item1",
+                "type": "prompt",
+                "position": {"x": 380, "y": 40},
+                "data": {
+                    "title": "Prompt tách Giày",
+                    "prompt": "A professional studio product shot of only the shoes from @bo_do_dac, isolated on a pure solid white background, commercial photography",
+                },
+            },
+            {
+                "id": "n_gen_item1",
+                "type": "generate",
+                "position": {"x": 720, "y": 40},
+                "data": {
+                    "title": "Tách Giày",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "1:1",
+                },
+            },
+            # Item 2: Túi xách
+            {
+                "id": "n_prompt_item2",
+                "type": "prompt",
+                "position": {"x": 380, "y": 280},
+                "data": {
+                    "title": "Prompt tách Túi",
+                    "prompt": "A professional studio product shot of only the leather handbag from @bo_do_dac, isolated on a pure solid white background, commercial photography",
+                },
+            },
+            {
+                "id": "n_gen_item2",
+                "type": "generate",
+                "position": {"x": 720, "y": 280},
+                "data": {
+                    "title": "Tách Túi",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "1:1",
+                },
+            },
+            # Item 3: Kính mắt
+            {
+                "id": "n_prompt_item3",
+                "type": "prompt",
+                "position": {"x": 380, "y": 520},
+                "data": {
+                    "title": "Prompt tách Kính",
+                    "prompt": "A professional studio product shot of only the sunglasses from @bo_do_dac, isolated on a pure solid white background, commercial photography",
+                },
+            },
+            {
+                "id": "n_gen_item3",
+                "type": "generate",
+                "position": {"x": 720, "y": 520},
+                "data": {
+                    "title": "Tách Kính",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "1:1",
+                },
+            },
+        ],
+        "edges": [
+            # Link Giày
+            {
+                "id": "e_i1_1",
+                "source": "n_ref_raw",
+                "target": "n_gen_item1",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_i1_2",
+                "source": "n_prompt_item1",
+                "target": "n_gen_item1",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+            # Link Túi
+            {
+                "id": "e_i2_1",
+                "source": "n_ref_raw",
+                "target": "n_gen_item2",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_i2_2",
+                "source": "n_prompt_item2",
+                "target": "n_gen_item2",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+            # Link Kính
+            {
+                "id": "e_i3_1",
+                "source": "n_ref_raw",
+                "target": "n_gen_item3",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_i3_2",
+                "source": "n_prompt_item3",
+                "target": "n_gen_item3",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 0.65},
+    }
+
+

@@ -34,6 +34,7 @@ import {
   fetchProject,
   fetchProjectAssets,
   fetchReferenceLibrary,
+  fetchSampleMultiProductIsolate,
   fetchSampleProductIsolate,
   fetchSampleProductPlacement,
   fetchSampleVideoChain,
@@ -3339,6 +3340,36 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 }}
               >
                 Mẫu: Ghép sản phẩm
+              </button>
+              <button
+                type="button"
+                className="wf-preset-btn"
+                title="Bóc tách nhiều sản phẩm: 1 Ảnh gốc nhiều đồ -> 3 Prompt bóc tách riêng -> 3 Ảnh sản phẩm sạch khác nhau"
+                onClick={async () => {
+                  try {
+                    if (dirty) {
+                      const ok = await dialog.confirm({
+                        title: "Áp dụng mẫu?",
+                        message: "Graph hiện tại sẽ bị thay bằng mẫu bóc tách nhiều sản phẩm.",
+                        confirmLabel: "Áp dụng",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
+                    }
+                    const s = await fetchSampleMultiProductIsolate();
+                    setName(s.name || "Mẫu bóc tách nhiều sản phẩm");
+                    setNodes(attachHandlers((s.nodes as Node[]) || []));
+                    setEdges((s.edges as Edge[]) || []);
+                    setRunResult(null);
+                    setDirty(true);
+                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                Mẫu: Tách nhiều sản phẩm
               </button>
             </div>
           </div>

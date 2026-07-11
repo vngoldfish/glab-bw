@@ -917,6 +917,14 @@ export async function fetchSampleProductPlacement(): Promise<WorkflowDoc> {
   return data.workflow;
 }
 
+/** Bóc tách nhiều sản phẩm */
+export async function fetchSampleMultiProductIsolate(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/multi-product-isolate");
+  await ensureOk(res, "Không tải mẫu bóc tách nhiều sản phẩm");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
 export async function saveWorkflow(
   doc: WorkflowDoc,
   id?: string | null,
