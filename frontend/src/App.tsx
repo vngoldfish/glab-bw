@@ -14,6 +14,7 @@ import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
 import DocsPage from "./pages/DocsPage";
+import ApiDocsPage from "./pages/ApiDocsPage";
 import ExtensionPage from "./pages/ExtensionPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import PromptHubPage from "./pages/PromptHubPage";
@@ -275,6 +276,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <DocsPage />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES["api-docs"]}
+                element={
+                  <div className="page-panel">
+                    <ApiDocsPage />
                   </div>
                 }
               />

@@ -12,6 +12,7 @@ import {
   Film,
   FolderKanban,
   BookOpen,
+  Code2,
   Webhook,
   Puzzle,
   Settings,
@@ -56,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "webhook", label: "Webhook API", icon: Webhook },
       { id: "settings", label: "Cài Đặt", icon: Settings },
       { id: "docs", label: "Tài Liệu Hướng Dẫn", icon: BookOpen },
+      { id: "api-docs", label: "Tài Liệu API", icon: Code2 },
     ]
   }
 ];

@@ -8,6 +8,7 @@ export type NavPage =
   | "video-editor"
   | "projects"
   | "docs"
+  | "api-docs"
   | "grok"
   | "webhook"
   | "settings"

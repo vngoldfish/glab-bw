@@ -10,6 +10,7 @@ export const NAV_ROUTES: Record<NavPage, string> = {
   "video-editor": "/video-editor",
   projects: "/projects",
   docs: "/docs",
+  "api-docs": "/api-docs",
   grok: "/grok",
   webhook: "/webhook",
   extension: "/extension",
