@@ -250,8 +250,10 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
     setRows((prev) => [newRow, ...prev]);
 
-    // Tự động chạy hàng chờ mới vừa tạo lập tức
-    void runRows([newRow]);
+    // Tự động chạy hàng chờ mới vừa tạo lập tức sau khi React cập nhật state
+    setTimeout(() => {
+      void runRows([newRow]);
+    }, 100);
   };
 
 
