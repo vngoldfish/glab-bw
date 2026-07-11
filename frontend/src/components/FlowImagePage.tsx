@@ -37,6 +37,7 @@ import {
   type RowStatus,
 } from "../types";
 import { createId, runWithConcurrency } from "../utils";
+import MediaHistoryPanel from "./MediaHistoryPanel";
 
 const DEFAULT_CONFIG: ImageConfig = {
   engine: "flow",
@@ -1368,6 +1369,11 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           </div>
         </div>
       )}
+
+      {/* ─── Lịch sử ảnh đã tạo (quét từ đĩa, không phụ thuộc localStorage) ─── */}
+      <div className="flow-history-section">
+        <MediaHistoryPanel kind="image" />
+      </div>
     </div>
   );
 }

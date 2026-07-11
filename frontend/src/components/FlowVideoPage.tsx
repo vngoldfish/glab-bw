@@ -47,6 +47,7 @@ import {
   type VideoMode,
 } from "../types";
 import { createId, readFileAsDataUrl, runWithConcurrency } from "../utils";
+import MediaHistoryPanel from "./MediaHistoryPanel";
 
 const DEFAULT_CONFIG: VideoConfig = {
   engine: "flow",
@@ -1816,6 +1817,11 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           </div>
         </div>
       )}
+
+      {/* ─── Lịch sử video đã tạo (quét từ đĩa, không phụ thuộc localStorage) ─── */}
+      <div className="flow-history-section">
+        <MediaHistoryPanel kind="video" />
+      </div>
     </div>
   );
 }
