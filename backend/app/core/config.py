@@ -18,7 +18,12 @@ class Settings(BaseSettings):
     max_concurrent_tasks: int = 5
     output_dir: Path = PROJECT_ROOT / "data" / "output"
     data_dir: Path = PROJECT_ROOT / "data"
-    cors_origins: list[str] = ["*"]
+    cors_origins: list[str] = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8765",
+        "http://localhost:8765",
+    ]
     poll_interval_seconds: float = 3.0
     task_timeout_seconds: int = 600
     log_level: str = "INFO"

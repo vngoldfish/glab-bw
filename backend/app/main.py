@@ -183,13 +183,14 @@ _HAS_STATIC = (FRONTEND_DIST / "index.html").is_file()
 
 @app.get("/api/info")
 async def app_info() -> dict:
-    # api_key only on /api/info for local UI (Webhook page) — not on public "/"
+    # Chỉ hiển thị 4 ký tự cuối của api_key để user nhận biết mà không lộ toàn bộ
+    masked_key = ("*" * 8 + settings.api_key[-4:]) if settings.api_key else ""
     return {
         "name": settings.app_name,
         "webhook": f"http://{settings.host}:{settings.port}/api/health",
         "auth_bridge": settings.auth_bridge_url,
         "extension_connected": auth_bridge_state.is_connected(),
-        "api_key": settings.api_key,
+        "api_key": masked_key,
         "docs": f"http://{settings.host}:{settings.port}/docs",
         "static_ui": _HAS_STATIC,
         "ui_url": (

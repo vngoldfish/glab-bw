@@ -4,6 +4,25 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // Code splitting: chia bundle thành nhiều chunk nhỏ để tải nhanh hơn
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React core riêng
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          // React Flow tách riêng (~300KB)
+          "vendor-flow": ["@xyflow/react"],
+          // Các trang lớn nhất tách riêng
+          "page-workflow": ["./src/pages/WorkflowPage"],
+          "page-video-editor": ["./src/pages/VideoEditorPage"],
+          "page-settings": ["./src/pages/SettingsPage"],
+          "page-docs": ["./src/pages/DocsPage", "./src/pages/ApiDocsPage"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,

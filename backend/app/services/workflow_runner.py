@@ -18,6 +18,29 @@ from app.services.output_storage import file_url_from_path, resolve_data_file
 logger = logging.getLogger(__name__)
 
 _runs: dict[str, dict[str, Any]] = {}
+_RUNS_MAX = 300         # Tối đa số runs lưu trong memory
+_RUNS_TTL = 86_400      # Xóa runs cũ hơn 24 giờ
+
+
+def _cleanup_runs() -> None:
+    """Xóa runs cũ hơn TTL hoặc khi vượt giới hạn max."""
+    now = time.time()
+    # 1. Xóa theo TTL
+    expired = [
+        rid for rid, run in _runs.items()
+        if run.get("status") in {"completed", "failed"}
+        and now - (run.get("finished_at") or run.get("started_at") or now) > _RUNS_TTL
+    ]
+    for rid in expired:
+        del _runs[rid]
+    # 2. Nếu vẫn vượt giới hạn, xóa những run cũ nhất
+    if len(_runs) > _RUNS_MAX:
+        sorted_ids = sorted(
+            _runs.keys(),
+            key=lambda r: _runs[r].get("started_at") or 0,
+        )
+        for rid in sorted_ids[: len(_runs) - _RUNS_MAX]:
+            del _runs[rid]
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:
@@ -274,7 +297,13 @@ async def _execute_node(
         prompt = ""
         if inputs.get("prompt"):
             prompt = str(inputs["prompt"][0])
-        prompt = prompt or str(data.get("prompt") or "").strip()
+        # VideoNode có thể lưu prompt vào 'prompt_hint' (ô inline) hoặc 'prompt' hoặc 'text'
+        prompt = (
+            prompt
+            or str(data.get("prompt") or "").strip()
+            or str(data.get("prompt_hint") or "").strip()
+            or str(data.get("text") or "").strip()
+        )
         if not prompt:
             raise ValueError("Video needs prompt")
         start_refs = list(inputs.get("start_image") or inputs.get("image") or [])
@@ -670,6 +699,7 @@ async def run_workflow(
         run["finished_at"] = time.time()
         run["progress"]["current"] = None
         log("Workflow completed (Parallel)")
+        _cleanup_runs()  # Dọn runs cũ để tránh memory leak
 
     except Exception as exc:
         logger.exception("Workflow run failed")
