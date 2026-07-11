@@ -802,8 +802,39 @@ function VideoReferenceNode({ id, data, selected }: NodeProps) {
 }
 
 function GenerateNode({ id, data, selected }: NodeProps) {
-
   const d = data as WNodeData;
+  const [aiBusy, setAiBusy] = useState(false);
+  const hasPromptEdge = Boolean(d.hasPromptInput);
+
+  async function handleAiImagePrompt() {
+    const source = (d.prompt || "").trim();
+    if (!source) {
+      d.onError?.("Nhập ý/prompt ảnh trên node này trước khi dùng AI");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      const res = await rewritePromptAi({
+        prompt: source,
+        kind: "image",
+        current_node_id: id,
+        workflow_context,
+      });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
+        return;
+      }
+      d.onChange?.(id, { prompt: next });
+    } catch (err) {
+      d.onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   return (
     <Shell
       type="generate"
@@ -865,6 +896,43 @@ function GenerateNode({ id, data, selected }: NodeProps) {
           <option value="9:16">9:16</option>
         </select>
       </label>
+
+      {/* Prompt hint + AI button — hiện khi không có PromptNode nối */}
+      {!hasPromptEdge && (
+        <div className="nodrag" style={{ marginBottom: 8 }}>
+          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt ảnh</span>
+            <button
+              type="button"
+              className="node-ai-btn"
+              disabled={aiBusy || !(d.prompt || "").trim()}
+              onClick={() => void handleAiImagePrompt()}
+              title="AI viết lại prompt ảnh cho tốt"
+            >
+              {aiBusy ? "AI…" : "✦ AI"}
+            </button>
+          </div>
+          <textarea
+            className="nodrag nowheel"
+            rows={3}
+            value={d.prompt || ""}
+            onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
+            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt ảnh hoàn chỉnh"
+            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
+            disabled={aiBusy}
+          />
+          {aiBusy && (
+            <div className="node-ai-status">AI đang viết prompt ảnh…</div>
+          )}
+        </div>
+      )}
+
+      {hasPromptEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
+          ✓ Đã nối node Prompt
+        </div>
+      )}
+
       <ImageAttachBar
         nodeId={id}
         field="image"
