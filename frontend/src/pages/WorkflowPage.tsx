@@ -1659,6 +1659,37 @@ function layoutWorkflowNodes(
     incoming.get(e.target)!.push(e.source);
   }
 
+  // Calculate primary connections to ignore secondary reference edges for row assignment
+  const primaryOutgoing = new Map<string, string[]>();
+  for (const id of ids) {
+    primaryOutgoing.set(id, []);
+  }
+  for (const id of ids) {
+    const allIncomingEdges = edges.filter(
+      (e) => e.target === id && ids.has(e.source) && e.source !== id
+    );
+    if (allIncomingEdges.length <= 1) {
+      for (const e of allIncomingEdges) {
+        primaryOutgoing.get(e.source)!.push(id);
+      }
+    } else {
+      const processorEdges = allIncomingEdges.filter((e) => {
+        const srcNode = nodes.find((x) => x.id === e.source);
+        const t = srcNode?.type || "";
+        return t === "generate" || t === "video_generate" || t === "frame_extract";
+      });
+      if (processorEdges.length > 0) {
+        for (const e of processorEdges) {
+          primaryOutgoing.get(e.source)!.push(id);
+        }
+      } else {
+        for (const e of allIncomingEdges) {
+          primaryOutgoing.get(e.source)!.push(id);
+        }
+      }
+    }
+  }
+
   const roots = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
   const seed = roots.length ? roots : [...ids];
 
@@ -1729,7 +1760,7 @@ function layoutWorkflowNodes(
   const assignRow = (nodeId: string, row: number) => {
     if (rowMap.has(nodeId)) return;
     rowMap.set(nodeId, row);
-    const neighbors = [...(outgoing.get(nodeId) || [])];
+    const neighbors = [...(primaryOutgoing.get(nodeId) || [])];
     neighbors.sort((a, b) => {
       const na = nodes.find((x) => x.id === a);
       const nb = nodes.find((x) => x.id === b);
