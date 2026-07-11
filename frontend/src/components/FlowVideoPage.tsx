@@ -394,7 +394,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         if (trimmedAction) {
           try {
             const response = await rewritePromptAi({
-              prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${trimmedAction}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${promptText}"`,
+              prompt: `Prompt gốc: "${promptText}"\nDiễn biến cảnh tiếp theo: "${trimmedAction}"`,
               kind: "video",
               locale: "vi",
             });
@@ -410,7 +410,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           // AI automatic suggestion
           try {
             const response = await rewritePromptAi({
-              prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${promptText}"`,
+              prompt: `Prompt gốc: "${promptText}"\nViết tiếp cảnh tiếp theo (storyboard next scene)`,
               kind: "video",
               locale: "vi",
             });
