@@ -51,6 +51,7 @@ import {
 import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
+import { parseMentions, findLibraryRef } from "../referenceUtils";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
@@ -1954,6 +1955,93 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       }
     });
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // AUTO-INJECT REFERENCE NODES: scan all prompt texts for @mentions
+    // For each unique mention found in library → create Reference node + edges
+    // ──────────────────────────────────────────────────────────────────────────
+    if (library.length > 0) {
+      // Collect all (promptNodeId, genNodeId, mentionedRefNames) from new prompt nodes
+      // We need to pair prompt nodes with their generator nodes
+      type RefCandidate = { genId: string; genType: string; refNames: string[] };
+      const refCandidates: RefCandidate[] = [];
+
+      // Walk newNodes to find prompt nodes and pair them with generator siblings
+      // We stored pId → genId mapping implicitly through creation order; rebuild from edges
+      newEdges.forEach(edge => {
+        if (edge.sourceHandle === "prompt" && edge.targetHandle === "prompt") {
+          const pNode = newNodes.find(n => n.id === edge.source);
+          const gNode = newNodes.find(n => n.id === edge.target);
+          if (!pNode || !gNode) return;
+          const promptText = (pNode.data as WNodeData).prompt || "";
+          const mentions = parseMentions(promptText, library);
+          if (mentions.length > 0) {
+            refCandidates.push({ genId: gNode.id, genType: gNode.type || "", refNames: mentions });
+          }
+        }
+      });
+
+      if (refCandidates.length > 0) {
+        // Deduplicate: one Reference node per unique @mention
+        const mentionRefNodeMap = new Map<string, string>(); // mention → refNodeId
+        let refNodeCounter = 0;
+
+        refCandidates.forEach(({ genId, genType, refNames }) => {
+          const gNode = newNodes.find(n => n.id === genId);
+          if (!gNode) return;
+
+          refNames.forEach(mention => {
+            const libItem = findLibraryRef(library, mention);
+            if (!libItem) return;
+
+            // Create Reference node only once per mention
+            if (!mentionRefNodeMap.has(mention)) {
+              const refId = nid("reference");
+              mentionRefNodeMap.set(mention, refId);
+
+              // Position: far left, stacked vertically
+              const refX = origin.x + PROMPT_OFFSET_X - 340;
+              const refY = origin.y + refNodeCounter * 240;
+              refNodeCounter++;
+
+              const refData: WNodeData = {
+                title: `@${libItem.name}`,
+                image: libItem.filePath || libItem.image,
+                refName: libItem.name,
+                runStatus: "idle",
+                onChange: patchNode,
+                onPreview: openPreview,
+                onError,
+                getWorkflowContext,
+                onRerun: (nid: string) => rerunRef.current(nid),
+                onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+              };
+
+              newNodes.push({
+                id: refId,
+                type: "reference",
+                position: { x: refX, y: refY },
+                data: refData,
+              });
+            }
+
+            const refId = mentionRefNodeMap.get(mention)!;
+            // Connect Reference → Generator
+            const targetHandle = genType === "video_generate" ? "start_image" : "image";
+            newEdges.push({
+              id: `edge_ref_${refId}_${genId}_${mention}`,
+              source: refId,
+              sourceHandle: "image",
+              target: genId,
+              targetHandle,
+              animated: true,
+              style: { stroke: "#14b8a6", strokeWidth: 2 },
+            });
+          });
+        });
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     setNodes(nds => [...nds, ...newNodes]);
     if (newEdges.length > 0) setEdges(eds => [...eds, ...newEdges]);
     setDirty(true);
@@ -3033,217 +3121,310 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             className="wf-panel-card"
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "640px",
+              width: "660px",
               maxWidth: "96vw",
               maxHeight: "90vh",
-              background: "#181a22",
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 14,
-              padding: 20,
-              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+              background: "#13151e",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 16,
+              padding: 0,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
               display: "flex",
               flexDirection: "column",
-              gap: 12,
-              overflowY: "auto",
+              overflow: "hidden",
             }}
           >
-            {/* Header */}
-            <h3 style={{ margin: 0, fontSize: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-              <span>⚡ Quản lý Node Hàng Loạt</span>
-              <button
-                type="button"
-                onClick={() => setShowBulkPopup(false)}
-                style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}
-              >
-                ×
-              </button>
-            </h3>
-
-            {/* Hint */}
-            <div style={{ background: "rgba(165,180,252,0.06)", border: "1px solid rgba(165,180,252,0.15)", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#94a3b8", lineHeight: 1.5, flexShrink: 0 }}>
-              <strong style={{ color: "#a5b4fc", display: "block", marginBottom: 4 }}>💡 Cách dùng</strong>
-              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 2 }}>
-                <li>Nhấn <strong>+ Thêm Box</strong> để tạo một nhóm node (Ảnh hoặc Video).</li>
-                <li>Trong mỗi Box, nhập nhiều dòng prompt — mỗi dòng bắt đầu bằng số (<code>001</code>, <code>002</code>…).</li>
-                <li>Các dòng có <strong>cùng số</strong> ở các Box khác nhau sẽ tự động được nối với nhau.</li>
-                <li>Thứ tự các Box quyết định chiều kết nối (Box trên/trái → Box dưới/phải).</li>
-              </ul>
+            {/* ── HEADER ─────────────────────────────────────────────── */}
+            <div style={{
+              padding: "14px 18px 12px",
+              borderBottom: "1px solid rgba(255,255,255,0.07)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexShrink: 0,
+              background: "rgba(255,255,255,0.02)",
+            }}>
+              <span style={{ fontSize: 18 }}>⚡</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Tạo Node Hàng Loạt</div>
+                <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                  Mỗi Box = 1 nhóm node · Cùng số đầu dòng → tự kết nối
+                </div>
+              </div>
+              {/* Quick-add buttons */}
+              <button type="button"
+                onClick={() => setBulkBoxes([...bulkBoxes, { id: `box_${Date.now()}`, type: "generate", prompts: "" }])}
+                style={{ background: "rgba(99,179,237,0.12)", border: "1px solid rgba(99,179,237,0.3)", borderRadius: 7, color: "#63b3ed", padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+              >+ 🎨 Ảnh</button>
+              <button type="button"
+                onClick={() => setBulkBoxes([...bulkBoxes, { id: `box_${Date.now()}`, type: "video_generate", prompts: "" }])}
+                style={{ background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 7, color: "#a78bfa", padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+              >+ 🎬 Video</button>
+              <button type="button" onClick={() => setShowBulkPopup(false)}
+                style={{ background: "none", border: "none", color: "#475569", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
             </div>
 
-            {/* Box list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+            {/* ── LIBRARY CHARACTER HINT ─────────────────────────────── */}
+            {library.filter(r => r.category === "character").length > 0 && (
+              <div style={{
+                padding: "8px 18px",
+                background: "rgba(20,184,166,0.05)",
+                borderBottom: "1px solid rgba(20,184,166,0.12)",
+                fontSize: 11,
+                color: "#94a3b8",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexShrink: 0,
+                flexWrap: "wrap",
+              }}>
+                <span style={{ color: "#14b8a6", fontWeight: 700 }}>🧑 Nhân vật thư viện:</span>
+                {library.filter(r => r.category === "character").map(ref => (
+                  <span key={ref.id} style={{
+                    background: "rgba(20,184,166,0.1)",
+                    border: "1px solid rgba(20,184,166,0.2)",
+                    borderRadius: 4,
+                    padding: "1px 6px",
+                    color: "#2dd4bf",
+                    fontFamily: "monospace",
+                    cursor: "pointer",
+                  }}
+                    title={`Nhấn để chèn @${ref.name} vào prompt`}
+                    onClick={() => {
+                      // Copy @name to clipboard for easy pasting
+                      navigator.clipboard?.writeText(`@${ref.name}`).catch(() => {});
+                    }}
+                  >@{ref.name}</span>
+                ))}
+                <span style={{ color: "#475569", fontSize: 10 }}>← Nhấn để copy · Dán vào prompt → tự tạo node tham chiếu</span>
+              </div>
+            )}
+
+            {/* ── BOX LIST ────────────────────────────────────────────── */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
               {bulkBoxes.length === 0 && (
-                <div style={{ textAlign: "center", padding: "24px 0", color: "var(--muted)", fontSize: 12 }}>
-                  Chưa có Box nào. Nhấn <strong>+ Thêm Box</strong> để bắt đầu.
+                <div style={{
+                  textAlign: "center",
+                  padding: "40px 20px",
+                  color: "#334155",
+                  fontSize: 13,
+                  border: "2px dashed rgba(255,255,255,0.05)",
+                  borderRadius: 12,
+                }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>📦</div>
+                  Chưa có Box nào.<br />
+                  <span style={{ color: "#64748b" }}>Nhấn <strong style={{ color: "#63b3ed" }}>+ 🎨 Ảnh</strong> hoặc <strong style={{ color: "#a78bfa" }}>+ 🎬 Video</strong> để bắt đầu.</span>
                 </div>
               )}
 
-              {bulkBoxes.map((box, index) => (
-                <div
-                  key={box.id}
-                  style={{
-                    background: "rgba(255,255,255,0.025)",
-                    border: box.type === "generate"
-                      ? "1px solid rgba(99,179,237,0.25)"
-                      : "1px solid rgba(167,139,250,0.25)",
-                    borderRadius: 10,
+              {bulkBoxes.map((box, index) => {
+                const lineCount = box.prompts.split("\n").filter(l => l.trim()).length;
+                const mentions = Array.from(new Set(
+                  box.prompts.split("\n")
+                    .flatMap(line => [...line.matchAll(/@([a-zA-Z][a-zA-Z0-9_]*)/g)].map(m => m[1]))
+                ));
+                const isImg = box.type === "generate";
+                const accentColor = isImg ? "#63b3ed" : "#a78bfa";
+                const prevBox = bulkBoxes[index - 1];
+                const nextBox = bulkBoxes[index + 1];
+
+                return (
+                  <div key={box.id} style={{
+                    background: "#1a1d2b",
+                    border: `1px solid ${isImg ? "rgba(99,179,237,0.2)" : "rgba(167,139,250,0.2)"}`,
+                    borderRadius: 12,
                     overflow: "hidden",
-                  }}
-                >
-                  {/* Box header */}
-                  <div style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "8px 12px",
-                    background: box.type === "generate"
-                      ? "rgba(99,179,237,0.07)"
-                      : "rgba(167,139,250,0.07)",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)",
+                    transition: "box-shadow 0.15s",
                   }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", minWidth: 52 }}>
-                      Box {index + 1}
-                    </span>
-
-                    <select
-                      value={box.type}
-                      onChange={(e) => {
-                        const next = [...bulkBoxes];
-                        next[index] = { ...next[index], type: e.target.value as "generate" | "video_generate" };
-                        setBulkBoxes(next);
-                      }}
-                      style={{
-                        background: "#2a2d3d",
-                        border: "1px solid rgba(255,255,255,0.12)",
+                    {/* Box header */}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      background: isImg ? "rgba(99,179,237,0.06)" : "rgba(167,139,250,0.06)",
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    }}>
+                      {/* Box label */}
+                      <div style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: accentColor,
+                        background: `${accentColor}18`,
+                        border: `1px solid ${accentColor}30`,
                         borderRadius: 5,
-                        color: "inherit",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: "3px 6px",
-                        outline: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <option value="generate">🎨 Ảnh</option>
-                      <option value="video_generate">🎬 Video</option>
-                    </select>
+                        padding: "2px 7px",
+                        letterSpacing: "0.02em",
+                      }}>
+                        {isImg ? "🎨" : "🎬"} Box {index + 1}
+                      </div>
 
-                    <span style={{ flex: 1 }} />
+                      {/* Type selector */}
+                      <select
+                        value={box.type}
+                        onChange={(e) => {
+                          const next = [...bulkBoxes];
+                          next[index] = { ...next[index], type: e.target.value as "generate" | "video_generate" };
+                          setBulkBoxes(next);
+                        }}
+                        style={{
+                          background: "#252836",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: 5,
+                          color: accentColor,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: "3px 6px",
+                          outline: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <option value="generate">🎨 Ảnh</option>
+                        <option value="video_generate">🎬 Video</option>
+                      </select>
 
-                    {/* Connection preview badge */}
-                    {(() => {
-                      const prev = bulkBoxes[index - 1];
-                      const next = bulkBoxes[index + 1];
-                      const badges: React.ReactElement[] = [];
-                      if (prev) {
-                        const fromPrev = prev.type === "generate" && box.type === "video_generate"
-                          ? <span key="p" style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>← Ảnh nhận</span>
-                          : prev.type === "video_generate" && box.type === "video_generate"
-                            ? <span key="p" style={{ fontSize: 10, background: "rgba(245,158,11,0.15)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>← Frame</span>
-                            : null;
-                        if (fromPrev) badges.push(fromPrev);
-                      }
-                      if (next) {
-                        const toNext = box.type === "generate" && next.type === "video_generate"
-                          ? <span key="n" style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>→ Video</span>
-                          : box.type === "video_generate" && next.type === "video_generate"
-                            ? <span key="n" style={{ fontSize: 10, background: "rgba(245,158,11,0.15)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>→ Frame</span>
-                            : null;
-                        if (toNext) badges.push(toNext);
-                      }
-                      return badges.length > 0 ? <div style={{ display: "flex", gap: 4 }}>{badges}</div> : null;
-                    })()}
+                      {/* Line count */}
+                      {lineCount > 0 && (
+                        <span style={{ fontSize: 10, color: "#475569", background: "rgba(255,255,255,0.04)", borderRadius: 4, padding: "1px 6px" }}>
+                          {lineCount} dòng
+                        </span>
+                      )}
 
-                    {/* Reorder & Delete */}
-                    <div style={{ display: "flex", gap: 3 }}>
-                      <button type="button" className="btn btn-ghost btn-sm" disabled={index === 0}
-                        onClick={() => moveBulkBox(index, "up")}
-                        style={{ padding: "2px 7px", height: "auto", fontSize: 12 }} title="Lên">▲</button>
-                      <button type="button" className="btn btn-ghost btn-sm" disabled={index === bulkBoxes.length - 1}
-                        onClick={() => moveBulkBox(index, "down")}
-                        style={{ padding: "2px 7px", height: "auto", fontSize: 12 }} title="Xuống">▼</button>
-                      <button type="button" className="btn btn-ghost btn-sm danger"
-                        onClick={() => setBulkBoxes(bulkBoxes.filter(b => b.id !== box.id))}
-                        style={{ padding: "2px 7px", height: "auto", fontSize: 13 }} title="Xóa Box">×</button>
+                      {/* @mention badges */}
+                      {mentions.map(m => {
+                        const found = findLibraryRef(library, m);
+                        return (
+                          <span key={m} style={{
+                            fontSize: 10,
+                            background: found ? "rgba(20,184,166,0.12)" : "rgba(255,255,255,0.05)",
+                            border: found ? "1px solid rgba(20,184,166,0.25)" : "1px solid rgba(255,255,255,0.08)",
+                            borderRadius: 4,
+                            padding: "1px 5px",
+                            color: found ? "#2dd4bf" : "#64748b",
+                          }}>
+                            @{m}{found ? " ✓" : " ?"}
+                          </span>
+                        );
+                      })}
+
+                      <span style={{ flex: 1 }} />
+
+                      {/* Connection badges */}
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {prevBox && prevBox.type === "generate" && box.type === "video_generate" && (
+                          <span style={{ fontSize: 10, background: "rgba(34,197,94,0.1)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>← Ảnh→Vid</span>
+                        )}
+                        {prevBox && prevBox.type === "video_generate" && box.type === "video_generate" && (
+                          <span style={{ fontSize: 10, background: "rgba(245,158,11,0.1)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>← Frame</span>
+                        )}
+                        {nextBox && box.type === "generate" && nextBox.type === "video_generate" && (
+                          <span style={{ fontSize: 10, background: "rgba(34,197,94,0.1)", color: "#22c55e", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(34,197,94,0.2)" }}>→ Video</span>
+                        )}
+                        {nextBox && box.type === "video_generate" && nextBox.type === "video_generate" && (
+                          <span style={{ fontSize: 10, background: "rgba(245,158,11,0.1)", color: "#f59e0b", borderRadius: 3, padding: "1px 5px", border: "1px solid rgba(245,158,11,0.2)" }}>→ Frame</span>
+                        )}
+                      </div>
+
+                      {/* Controls */}
+                      <div style={{ display: "flex", gap: 3 }}>
+                        <button type="button" className="btn btn-ghost btn-sm" disabled={index === 0}
+                          onClick={() => moveBulkBox(index, "up")}
+                          style={{ padding: "2px 6px", height: "auto", fontSize: 11 }} title="Di chuyển lên">▲</button>
+                        <button type="button" className="btn btn-ghost btn-sm" disabled={index === bulkBoxes.length - 1}
+                          onClick={() => moveBulkBox(index, "down")}
+                          style={{ padding: "2px 6px", height: "auto", fontSize: 11 }} title="Di chuyển xuống">▼</button>
+                        <button type="button" className="btn btn-ghost btn-sm danger"
+                          onClick={() => setBulkBoxes(bulkBoxes.filter(b => b.id !== box.id))}
+                          style={{ padding: "2px 7px", height: "auto", fontSize: 13 }} title="Xóa Box">×</button>
+                      </div>
+                    </div>
+
+                    {/* Prompt textarea */}
+                    <div style={{ padding: "10px 12px" }}>
+                      <div style={{ fontSize: 10, color: "#475569", marginBottom: 5, display: "flex", justifyContent: "space-between" }}>
+                        <span>Prompt · mỗi dòng bắt đầu bằng số · dùng <code style={{ color: "#14b8a6" }}>@nhân_vật</code> để auto-link</span>
+                      </div>
+                      <textarea
+                        rows={5}
+                        value={box.prompts}
+                        onChange={(e) => {
+                          const next = [...bulkBoxes];
+                          next[index] = { ...next[index], prompts: e.target.value };
+                          setBulkBoxes(next);
+                        }}
+                        placeholder={
+                          isImg
+                            ? "001 Cảnh bình minh trên bãi biển, @nhanvat_1 đứng nhìn ra biển\n002 Cảnh hoàng hôn rực rỡ, ánh vàng chiếu sáng\n003 Cảnh đêm tối với ánh sao lấp lánh"
+                            : "001 Sóng biển vỗ nhẹ vào bờ cát trắng\n002 Mặt trời lặn xuống đường chân trời\n003 Ánh trăng chiếu bạc mặt nước yên bình"
+                        }
+                        style={{
+                          width: "100%",
+                          background: "rgba(0,0,0,0.25)",
+                          border: `1px solid ${accentColor}20`,
+                          borderRadius: 8,
+                          color: "inherit",
+                          padding: "8px 10px",
+                          fontSize: 12,
+                          fontFamily: "monospace",
+                          lineHeight: 1.65,
+                          resize: "vertical",
+                          outline: "none",
+                          boxSizing: "border-box",
+                          transition: "border-color 0.15s",
+                        }}
+                        onFocus={e => { e.target.style.borderColor = accentColor + "50"; }}
+                        onBlur={e => { e.target.style.borderColor = accentColor + "20"; }}
+                      />
                     </div>
                   </div>
-
-                  {/* Prompt textarea */}
-                  <div style={{ padding: "10px 12px" }}>
-                    <label style={{ fontSize: 11, color: "#64748b", display: "block", marginBottom: 5 }}>
-                      Danh sách prompt (mỗi dòng bắt đầu bằng số):
-                    </label>
-                    <textarea
-                      rows={5}
-                      value={box.prompts}
-                      onChange={(e) => {
-                        const next = [...bulkBoxes];
-                        next[index] = { ...next[index], prompts: e.target.value };
-                        setBulkBoxes(next);
-                      }}
-                      placeholder={
-                        box.type === "generate"
-                          ? "001 Cảnh bình minh trên bãi biển\n002 Cảnh hoàng hôn rực rỡ\n003 Cảnh đêm tối lung linh"
-                          : "001 Sóng biển vỗ nhẹ vào bờ\n002 Mặt trời lặn xuống biển\n003 Ánh trăng chiếu mặt nước"
-                      }
-                      style={{
-                        width: "100%",
-                        background: "rgba(0,0,0,0.3)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 7,
-                        color: "inherit",
-                        padding: "8px 10px",
-                        fontSize: 12,
-                        fontFamily: "monospace",
-                        lineHeight: 1.6,
-                        resize: "vertical",
-                        outline: "none",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                    {/* Line count badge */}
-                    {box.prompts.trim() && (
-                      <div style={{ fontSize: 10, color: "#475569", marginTop: 4, textAlign: "right" }}>
-                        {box.prompts.split("\n").filter(l => l.trim()).length} dòng
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* Add box button */}
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => setBulkBoxes([...bulkBoxes, { id: `box_${Date.now()}`, type: "generate", prompts: "" }])}
-              style={{
-                width: "100%",
-                borderStyle: "dashed",
-                borderColor: "rgba(129,140,248,0.4)",
-                color: "#a5b4fc",
-                background: "rgba(129,140,248,0.04)",
-                padding: "8px 0",
-                fontSize: 13,
-                flexShrink: 0,
-              }}
-            >
-              + Thêm Box
-            </button>
-
-            {/* Footer */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12, flexShrink: 0 }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setShowBulkPopup(false)}>
-                Hủy
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={bulkBoxes.length === 0 || !bulkBoxes.some(b => b.prompts.trim())}
-                onClick={addBulkNodes}
-              >
-                ✓ Tạo &amp; Kết Nối
-              </button>
+            {/* ── FOOTER ──────────────────────────────────────────────── */}
+            <div style={{
+              padding: "12px 18px",
+              borderTop: "1px solid rgba(255,255,255,0.07)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexShrink: 0,
+              background: "rgba(255,255,255,0.015)",
+              gap: 10,
+            }}>
+              {/* Total summary */}
+              <div style={{ fontSize: 11, color: "#475569" }}>
+                {bulkBoxes.length > 0 && (() => {
+                  const totalLines = bulkBoxes.reduce((s, b) => s + b.prompts.split("\n").filter(l => l.trim()).length, 0);
+                  const totalMentions = new Set(
+                    bulkBoxes.flatMap(b =>
+                      b.prompts.split("\n").flatMap(line =>
+                        [...line.matchAll(/@([a-zA-Z][a-zA-Z0-9_]*)/g)].map(m => m[1])
+                      )
+                    )
+                  ).size;
+                  return (
+                    <span>
+                      {bulkBoxes.length} Box · {totalLines} node
+                      {totalMentions > 0 && <span style={{ color: "#14b8a6" }}> · {totalMentions} @nhân vật</span>}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowBulkPopup(false)}>
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={bulkBoxes.length === 0 || !bulkBoxes.some(b => b.prompts.trim())}
+                  onClick={addBulkNodes}
+                  style={{ minWidth: 140 }}
+                >
+                  ✓ Tạo &amp; Kết Nối
+                </button>
+              </div>
             </div>
           </div>
         </div>
