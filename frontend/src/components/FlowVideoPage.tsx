@@ -364,34 +364,47 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const handleContinueVideo = async (videoUrl: string, originalPrompt: string) => {
-    const nextAction = window.prompt(
-      "TẠO CẢNH TIẾP THEO (Tạo Video)\n\nNhập hành động/góc máy tiếp theo trong video (ví dụ: zoom cận cảnh, running, dancing...):\n(Để trống nếu muốn AI tự động gợi ý kịch bản tiếp theo)",
-      ""
-    );
-    if (nextAction === null) return; // user cancelled
+  const [continueModal, setContinueModal] = useState<{
+    open: boolean;
+    videoUrl: string;
+    promptText: string;
+  } | null>(null);
 
-    let finalPrompt = originalPrompt;
-    if (nextAction.trim()) {
+  const handleContinueVideo = (videoUrl: string, originalPrompt: string) => {
+    setContinueModal({
+      open: true,
+      videoUrl,
+      promptText: originalPrompt,
+    });
+  };
+
+  const submitContinueVideo = async (actionText: string) => {
+    if (!continueModal) return;
+    const { videoUrl, promptText } = continueModal;
+    setContinueModal(null); // Đóng modal
+
+    let finalPrompt = promptText;
+    const trimmedAction = actionText.trim();
+    if (trimmedAction) {
       try {
         const response = await rewritePromptAi({
-          prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${nextAction.trim()}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${originalPrompt}"`,
+          prompt: `Hãy viết lại prompt tiếng Anh chất lượng cao, giữ nguyên phong cách và nhân vật của prompt gốc nhưng đổi hành động/diễn biến sang: "${trimmedAction}". Trả về duy nhất prompt tiếng Anh mới.\nPrompt gốc: "${promptText}"`,
           kind: "video",
           locale: "vi",
         });
         if (response && response.prompt) {
           finalPrompt = response.prompt;
         } else {
-          finalPrompt = `${originalPrompt}, ${nextAction.trim()}`;
+          finalPrompt = `${promptText}, ${trimmedAction}`;
         }
       } catch {
-        finalPrompt = `${originalPrompt}, ${nextAction.trim()}`;
+        finalPrompt = `${promptText}, ${trimmedAction}`;
       }
     } else {
       // AI automatic suggestion
       try {
         const response = await rewritePromptAi({
-          prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${originalPrompt}"`,
+          prompt: `Hãy viết tiếp cảnh tiếp theo (storyboard scene) cho prompt sau. Giữ nguyên nhân vật và phong cách gốc nhưng đổi hành động sang một diễn biến hợp lý tiếp theo. Hãy trả về duy nhất prompt tiếng Anh mới:\n"${promptText}"`,
           kind: "video",
           locale: "vi",
         });
@@ -456,6 +469,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       );
     }
   };
+
 
 
 
@@ -1927,6 +1941,92 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       <div className="flow-history-section">
         <MediaHistoryPanel kind="video" />
       </div>
+
+      {/* ─── Custom Modal Tạo Cảnh Tiếp Theo (Storyboard) ─── */}
+      {continueModal && continueModal.open && (
+        <div className="ui-lightbox node-picker-overlay" onClick={() => setContinueModal(null)}>
+          <div
+            className="node-picker-modal continue-storyboard-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 460, background: "#0f172a", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.5)" }}
+          >
+            <div className="node-picker-head" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10 }}>
+              <strong style={{ color: "#c4b5fd" }}>Tạo cảnh tiếp theo (Storyboard)</strong>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setContinueModal(null)}>
+                Đóng
+              </button>
+            </div>
+            <p className="muted" style={{ fontSize: 12.5, margin: "12px 0 16px" }}>
+              Chọn một hành động hoặc góc máy gợi ý bên dưới (click là chạy ngay) để tạo tiếp cảnh mới cho nhân vật:
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>TÙY CHỌN TỰ ĐỘNG:</div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: "100%", justifyContent: "center", background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", border: "none", fontWeight: 700 }}
+                  onClick={() => void submitContinueVideo("")}
+                >
+                  ✦ AI tự động gợi ý diễn biến tiếp theo
+                </button>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>GÓC MÁY & HÀNH ĐỘNG GỢI Ý (CLICK LÀ CHẠY):</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {[
+                    { label: "📸 Cận cảnh mặt", action: "close-up portrait" },
+                    { label: "📐 Góc nghiêng 3/4", action: "3/4 view" },
+                    { label: "👤 Nghiêng hoàn toàn", action: "side profile" },
+                    { label: "🏃 Chạy bộ", action: "running" },
+                    { label: "🚶 Đi bộ thong thả", action: "walking slowly" },
+                    { label: "😊 Mỉm cười", action: "smiling happily" },
+                    { label: "😢 Đang khóc", action: "crying with tears" },
+                    { label: "☕ Ngồi suy tư", action: "sitting thoughtfully" },
+                    { label: "🌅 Đứng nhìn hoàng hôn", action: "standing and looking at sunset" },
+                  ].map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: 11, padding: "4px 8px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#cbd5e1" }}
+                      onClick={() => void submitContinueVideo(item.action)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 14 }}>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>TỰ NHẬP HÀNH ĐỘNG TÙY CHỈNH:</div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const val = (e.currentTarget.elements.namedItem("customAction") as HTMLInputElement).value;
+                    void submitContinueVideo(val);
+                  }}
+                  style={{ display: "flex", gap: 6 }}
+                >
+                  <input
+                    name="customAction"
+                    type="text"
+                    placeholder="Ví dụ: đang cười lớn, nhảy múa..."
+                    className="form-control"
+                    style={{ flex: 1, height: 32, fontSize: 12, background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "0 10px" }}
+                    autoFocus
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm" style={{ height: 32, padding: "0 14px", fontWeight: 700 }}>
+                    Tạo
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
