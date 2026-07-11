@@ -484,6 +484,21 @@ export async function uploadReferenceImages(files: File[]): Promise<ReferenceRec
   return data.references;
 }
 
+export async function addReferenceFromPath(
+  filePath: string,
+  label: string,
+  category: string,
+): Promise<ReferenceRecord> {
+  const res = await apiFetch("/api/references/from-path", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filePath, label, category }),
+  });
+  await ensureOk(res, "Không thể thêm ảnh từ thư viện app");
+  const data = await readJson<{ reference: ReferenceRecord }>(res);
+  return data.reference;
+}
+
 export async function updateReferenceRecord(
   id: string,
   patch: { name?: string; label?: string; category?: string },

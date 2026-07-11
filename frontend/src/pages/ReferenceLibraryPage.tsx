@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { openOutputFolder } from "../api";
+import { openOutputFolder, fetchAllProjectAssets, mediaUrl, type ProjectAsset } from "../api";
 import { useReferenceLibrary } from "../referenceLibraryContext";
 import {
   ensureUniqueRefName,
@@ -36,6 +36,7 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
     maxItems,
     loading,
     addReferences,
+    addReferenceFromAppPath,
     updateReference,
     replaceImage,
     removeReference,
@@ -43,6 +44,9 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ReferenceCategory | "all">("all");
   const [uploading, setUploading] = useState(false);
+  const [showAppImagesModal, setShowAppImagesModal] = useState(false);
+  const [appImages, setAppImages] = useState<ProjectAsset[]>([]);
+  const [loadingAppImages, setLoadingAppImages] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -86,6 +90,32 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
     } finally {
       setUploading(false);
       setDragOver(false);
+    }
+  }
+
+  async function handleSelectFromApp() {
+    setShowAppImagesModal(true);
+    setLoadingAppImages(true);
+    try {
+      const res = await fetchAllProjectAssets("image", 120);
+      setAppImages(res.assets);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingAppImages(false);
+    }
+  }
+
+  async function handleImportAppImage(img: ProjectAsset) {
+    setShowAppImagesModal(false);
+    setUploading(true);
+    try {
+      const baseName = img.name.replace(/\.[^/.]+$/, "");
+      await addReferenceFromAppPath(img.path, baseName, "other");
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -133,7 +163,15 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || library.length >= maxItems}
           >
-            {uploading ? "Đang tải..." : "+ Thêm ảnh"}
+            {uploading ? "Đang tải..." : "+ Thêm ảnh máy tính"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleSelectFromApp()}
+            disabled={uploading || library.length >= maxItems}
+          >
+            + Chọn từ ảnh đã tạo
           </button>
         </div>
       </header>
@@ -413,6 +451,105 @@ export default function ReferenceLibraryPage({ onError }: ReferenceLibraryPagePr
           </div>
         </main>
       </div>
+
+      {showAppImagesModal && (
+        <div className="wf-modal-overlay" style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.65)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+        }}>
+          <div className="wf-panel-card" style={{
+            width: 720,
+            maxHeight: "85vh",
+            display: "flex",
+            flexDirection: "column",
+            padding: 24,
+            background: "rgba(20,24,35,0.9)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Chọn ảnh đã tạo trong dự án</h3>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: "4px 8px", fontSize: 13 }}
+                onClick={() => setShowAppImagesModal(false)}
+              >
+                ✕ Đóng
+              </button>
+            </div>
+            {loadingAppImages ? (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 260 }}>
+                <span>Đang tải danh sách ảnh...</span>
+              </div>
+            ) : appImages.length === 0 ? (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 260, flexDirection: "column", gap: 10 }}>
+                <span className="muted">Chưa có ảnh nào được tạo từ các dự án.</span>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Hãy chạy workflow tạo ảnh trước!</span>
+              </div>
+            ) : (
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+                gap: 12,
+                overflowY: "auto",
+                flex: 1,
+                padding: 4,
+                maxHeight: "55vh"
+              }}>
+                {appImages.map((img, idx) => (
+                  <div
+                    key={idx}
+                    className="wf-image-grid-item"
+                    style={{
+                      position: "relative",
+                      aspectRatio: "1/1",
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                      background: "#0d1017",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                    }}
+                    onClick={() => void handleImportAppImage(img)}
+                  >
+                    <img
+                      src={mediaUrl(img.url)}
+                      alt={img.name}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                    <div style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: "rgba(0,0,0,0.65)",
+                      padding: "4px 8px",
+                      fontSize: 10,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      textAlign: "center"
+                    }}>
+                      {img.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

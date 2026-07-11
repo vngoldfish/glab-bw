@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  addReferenceFromPath,
   deleteReferenceRecord,
   fetchReferenceLibrary,
   mapReferenceRecord,
@@ -24,6 +25,7 @@ interface ReferenceLibraryContextValue {
   loading: boolean;
   refresh: () => Promise<void>;
   addReferences: (files: File[]) => Promise<NamedReference[]>;
+  addReferenceFromAppPath: (filePath: string, label: string, category: string) => Promise<NamedReference>;
   updateReference: (
     id: string,
     patch: Partial<Pick<NamedReference, "name" | "label" | "category">>,
@@ -60,6 +62,13 @@ export function ReferenceLibraryProvider({ children }: { children: ReactNode }) 
     return mapped;
   }, []);
 
+  const addReferenceFromAppPath = useCallback(async (filePath: string, label: string, category: string) => {
+    const created = await addReferenceFromPath(filePath, label, category);
+    const mapped = mapReferenceRecord(created);
+    setLibrary((prev) => [...prev, mapped]);
+    return mapped;
+  }, []);
+
   const updateReference = useCallback(
     async (
       id: string,
@@ -91,6 +100,7 @@ export function ReferenceLibraryProvider({ children }: { children: ReactNode }) 
       loading,
       refresh,
       addReferences,
+      addReferenceFromAppPath,
       updateReference,
       replaceImage,
       removeReference,
@@ -102,6 +112,7 @@ export function ReferenceLibraryProvider({ children }: { children: ReactNode }) 
       loading,
       refresh,
       addReferences,
+      addReferenceFromAppPath,
       updateReference,
       replaceImage,
       removeReference,

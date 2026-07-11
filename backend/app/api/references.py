@@ -12,6 +12,12 @@ class ReferenceUpdateRequest(BaseModel):
     category: str | None = None
 
 
+class AddReferenceFromPathRequest(BaseModel):
+    filePath: str
+    category: str = "other"
+    label: str | None = None
+
+
 @router.get("/references")
 async def list_references() -> dict:
     return reference_storage.list_references()
@@ -55,6 +61,28 @@ async def upload_references(
         raise HTTPException(status_code=400, detail={"error": "; ".join(errors)})
 
     return {"references": created, "errors": errors}
+
+
+@router.post("/references/from-path")
+async def add_reference_from_path(body: AddReferenceFromPathRequest) -> dict:
+    from pathlib import Path
+    import mimetypes
+    p = Path(body.filePath)
+    if not p.is_file():
+        raise HTTPException(status_code=400, detail={"error": "File không tồn tại hoặc không hợp lệ"})
+    
+    try:
+        raw = p.read_bytes()
+        mime = mimetypes.guess_type(str(p))[0] or "image/png"
+        item = reference_storage.add_reference(
+            raw,
+            mime,
+            label=body.label or p.name,
+            category=body.category,
+        )
+        return {"reference": item}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)})
 
 
 @router.patch("/references/{ref_id}")
