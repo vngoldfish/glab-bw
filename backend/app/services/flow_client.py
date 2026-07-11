@@ -108,6 +108,12 @@ class GoogleFlowClient:
     def __init__(self) -> None:
         self.timeout = 120.0
         self.max_image_retries = 3
+        self._client: httpx.AsyncClient | None = None
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     def _api_url(self, path: str) -> str:
         query = urlencode({"key": FLOW_API_KEY})
@@ -164,17 +170,27 @@ class GoogleFlowClient:
         timeout: float | None = None,
         browser_like: bool = False,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
-            if browser_like and json_data is not None:
-                # Match browser: JSON body with Content-Type text/plain;charset=UTF-8
-                response = await client.request(
-                    method,
-                    url,
-                    headers=headers,
-                    content=json.dumps(json_data, separators=(",", ":")),
-                )
-            else:
-                response = await client.request(method, url, headers=headers, json=json_data)
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        client = self._client
+        req_timeout = timeout or self.timeout
+        if browser_like and json_data is not None:
+            # Match browser: JSON body with Content-Type text/plain;charset=UTF-8
+            response = await client.request(
+                method,
+                url,
+                headers=headers,
+                content=json.dumps(json_data, separators=(",", ":")),
+                timeout=req_timeout,
+            )
+        else:
+            response = await client.request(
+                method,
+                url,
+                headers=headers,
+                json=json_data,
+                timeout=req_timeout,
+            )
         if response.status_code >= 400:
             raw = response.text[:800]
             payload: Any = raw
@@ -428,7 +444,7 @@ class GoogleFlowClient:
         if result is None:
             raise last_error or ProviderError("Tạo ảnh thất bại", error_code=0)
 
-        images = self._extract_images(result)
+        images = await self._extract_images(result)
         if upscale_targets:
             upscaled: list[bytes] = []
             media_id = self._extract_media_id(result)
@@ -941,6 +957,7 @@ class GoogleFlowClient:
                 upsampler_key=upsampler_key,
                 aspect_ratio=aspect_ratio,
                 user_paygate_tier=user_paygate_tier,
+                session_token=session_token,
             )
             outputs.append(upscaled)
         return outputs
@@ -971,20 +988,34 @@ class GoogleFlowClient:
             raise ProviderError("Không có media ref để poll video", error_code=0)
 
         deadline = time.time() + 600
+        current_access_token = access_token
         while time.time() < deadline:
-            result = await self._request(
-                "POST",
-                self._api_url("video:batchCheckAsyncVideoGenerationStatus"),
-                headers=self._headers(
-                    access_token=access_token,
-                    session_token=session_token,
-                    project_id=project_id,
+            try:
+                result = await self._request(
+                    "POST",
+                    self._api_url("video:batchCheckAsyncVideoGenerationStatus"),
+                    headers=self._headers(
+                        access_token=current_access_token,
+                        session_token=session_token,
+                        project_id=project_id,
+                        browser_like=True,
+                    ),
+                    json_data={"media": media_refs},
+                    timeout=60.0,
                     browser_like=True,
-                ),
-                json_data={"media": media_refs},
-                timeout=60.0,
-                browser_like=True,
-            )
+                )
+            except ProviderError as exc:
+                if exc.error_code in (401, 403) and session_token:
+                    logger.info("Access token expired during video polling. Refreshing...")
+                    try:
+                        session = await self.st_to_at(session_token)
+                        new_at = session.get("access_token")
+                        if new_at:
+                            current_access_token = new_at
+                            continue
+                    except Exception as refresh_exc:
+                        logger.error("Failed to refresh access token during polling: %s", refresh_exc)
+                raise
             media_items = result.get("media") or result.get("operations") or []
             for item in media_items:
                 # Nested status under mediaMetadata.mediaStatus (Omni) or top-level
@@ -1037,6 +1068,7 @@ class GoogleFlowClient:
         upsampler_key: str,
         aspect_ratio: str,
         user_paygate_tier: str,
+        session_token: str | None = None,
     ) -> bytes:
         recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
         payload = {
@@ -1064,8 +1096,13 @@ class GoogleFlowClient:
             json_data=payload,
             timeout=60.0,
         )
-        media_name = await self._poll_video(access_token, submit.get("operations", []))
-        return await self._download_video(access_token, media_name)
+        media_name = await self._poll_video(
+            access_token,
+            submit.get("operations", []),
+            project_id=project_id,
+            session_token=session_token,
+        )
+        return await self._download_video(access_token, media_name, session_token=session_token)
 
     async def _download_video(
         self,
@@ -1092,10 +1129,11 @@ class GoogleFlowClient:
             return base64.b64decode(encoded)
         url = generated.get("fifeUrl") or generated.get("videoUrl") or video.get("fifeUrl")
         if url:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                return response.content
+            if self._client is None:
+                self._client = httpx.AsyncClient(timeout=self.timeout)
+            response = await self._client.get(url, timeout=180.0)
+            response.raise_for_status()
+            return response.content
         raise ProviderError("Không tải được video từ Google Flow", error_code=0)
 
     def _extract_uploaded_media_id(self, result: dict[str, Any]) -> str | None:
@@ -1160,7 +1198,7 @@ class GoogleFlowClient:
             raise ProviderError("Upload ảnh tham chiếu thất bại", error_code=0)
         return str(media_id)
 
-    def _extract_images(self, result: dict[str, Any]) -> list[bytes]:
+    async def _extract_images(self, result: dict[str, Any]) -> list[bytes]:
         images: list[bytes] = []
         for item in result.get("media", []):
             encoded = self._find_encoded_image(item)
@@ -1169,7 +1207,7 @@ class GoogleFlowClient:
                 continue
             url = self._find_image_url(item)
             if url:
-                images.append(self._sync_download(url))
+                images.append(await self._async_download(url))
         if not images:
             raise ProviderError("Flow không trả về ảnh", error_code=0)
         return images
@@ -1215,11 +1253,12 @@ class GoogleFlowClient:
                 return value
         return None
 
-    def _sync_download(self, url: str) -> bytes:
-        with httpx.Client(timeout=120.0) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            return response.content
+    async def _async_download(self, url: str) -> bytes:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        response = await self._client.get(url, timeout=120.0)
+        response.raise_for_status()
+        return response.content
 
 
 google_flow_client = GoogleFlowClient()

@@ -17,7 +17,8 @@ from app.core.config import settings
 
 _CACHE_NAME = "flow_media_cache.json"
 _MAX_ENTRIES = 500
-_lock = threading.Lock()
+_lock = threading.RLock()
+_cache_in_memory: dict[str, Any] | None = None
 
 
 def _cache_path() -> Path:
@@ -33,25 +34,39 @@ def _entry_key(project_id: str, image_hash: str) -> str:
 
 
 def _load() -> dict[str, Any]:
+    global _cache_in_memory
+    if _cache_in_memory is not None:
+        return _cache_in_memory
+
     path = _cache_path()
     if not path.is_file():
-        return {"entries": {}}
+        _cache_in_memory = {"entries": {}}
+        return _cache_in_memory
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {"entries": {}}
+        _cache_in_memory = {"entries": {}}
+        return _cache_in_memory
     if not isinstance(data, dict):
-        return {"entries": {}}
+        _cache_in_memory = {"entries": {}}
+        return _cache_in_memory
     entries = data.get("entries")
     if not isinstance(entries, dict):
-        return {"entries": {}}
-    return {"entries": entries}
+        _cache_in_memory = {"entries": {}}
+        return _cache_in_memory
+    _cache_in_memory = {"entries": entries}
+    return _cache_in_memory
 
 
 def _save(data: dict[str, Any]) -> None:
+    global _cache_in_memory
+    _cache_in_memory = data
     path = _cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _prune(entries: dict[str, Any]) -> dict[str, Any]:
@@ -71,13 +86,27 @@ def get_media_id(project_id: str, image_bytes: bytes) -> str | None:
         return None
     key = _entry_key(project_id, content_hash(image_bytes))
     with _lock:
-        entry = _load()["entries"].get(key)
-    if isinstance(entry, dict):
-        media_id = entry.get("media_id")
-        if isinstance(media_id, str) and media_id.strip():
-            return media_id.strip()
-    if isinstance(entry, str) and entry.strip():
-        return entry.strip()
+        data = _load()
+        entry = data["entries"].get(key)
+        if isinstance(entry, dict):
+            # Lazy age-based eviction (24h TTL) to prevent stale reference permission errors
+            updated_at_str = entry.get("updated_at")
+            if updated_at_str:
+                try:
+                    dt = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc).timestamp() - dt.timestamp() > 86400:
+                        # Expired, remove from cache
+                        data["entries"].pop(key, None)
+                        _save(data)
+                        return None
+                except ValueError:
+                    pass
+
+            media_id = entry.get("media_id")
+            if isinstance(media_id, str) and media_id.strip():
+                return media_id.strip()
+        if isinstance(entry, str) and entry.strip():
+            return entry.strip()
     return None
 
 

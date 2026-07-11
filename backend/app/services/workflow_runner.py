@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import datetime
 import logging
+import re
 import secrets
 import time
+import unicodedata
 from collections import defaultdict, deque
 from typing import Any
 from urllib.parse import unquote
@@ -69,9 +72,7 @@ def _topo_order(nodes: list[dict], edges: list[dict]) -> list[str]:
             if indeg[v] == 0:
                 q.append(v)
     if len(order) != len(ids):
-        for i in ids:
-            if i not in order:
-                order.append(i)
+        raise ValueError("Workflow contains cycles (vòng lặp liên kết). Vui lòng kiểm tra lại sơ đồ nối node.")
     return order
 
 
@@ -161,7 +162,6 @@ def _restore_outputs_from_result(
 def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | None) -> str | None:
     # 1. Extract prefix number from node title (e.g. "Prompt 001" -> "001")
     title = str(node_data.get("title") or "").strip()
-    import re
     m = re.search(r"(\d+)", title)
     prefix_num = m.group(1) if m else ""
 
@@ -176,7 +176,6 @@ def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | N
         except Exception:
             pass
 
-    import unicodedata
     def remove_accents(input_str):
         nfkd_form = unicodedata.normalize('NFKD', input_str)
         return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
@@ -188,7 +187,6 @@ def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | N
         clean_name = "Project"
 
     # 3. Get current date
-    import datetime
     date_str = datetime.datetime.now().strftime("%Y%m%d")
 
     # 4. Combine
@@ -593,6 +591,7 @@ async def run_workflow(
             run["logs"] = run["logs"][-200:]
         logger.info("[wf %s] %s", rid, msg)
 
+    running_tasks: dict[str, asyncio.Task] = {}
     try:
         nmap = _node_map(nodes)
         ids = {str(n["id"]) for n in nodes}
@@ -662,7 +661,6 @@ async def run_workflow(
             
             # Extract number from title (e.g. "Prompt 001" -> 1.0)
             title = str((node_item.get("data") or {}).get("title") or "")
-            import re
             m = re.search(r"(\d+(?:\.\d+)?)", title)
             num = float(m.group(1)) if m else float('inf')
             
@@ -673,7 +671,7 @@ async def run_workflow(
 
         # Nodes ready to execute (0 active parents)
         ready_queue = [nid for nid in ids if nid not in completed_nodes and active_parent_count.get(nid, 0) == 0]
-        running_tasks: dict[str, asyncio.Task] = {}
+        running_tasks.clear()
         failed_node_error = None
 
         # 2. Parallel Event Loop
@@ -768,9 +766,6 @@ async def run_workflow(
                     break
 
         if failed_node_error:
-            # Cancel all other active tasks if one fails
-            for t in running_tasks.values():
-                t.cancel()
             run["progress"]["current"] = None
             return run
 
@@ -778,7 +773,6 @@ async def run_workflow(
         run["finished_at"] = time.time()
         run["progress"]["current"] = None
         log("Workflow completed (Parallel)")
-        _cleanup_runs()  # Dọn runs cũ để tránh memory leak
 
     except Exception as exc:
         logger.exception("Workflow run failed")
@@ -786,6 +780,16 @@ async def run_workflow(
         run["error"] = str(exc)
         run["finished_at"] = time.time()
         run["progress"]["current"] = None
+    finally:
+        # Await cancelled/active tasks to prevent resource leaks and warnings
+        if running_tasks:
+            for t in list(running_tasks.values()):
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*running_tasks.values(), return_exceptions=True)
+            running_tasks.clear()
+        # Always enforce old run cleanups on run termination
+        _cleanup_runs()
 
     return run
 

@@ -1,9 +1,10 @@
 import asyncio
+import hashlib
 import logging
 from typing import Any
 
 from app.providers.base import BaseProvider, ProviderError
-from app.services.account_store import Account
+from app.services.account_store import Account, account_store
 from app.services.auth_bridge_access import auth_bridge_access
 from app.services.flow_client import google_flow_client
 from app.services.flow_media_cache import get_media_id, invalidate_for_bytes, set_media_id
@@ -76,10 +77,15 @@ class FlowVeoProvider(BaseProvider):
         """Upload once per (project, image bytes); reuse mediaId on later generations."""
         project_id = session["project_id"]
         
-        import hashlib
         image_hash = hashlib.sha256(image_bytes).hexdigest()
         
         async with _upload_locks_lock:
+            # Prevent memory leak by removing stale unlocked locks when list grows large
+            if len(_upload_locks) > 200:
+                inactive = [k for k, l in _upload_locks.items() if not l.locked()]
+                for k in inactive:
+                    _upload_locks.pop(k, None)
+                    
             if image_hash not in _upload_locks:
                 _upload_locks[image_hash] = asyncio.Lock()
             lock = _upload_locks[image_hash]
@@ -103,7 +109,6 @@ class FlowVeoProvider(BaseProvider):
                 return media_id
             except ProviderError as exc:
                 if self.account:
-                    from app.services.account_store import account_store
                     account = account_store.get(self.account.id)
                     if account:
                         creds = dict(account.credentials)

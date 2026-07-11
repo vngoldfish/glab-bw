@@ -264,7 +264,9 @@ def assemble_clips(
         folder = (output_folder or "G-Labs BW/video_exports").strip()
         out_dir = (settings.data_dir / folder.replace("\\", "/")).resolve()
         root = settings.data_dir.resolve()
-        if not str(out_dir).startswith(str(root)):
+        try:
+            out_dir.relative_to(root)
+        except ValueError:
             raise ValueError("output_folder ngoài data/")
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -666,7 +668,9 @@ def assemble_timeline(
         folder = (output_folder or "G-Labs BW/video_exports").strip()
         out_dir = (settings.data_dir / folder.replace("\\", "/")).resolve()
         root = settings.data_dir.resolve()
-        if not str(out_dir).startswith(str(root)):
+        try:
+            out_dir.relative_to(root)
+        except ValueError:
             raise ValueError("output_folder ngoài data/")
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_name = (filename or f"timeline_{stamp}_{secrets.token_hex(3)}.mp4").strip()

@@ -156,6 +156,11 @@ async def lifespan(_app: FastAPI):
     finally:
         if bridge_server is not None:
             bridge_server.should_exit = True
+        try:
+            from app.services.flow_client import google_flow_client
+            await google_flow_client.close()
+        except Exception:
+            logger.exception("Error closing Google Flow client")
         logger.info("G-Labs BW shutting down")
 
 

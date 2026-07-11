@@ -75,24 +75,53 @@ export default function App() {
   const readyChip = useMemo(() => readinessChip(health), [health]);
 
   const refresh = useCallback(async () => {
-    const [info, accs, h, ext] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchAppInfo(),
       fetchAccounts(),
       fetchHealth(),
       fetchExtensionStatus(),
     ]);
-    setApiKey(info.api_key);
-    setAccounts(accs);
-    setHealth(h);
-    setExtension(ext);
-    if (h.flow_session_ok === false) {
-      const hint =
-        h.session?.hint ||
-        h.readiness_reasons?.find((r) => r.toLowerCase().includes("session") || r.includes("Cookie")) ||
-        "Cookie/session Flow có thể hết hạn — vào Settings dán lại session-token";
-      setSessionWarn(hint);
+
+    const errors: string[] = [];
+
+    if (results[0].status === "fulfilled") {
+      setApiKey(results[0].value.api_key);
     } else {
-      setSessionWarn("");
+      errors.push("Không lấy được thông tin cấu hình: " + (results[0].reason?.message || String(results[0].reason)));
+    }
+
+    if (results[1].status === "fulfilled") {
+      setAccounts(results[1].value);
+    } else {
+      errors.push("Không tải được danh sách tài khoản: " + (results[1].reason?.message || String(results[1].reason)));
+    }
+
+    if (results[2].status === "fulfilled") {
+      const h = results[2].value;
+      setHealth(h);
+      if (h.flow_session_ok === false) {
+        const hint =
+          h.session?.hint ||
+          h.readiness_reasons?.find((r) => r.toLowerCase().includes("session") || r.includes("Cookie")) ||
+          "Cookie/session Flow có thể hết hạn — vào Settings dán lại session-token";
+        setSessionWarn(hint);
+      } else {
+        setSessionWarn("");
+      }
+    } else {
+      errors.push("Không kiểm tra được trạng thái session: " + (results[2].reason?.message || String(results[2].reason)));
+    }
+
+    if (results[3].status === "fulfilled") {
+      setExtension(results[3].value);
+    } else {
+      errors.push("Không kiểm tra được extension: " + (results[3].reason?.message || String(results[3].reason)));
+    }
+
+    if (errors.length > 0) {
+      setError(errors.join(" | "));
+    } else {
+      setError("");
     }
   }, []);
 

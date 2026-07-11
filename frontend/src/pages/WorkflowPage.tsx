@@ -1706,7 +1706,9 @@ function layoutWorkflowNodes(
   for (const id of seed) rank.set(id, 0);
   const q = [...seed];
   const guard = new Set<string>();
-  while (q.length) {
+  let iterations = 0;
+  while (q.length && iterations < 10000) {
+    iterations++;
     const u = q.shift()!;
     const key = `${u}:${rank.get(u)}`;
     if (guard.has(key)) continue;
@@ -3212,37 +3214,31 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       const final = await pollUntilDone(started.run_id, pid);
       setRunResult(final);
       if (projectIdRef.current === pid) {
-        // Sync ref immediately from final snapshot using the freshest state (setNodes is async — do not save stale state)
-        setNodes((nds) => {
-          const nodesWithResults = attachHandlers(
-            mergeRunResultIntoNodes(nds, final),
+        // Sync ref immediately from final snapshot using the freshest state
+        const currentNodes = nodesRef.current;
+        const nodesWithResults = attachHandlers(
+          mergeRunResultIntoNodes(currentNodes, final),
+        );
+        setNodes(nodesWithResults);
+        nodesRef.current = nodesWithResults;
+
+        // auto-save project graph + previews in the background so reload still shows results
+        try {
+          const saved = await saveProject(projectPayload(nodesWithResults), pid);
+          if (projectIdRef.current === pid) {
+            setProjectId(saved.id);
+            setDirty(false);
+            await refreshProjects();
+            await refreshProjectAssets(saved.id);
+          }
+        } catch (e) {
+          console.warn("autosave after run failed", e);
+          onError(
+            e instanceof Error
+              ? `Chạy xong nhưng lưu project lỗi: ${e.message}`
+              : "Chạy xong nhưng lưu project lỗi",
           );
-          nodesRef.current = nodesWithResults;
-
-          // auto-save project graph + previews in the background so reload still shows results
-          setTimeout(() => {
-            void (async () => {
-              try {
-                const saved = await saveProject(projectPayload(nodesWithResults), pid);
-                if (projectIdRef.current === pid) {
-                  setProjectId(saved.id);
-                  setDirty(false);
-                  await refreshProjects();
-                  await refreshProjectAssets(saved.id);
-                }
-              } catch (e) {
-                console.warn("autosave after run failed", e);
-                onError(
-                  e instanceof Error
-                    ? `Chạy xong nhưng lưu project lỗi: ${e.message}`
-                    : "Chạy xong nhưng lưu project lỗi",
-                );
-              }
-            })();
-          }, 0);
-
-          return nodesWithResults;
-        });
+        }
       } else {
         // Background path: user switched projects during run.
         // We should still save the completed results to the old project `pid` in the database,
