@@ -250,6 +250,11 @@ def build_bulk_graph(
 
         title_gen = f"Tạo video {prefix}" if ntype == "video_generate" else f"Tạo ảnh {prefix}"
 
+        try:
+            sort_val = float(prefix)
+        except ValueError:
+            sort_val = float(row)
+
         gen_node = {
             "id": gen_id,
             "type": ntype,
@@ -258,7 +263,7 @@ def build_bulk_graph(
                 "title": title_gen,
                 "runStatus": "idle",
                 "aspect_ratio": aspect_ratio,
-                "sortIndex": row,
+                "sortIndex": sort_val,
             }
         }
         if ntype == "generate":
@@ -309,6 +314,11 @@ def build_bulk_graph(
                 fe_x = origin_x + src["box_index"] * lane_gap + int(lane_gap / 2)
                 fe_y = origin_y + src_row * box_gap + 40
 
+                try:
+                    fe_sort_val = float(prefix)
+                except ValueError:
+                    fe_sort_val = float(src_row)
+
                 fe_node = {
                     "id": fe_id,
                     "type": "frame_extract",
@@ -317,7 +327,7 @@ def build_bulk_graph(
                         "title": f"Tách frame {prefix}",
                         "positions": "end",
                         "runStatus": "idle",
-                        "sortIndex": src_row,
+                        "sortIndex": fe_sort_val,
                     }
                 }
                 nodes.append(fe_node)
