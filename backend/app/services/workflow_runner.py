@@ -127,6 +127,45 @@ def _restore_outputs_from_result(
             outputs[nid]["start_image"] = outputs[nid].get("start_image") or [urls[0]]
 
 
+def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | None) -> str | None:
+    # 1. Extract prefix number from node title (e.g. "Prompt 001" -> "001")
+    title = str(node_data.get("title") or "").strip()
+    import re
+    m = re.search(r"(\d+)", title)
+    prefix_num = m.group(1) if m else ""
+
+    # 2. Get project name and sanitize it
+    from app.services.project_store import get_project
+    project_name = "Project"
+    if project_id:
+        try:
+            pdoc = get_project(project_id)
+            if pdoc:
+                project_name = pdoc.get("name") or "Project"
+        except Exception:
+            pass
+
+    import unicodedata
+    def remove_accents(input_str):
+        nfkd_form = unicodedata.normalize('NFKD', input_str)
+        return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+    clean_name = remove_accents(project_name)
+    clean_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in clean_name)
+    clean_name = re.sub(r"_+", "_", clean_name).strip("_")
+    if not clean_name:
+        clean_name = "Project"
+
+    # 3. Get current date
+    import datetime
+    date_str = datetime.datetime.now().strftime("%Y%m%d")
+
+    # 4. Combine
+    if prefix_num:
+        return f"{prefix_num}_{clean_name}_{date_str}"
+    return f"{clean_name}_{date_str}"
+
+
 async def _execute_node(
     nid: str,
     ntype: str,
@@ -205,12 +244,14 @@ async def _execute_node(
                     ref_data.append(await _url_to_data_url(str(r)))
                 except Exception:
                     pass
+        custom_prefix = _build_custom_filename_prefix(data, project_id)
         params = {
             "model": data.get("model") or "nano_banana_2_lite",
             "aspect_ratio": data.get("aspect_ratio") or "1:1",
             "count": int(data.get("count") or 1),
             "save_mode": "task",
             "output_folder": img_folder,
+            "custom_prefix": custom_prefix,
         }
         if ref_data:
             params["reference_images"] = ref_data
@@ -275,6 +316,7 @@ async def _execute_node(
         # Default mode: components if we have reference edges, otherwise start_image if start_refs, otherwise text_to_video
         has_ref_conn = len(connected_references) > 0
         mode = data.get("mode") or ("components" if has_ref_conn else "start_image" if start_refs else "text_to_video")
+        custom_prefix = _build_custom_filename_prefix(data, project_id)
         params: dict[str, Any] = {
             "model": data.get("model") or "veo_31_fast",
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
@@ -282,6 +324,7 @@ async def _execute_node(
             "save_mode": "task",
             "output_folder": vid_folder,
             "resolution": data.get("resolution") or ["720p"],
+            "custom_prefix": custom_prefix,
         }
         ref_list: list[str] = []
         for r in start_refs[:1]:

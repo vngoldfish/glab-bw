@@ -169,6 +169,9 @@ async def handle_image_task(task: Task) -> list[str]:
         raise ProviderError("Missing required field: prompt", error_code=0)
 
     params = task.payload
+    custom_prefix = params.get("custom_prefix")
+    file_prefix = custom_prefix if custom_prefix else f"image_{task.task_id}"
+
     try:
         images = await _run_flow_with_rotation(
             for_video=False,
@@ -179,7 +182,7 @@ async def handle_image_task(task: Task) -> list[str]:
         openai = get_openai_provider()
         if openai:
             images = await openai.generate_image(task.prompt, params)
-            return _save_outputs(images, task, f"image_{task.task_id}")
+            return _save_outputs(images, task, file_prefix)
         raise
 
     upscale_targets = params.get("upscale", [])
@@ -187,8 +190,8 @@ async def handle_image_task(task: Task) -> list[str]:
         upscaled_all: list[bytes] = []
         for image in images:
             upscaled_all.extend(upscale_service.upscale_image(image, upscale_targets))
-        return _save_outputs(upscaled_all, task, f"image_{task.task_id}")
-    return _save_outputs(images, task, f"image_{task.task_id}")
+        return _save_outputs(upscaled_all, task, file_prefix)
+    return _save_outputs(images, task, file_prefix)
 
 
 async def handle_video_task(task: Task) -> list[str]:
@@ -200,7 +203,9 @@ async def handle_video_task(task: Task) -> list[str]:
         prompt=task.prompt,
         params=task.payload,
     )
-    return _save_outputs(videos, task, f"video_{task.task_id}", ext="mp4")
+    custom_prefix = task.payload.get("custom_prefix")
+    file_prefix = custom_prefix if custom_prefix else f"video_{task.task_id}"
+    return _save_outputs(videos, task, file_prefix, ext="mp4")
 
 
 async def handle_grok_task(task: Task) -> list[str]:
@@ -218,14 +223,17 @@ async def handle_grok_task(task: Task) -> list[str]:
             error_code=0,
         )
 
+    custom_prefix = task.payload.get("custom_prefix")
     try:
         if not for_video:
             images = await provider.generate_image(task.prompt, task.payload)
             session_health.mark_grok_ok()
-            return _save_outputs(images, task, f"grok_{task.task_id}")
+            file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
+            return _save_outputs(images, task, file_prefix)
         videos = await provider.generate_video(task.prompt, task.payload)
         session_health.mark_grok_ok()
-        return _save_outputs(videos, task, f"grok_{task.task_id}", ext="mp4")
+        file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
+        return _save_outputs(videos, task, file_prefix, ext="mp4")
     except ProviderError as exc:
         if is_session_stale_error(exc):
             session_health.mark_grok_stale(str(exc))
@@ -246,11 +254,14 @@ async def handle_meta_task(task: Task) -> list[str]:
         )
 
     count = max(1, min(int(task.payload.get("count", 1)), 4))
+    custom_prefix = task.payload.get("custom_prefix")
     if for_video:
         outputs = await provider.generate_video(task.prompt, {**task.payload, "count": count})
-        return _save_outputs(outputs, task, f"meta_{task.task_id}", ext="mp4")
+        file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
+        return _save_outputs(outputs, task, file_prefix, ext="mp4")
     outputs = await provider.generate_image(task.prompt, {**task.payload, "count": count})
-    return _save_outputs(outputs, task, f"meta_{task.task_id}")
+    file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
+    return _save_outputs(outputs, task, file_prefix)
 
 
 async def handle_openai_task(task: Task) -> list[str]:
@@ -262,7 +273,9 @@ async def handle_openai_task(task: Task) -> list[str]:
         raise ProviderError("No active OpenAI account available", error_code=0)
 
     images = await provider.generate_image(task.prompt, task.payload)
-    return _save_outputs(images, task, f"openai_{task.task_id}")
+    custom_prefix = task.payload.get("custom_prefix")
+    file_prefix = custom_prefix if custom_prefix else f"openai_{task.task_id}"
+    return _save_outputs(images, task, file_prefix)
 
 
 async def handle_batch_item(prompt: str, provider: str, params: dict) -> dict:
