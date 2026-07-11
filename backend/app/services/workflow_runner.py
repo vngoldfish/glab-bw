@@ -237,7 +237,24 @@ async def _execute_node(
             raise ValueError("Video needs prompt")
         start_refs = list(inputs.get("start_image") or inputs.get("image") or [])
         end_refs = list(inputs.get("end_image") or [])
-        ref_refs = list(inputs.get("reference") or [])
+        
+        # Look up Reference nodes connected to the "reference" handle of this node to preserve refNames
+        connected_references = []
+        for e in edges:
+            if str(e.get("target")) == nid and str(e.get("targetHandle")) == "reference":
+                src_id = str(e.get("source"))
+                src_node = nmap.get(src_id)
+                if src_node and src_node.get("type") == "reference":
+                    src_data = src_node.get("data") or {}
+                    ref_name = src_data.get("refName")
+                    img_val = outputs.get(src_id, {}).get("image")
+                    img_url = img_val[0] if img_val else src_data.get("image")
+                    if ref_name and img_url:
+                        connected_references.append({
+                            "name": ref_name,
+                            "url": img_url
+                        })
+
         # Node-attached images (pick from library / upload without edge)
         for key in ("start_image", "image", "startImage"):
             val = data.get(key)
@@ -251,7 +268,8 @@ async def _execute_node(
                 break
         
         # Default mode: components if we have reference edges, otherwise start_image if start_refs, otherwise text_to_video
-        mode = data.get("mode") or ("components" if ref_refs else "start_image" if start_refs else "text_to_video")
+        has_ref_conn = len(connected_references) > 0
+        mode = data.get("mode") or ("components" if has_ref_conn else "start_image" if start_refs else "text_to_video")
         params: dict[str, Any] = {
             "model": data.get("model") or "veo_31_fast",
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
@@ -271,22 +289,36 @@ async def _execute_node(
                 ref_list.append(str(r))
             else:
                 ref_list.append(await _url_to_data_url(str(r)))
-        for r in ref_refs:
-            if str(r).startswith("data:"):
-                ref_list.append(str(r))
-            else:
-                ref_list.append(await _url_to_data_url(str(r)))
         if ref_list:
             params["reference_images"] = ref_list
-            if len(ref_list) >= 2 and not ref_refs:
+            if len(ref_list) >= 2 and not has_ref_conn:
                 params["mode"] = "start_end_image"
-            elif mode == "text_to_video" and not ref_refs:
+            elif mode == "text_to_video" and not has_ref_conn:
                 params["mode"] = "start_image"
+        
+        # Inject named references from library
         try:
             from app.services import reference_storage
-            params["named_references"] = reference_storage.list_references().get("references", [])
+            library_refs = reference_storage.list_references().get("references", [])
         except Exception as e:
             logger.exception("Failed to inject named_references: %s", e)
+            library_refs = []
+
+        # Convert connected Reference nodes to base64 data URLs and override/append to named_references
+        active_named_refs = list(library_refs)
+        for ref in connected_references:
+            try:
+                data_url = await _url_to_data_url(ref["url"])
+                # Override if character with the same name exists
+                active_named_refs = [r for r in active_named_refs if r.get("name") != ref["name"]]
+                active_named_refs.append({
+                    "name": ref["name"],
+                    "data": data_url
+                })
+            except Exception as e:
+                logger.error("Failed to convert connected reference %s to data URL: %s", ref["name"], e)
+                
+        params["named_references"] = active_named_refs
         out = await handle_batch_item(prompt, "video", params)
         urls = out["urls"]
         outputs[nid]["video"] = urls
