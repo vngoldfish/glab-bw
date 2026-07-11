@@ -84,7 +84,13 @@ def resolve_prompt_references(
     if prefer_payload_order and ordered_payload:
         if len(ordered_payload) > 10:
             raise ProviderError("Tối đa 10 ảnh tham chiếu trong một prompt", error_code=400)
-        return prompt, ordered_payload
+        normalized_payload = []
+        for item in ordered_payload:
+            ni = dict(item)
+            if "name" in ni:
+                ni["name"] = str(ni["name"]).strip().lower()
+            normalized_payload.append(ni)
+        return prompt, normalized_payload
 
     ordered_names = _ordered_mentions(
         prompt,
@@ -95,7 +101,13 @@ def resolve_prompt_references(
     if not ordered_names:
         # Fall back to payload order when prompt has no @ but client sent frames
         if ordered_payload and not strict_unknown_mentions:
-            return prompt, ordered_payload
+            normalized_payload = []
+            for item in ordered_payload:
+                ni = dict(item)
+                if "name" in ni:
+                    ni["name"] = str(ni["name"]).strip().lower()
+                normalized_payload.append(ni)
+            return prompt, normalized_payload
         return prompt, []
 
     if len(ordered_names) > 10:
@@ -107,6 +119,16 @@ def resolve_prompt_references(
             slot = index + 1
             pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
             rewritten_prompt = pattern.sub(f"@reference_{slot}", rewritten_prompt)
+    else:
+        # Normalize prompt mentions to lowercase (e.g. @MODERNYOU -> @modernyou)
+        for name in ordered_names:
+            pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
+            rewritten_prompt = pattern.sub(f"@{name}", rewritten_prompt)
 
-    ordered_items = [ref_by_name[name] for name in ordered_names]
+    ordered_items = []
+    for name in ordered_names:
+        item = dict(ref_by_name[name])
+        item["name"] = name  # name is already lowercased
+        ordered_items.append(item)
+
     return rewritten_prompt, ordered_items
