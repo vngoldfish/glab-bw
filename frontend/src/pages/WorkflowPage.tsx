@@ -1663,8 +1663,20 @@ function layoutWorkflowNodes(
   const seed = roots.length ? roots : [...ids];
 
   // Longest-path rank from roots
+  const typeRank = (nId: string) => {
+    const node = nodes.find((x) => x.id === nId);
+    const t = String(node?.type || "");
+    if (t === "reference") return 0;
+    if (t === "generate") return 1;
+    if (t === "video_generate") return 2;
+    if (t === "frame_extract") return 3;
+    return 0;
+  };
+
   const rank = new Map<string, number>();
-  for (const id of seed) rank.set(id, 0);
+  for (const n of nodes) {
+    rank.set(n.id, typeRank(n.id));
+  }
   const q = [...seed];
   const guard = new Set<string>();
   while (q.length) {
