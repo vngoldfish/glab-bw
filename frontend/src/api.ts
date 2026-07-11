@@ -901,6 +901,22 @@ export async function fetchSampleVideoChain(): Promise<WorkflowDoc> {
   return data.workflow;
 }
 
+/** Bóc tách sản phẩm */
+export async function fetchSampleProductIsolate(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/product-isolate");
+  await ensureOk(res, "Không tải mẫu bóc tách sản phẩm");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
+/** Ghép sản phẩm vào nhân vật */
+export async function fetchSampleProductPlacement(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/product-placement");
+  await ensureOk(res, "Không tải mẫu ghép sản phẩm");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
 export async function saveWorkflow(
   doc: WorkflowDoc,
   id?: string | null,

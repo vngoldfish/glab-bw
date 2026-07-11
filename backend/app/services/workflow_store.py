@@ -284,3 +284,131 @@ def sample_video_chain() -> dict[str, Any]:
         ],
         "viewport": {"x": 0, "y": 0, "zoom": 0.75},
     }
+
+
+def sample_product_isolate() -> dict[str, Any]:
+    """Bóc tách sản phẩm: Ảnh sản phẩm gốc -> Prompt bóc tách -> Tạo ảnh sản phẩm sạch nền trắng."""
+    return {
+        "name": "Mẫu: Bóc tách sản phẩm",
+        "nodes": [
+            {
+                "id": "n_ref_raw",
+                "type": "reference",
+                "position": {"x": 40, "y": 80},
+                "data": {
+                    "title": "Ảnh gốc sản phẩm",
+                    "image": "",
+                    "refName": "san_pham_goc",
+                },
+            },
+            {
+                "id": "n_prompt_iso",
+                "type": "prompt",
+                "position": {"x": 40, "y": 320},
+                "data": {
+                    "title": "Prompt tách nền",
+                    "prompt": "A professional studio product shot of the item in @san_pham_goc, isolated on a pure solid white background, clean shadow, sharp details, commercial photography",
+                },
+            },
+            {
+                "id": "n_gen_clean",
+                "type": "generate",
+                "position": {"x": 420, "y": 140},
+                "data": {
+                    "title": "Tạo ảnh sạch nền",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "1:1",
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "e_iso_1",
+                "source": "n_ref_raw",
+                "target": "n_gen_clean",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_iso_2",
+                "source": "n_prompt_iso",
+                "target": "n_gen_clean",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 0.85},
+    }
+
+
+def sample_product_placement() -> dict[str, Any]:
+    """Ghép sản phẩm vào nhân vật: Ảnh sản phẩm + Ảnh nhân vật -> Prompt ghép -> Tạo ảnh mới."""
+    return {
+        "name": "Mẫu: Ghép sản phẩm vào nhân vật",
+        "nodes": [
+            {
+                "id": "n_ref_prod",
+                "type": "reference",
+                "position": {"x": 40, "y": 40},
+                "data": {
+                    "title": "Ảnh sản phẩm",
+                    "image": "",
+                    "refName": "san_pham",
+                },
+            },
+            {
+                "id": "n_ref_char",
+                "type": "reference",
+                "position": {"x": 40, "y": 280},
+                "data": {
+                    "title": "Ảnh nhân vật",
+                    "image": "",
+                    "refName": "nhan_vat",
+                },
+            },
+            {
+                "id": "n_prompt_merge",
+                "type": "prompt",
+                "position": {"x": 40, "y": 520},
+                "data": {
+                    "title": "Prompt ghép cảnh",
+                    "prompt": "A professional model (style of @nhan_vat) wearing the shoes from @san_pham, walking down a street in New York, cinematic lighting, 8k resolution, sharp focus",
+                },
+            },
+            {
+                "id": "n_gen_merge",
+                "type": "generate",
+                "position": {"x": 460, "y": 200},
+                "data": {
+                    "title": "Tạo ảnh ghép",
+                    "model": "nano_banana_2_lite",
+                    "aspect_ratio": "16:9",
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "e_merge_1",
+                "source": "n_ref_prod",
+                "target": "n_gen_merge",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_merge_2",
+                "source": "n_ref_char",
+                "target": "n_gen_merge",
+                "sourceHandle": "image",
+                "targetHandle": "image",
+            },
+            {
+                "id": "e_merge_3",
+                "source": "n_prompt_merge",
+                "target": "n_gen_merge",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 0.8},
+    }
+

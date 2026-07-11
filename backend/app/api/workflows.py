@@ -49,6 +49,16 @@ async def sample_video_chain() -> dict:
     return {"workflow": store.sample_video_chain()}
 
 
+@router.get("/sample/product-isolate")
+async def sample_product_isolate() -> dict:
+    return {"workflow": store.sample_product_isolate()}
+
+
+@router.get("/sample/product-placement")
+async def sample_product_placement() -> dict:
+    return {"workflow": store.sample_product_placement()}
+
+
 @router.get("/runs/{run_id}")
 async def get_workflow_run(run_id: str) -> dict:
     run = get_run(run_id)

@@ -156,7 +156,8 @@ def _drawtext_filter(
         "line_spacing=6",
     ]
     if font:
-        parts.append(f"fontfile='{font.replace(':', '\\:')}'")
+        escaped_font = font.replace(':', '\\:')
+        parts.append(f"fontfile='{escaped_font}'")
     if box:
         parts += ["box=1", "boxcolor=black@0.55", "boxborderw=12"]
     if borderw:

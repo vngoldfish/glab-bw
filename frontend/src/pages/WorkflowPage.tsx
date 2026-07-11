@@ -34,6 +34,8 @@ import {
   fetchProject,
   fetchProjectAssets,
   fetchReferenceLibrary,
+  fetchSampleProductIsolate,
+  fetchSampleProductPlacement,
   fetchSampleVideoChain,
   fetchSampleWorkflow,
   fetchWorkflowRun,
@@ -3277,6 +3279,66 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 }}
               >
                 Mẫu: Nối video (frame cuối)
+              </button>
+              <button
+                type="button"
+                className="wf-preset-btn"
+                title="Bóc tách sản phẩm: Ảnh sản phẩm gốc -> Prompt bóc tách -> Tạo ảnh sản phẩm sạch nền trắng"
+                onClick={async () => {
+                  try {
+                    if (dirty) {
+                      const ok = await dialog.confirm({
+                        title: "Áp dụng mẫu?",
+                        message: "Graph hiện tại sẽ bị thay bằng mẫu bóc tách sản phẩm.",
+                        confirmLabel: "Áp dụng",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
+                    }
+                    const s = await fetchSampleProductIsolate();
+                    setName(s.name || "Mẫu bóc tách sản phẩm");
+                    setNodes(attachHandlers((s.nodes as Node[]) || []));
+                    setEdges((s.edges as Edge[]) || []);
+                    setRunResult(null);
+                    setDirty(true);
+                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                Mẫu: Bóc tách sản phẩm
+              </button>
+              <button
+                type="button"
+                className="wf-preset-btn"
+                title="Ghép sản phẩm vào nhân vật: Ảnh sản phẩm + Ảnh nhân vật -> Prompt ghép -> Tạo ảnh mới"
+                onClick={async () => {
+                  try {
+                    if (dirty) {
+                      const ok = await dialog.confirm({
+                        title: "Áp dụng mẫu?",
+                        message: "Graph hiện tại sẽ bị thay bằng mẫu ghép sản phẩm vào nhân vật.",
+                        confirmLabel: "Áp dụng",
+                        cancelLabel: "Hủy",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
+                    }
+                    const s = await fetchSampleProductPlacement();
+                    setName(s.name || "Mẫu ghép sản phẩm");
+                    setNodes(attachHandlers((s.nodes as Node[]) || []));
+                    setEdges((s.edges as Edge[]) || []);
+                    setRunResult(null);
+                    setDirty(true);
+                    requestAnimationFrame(() => rf.current?.fitView({ padding: 0.15 }));
+                  } catch (e) {
+                    onError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+              >
+                Mẫu: Ghép sản phẩm
               </button>
             </div>
           </div>
