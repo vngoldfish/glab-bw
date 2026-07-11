@@ -93,3 +93,36 @@ def test_run_tests_endpoint_self(client):
     assert result["exit_code"] in (0, 1)  # 0 pass, 1 fail
     if result["ok"]:
         assert result["passed"] >= 1
+
+
+def test_run_bulk_api(client):
+    payload = {
+        "project_name": "Test Bulk Project API",
+        "boxes": [
+            {
+                "type": "generate",
+                "prompts": "001 cô gái xinh đẹp @char\n002 cô gái đi bộ @char"
+            },
+            {
+                "type": "video_generate",
+                "prompts": "001 cô gái ngoảnh lại cười @char"
+            }
+        ],
+        "references": [
+            {
+                "name": "char",
+                "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            }
+        ],
+        "model_image": "nano_banana_2_lite",
+        "model_video": "veo_31_fast",
+        "aspect_ratio": "16:9"
+    }
+    r = client.post("/api/workflows/run-bulk", json=payload)
+    assert r.status_code == 201
+    data = r.json()
+    assert "run_id" in data
+    assert "project_id" in data
+    assert data["project_name"] == "Test Bulk Project API"
+    assert data["status"] == "running"
+
