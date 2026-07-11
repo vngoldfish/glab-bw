@@ -793,6 +793,15 @@ export async function fileAsDataUrl(filePath: string): Promise<string> {
   return data.data_url;
 }
 
+export async function deleteMediaFile(filePath: string): Promise<void> {
+  const params = new URLSearchParams();
+  params.set("file_path", filePath);
+  const res = await apiFetch(`/api/media/delete-file?${params}`, {
+    method: "DELETE",
+  });
+  await ensureOk(res, "Xóa file thất bại");
+}
+
 export interface PipelineResult {
   job_id: string;
   status: string;

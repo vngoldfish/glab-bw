@@ -11062,6 +11062,7 @@ textarea:focus {
 
 /* ── Item card ── */
 .mhp-item {
+  position: relative;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
@@ -11076,6 +11077,39 @@ textarea:focus {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0,0,0,0.3);
 }
+
+.mhp-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 10;
+  transition: all 0.15s ease;
+  line-height: 1;
+  opacity: 0; /* Mặc định ẩn, hover vào item mới hiện */
+}
+
+.mhp-item:hover .mhp-delete-btn {
+  opacity: 0.85;
+}
+
+.mhp-delete-btn:hover {
+  background: rgba(220, 38, 38, 1) !important;
+  border-color: rgba(220, 38, 38, 0.5);
+  transform: scale(1.1);
+  opacity: 1 !important;
+}
+
 
 /* Thumbnails */
 .mhp-thumb {

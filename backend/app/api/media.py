@@ -6,8 +6,9 @@ import base64
 import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query
 from pydantic import BaseModel, Field
+
 
 from app.core.config import settings
 from app.services.frame_extract import extract_frames
@@ -104,3 +105,56 @@ async def file_as_data_url(body: FrameToDataUrlBody) -> dict:
         mime = "image/webp"
     b64 = base64.b64encode(raw).decode("ascii")
     return {"data_url": f"data:{mime};base64,{b64}", "path": body.file_path}
+
+
+@router.delete("/delete-file")
+async def delete_media_file(
+    file_path: str = Query(..., description="Relative path under data/ or /api/files/ URL")
+) -> dict:
+    raw = file_path.strip()
+    if "/api/files/" in raw:
+        raw = raw.split("/api/files/", 1)[1].split("?", 1)[0]
+    from urllib.parse import unquote
+    raw = unquote(raw)
+
+    try:
+        path = resolve_data_file(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail={"error": "File not found"})
+
+    allowed_dirs = {"image_output", "video_output", "grok_output", "meta_output", "temp", "webhook_uploads"}
+    try:
+        resolved_path = path.resolve()
+        data_dir_resolved = settings.data_dir.resolve()
+        
+        # Đảm bảo không nhảy ra ngoài data dir
+        if not str(resolved_path).startswith(str(data_dir_resolved)):
+            raise HTTPException(status_code=403, detail={"error": "Access denied"})
+
+        # Chỉ cho phép xóa trong các thư mục output được phép
+        parts = resolved_path.relative_to(data_dir_resolved).parts
+        if not any(d in parts for d in allowed_dirs):
+            raise HTTPException(status_code=403, detail={"error": "Deletion not allowed in this directory"})
+
+        # Tiến hành xóa file
+        resolved_path.unlink()
+
+        # Dọn dẹp thư mục cha nếu trống (ví dụ thư mục task_xxx)
+        parent = resolved_path.parent
+        if parent != data_dir_resolved and (parent.name.startswith("task_") or parent.name == "uploads"):
+            try:
+                # Kiểm tra thư mục có rỗng không
+                if not any(parent.iterdir()):
+                    parent.rmdir()
+            except Exception:
+                pass
+
+        return {"status": "ok", "message": f"Deleted file: {raw}"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc)})
+

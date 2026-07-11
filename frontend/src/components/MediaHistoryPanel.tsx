@@ -2,9 +2,10 @@
  * MediaHistoryPanel — hiển thị ảnh/video đã tạo trước từ đĩa (không phụ thuộc localStorage)
  * Mặc định thu gọn, click nút mới mở ra — không che phần tạo ảnh/video.
  * Hỗ trợ phân trang để hiển thị mượt mà không bị tràn hay khuất phần dưới.
+ * Hỗ trợ xóa vĩnh viễn file lỗi khỏi máy chủ bằng nút X màu đỏ ở góc phải trên.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { browseInsertMedia } from "../api";
+import { browseInsertMedia, deleteMediaFile } from "../api";
 import type { ProjectAsset } from "../api";
 
 interface Props {
@@ -40,7 +41,7 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
 
   // Phân trang
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = kind === "image" ? 16 : 8; // Ảnh hiển thị nhiều hơn, video to hơn nên ít hơn
+  const pageSize = kind === "image" ? 16 : 8;
 
   const load = useCallback(async () => {
     abortRef.current?.abort();
@@ -78,6 +79,20 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
   useEffect(() => {
     setCurrentPage(1);
   }, [search, assets]);
+
+  // Xử lý xóa file khỏi máy chủ
+  const handleDelete = async (e: React.MouseEvent, asset: ProjectAsset) => {
+    e.stopPropagation();
+    const ok = window.confirm(`Bạn có chắc chắn muốn xóa file "${asset.name}" khỏi máy chủ không? Hành động này sẽ xóa vĩnh viễn file trên đĩa cứng.`);
+    if (!ok) return;
+
+    try {
+      await deleteMediaFile(asset.path);
+      setAssets((prev) => prev.filter((a) => a.path !== asset.path));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginatedItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -154,6 +169,16 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
                 className="mhp-item"
                 onClick={() => setPreviewUrl(previewUrl === asset.url ? null : asset.url)}
               >
+                {/* Nút X đỏ để xóa file */}
+                <button
+                  className="mhp-delete-btn"
+                  onClick={(e) => handleDelete(e, asset)}
+                  title="Xóa file khỏi máy chủ"
+                  type="button"
+                >
+                  ✕
+                </button>
+
                 {kind === "image" ? (
                   <img
                     src={asset.url}
