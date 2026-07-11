@@ -1723,44 +1723,54 @@ function layoutWorkflowNodes(
     finalRank.set(id, depth + offset);
   }
 
-  const maxRank = Math.max(0, ...[...finalRank.values()]);
-  const layers: Node[][] = Array.from({ length: maxRank + 1 }, () => []);
+  const rowMap = new Map<string, number>();
+  let nextRow = 0;
+
+  const assignRow = (nodeId: string, row: number) => {
+    if (rowMap.has(nodeId)) return;
+    rowMap.set(nodeId, row);
+    const neighbors = [...(outgoing.get(nodeId) || [])];
+    neighbors.sort((a, b) => {
+      const na = nodes.find((x) => x.id === a);
+      const nb = nodes.find((x) => x.id === b);
+      return (na?.position.y || 0) - (nb?.position.y || 0);
+    });
+    neighbors.forEach((neigh, idx) => {
+      if (idx === 0) {
+        assignRow(neigh, row);
+      } else {
+        nextRow += 1;
+        assignRow(neigh, nextRow);
+      }
+    });
+  };
+
+  const rootIds = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
+  rootIds.sort((a, b) => {
+    const na = nodes.find((x) => x.id === a);
+    const nb = nodes.find((x) => x.id === b);
+    return (na?.position.y || 0) - (nb?.position.y || 0);
+  });
+
+  for (const rId of rootIds) {
+    assignRow(rId, nextRow);
+    nextRow += 1;
+  }
+
   for (const n of nodes) {
-    layers[finalRank.get(n.id) || 0].push(n);
+    if (!rowMap.has(n.id)) {
+      rowMap.set(n.id, nextRow);
+      nextRow += 1;
+    }
   }
 
   const positioned = new Map<string, { x: number; y: number }>();
-
-  for (let r = 0; r <= maxRank; r++) {
-    const layer = layers[r];
-    layer.sort((a, b) => {
-      const bary = (n: Node) => {
-        const parents = incoming.get(n.id) || [];
-        if (!parents.length) return n.position.y;
-        let sum = 0;
-        let c = 0;
-        for (const p of parents) {
-          const pp = positioned.get(p);
-          if (pp) {
-            sum += pp.y;
-            c += 1;
-          }
-        }
-        return c ? sum / c : n.position.y;
-      };
-      const d = bary(a) - bary(b);
-      if (Math.abs(d) > 1) return d;
-      const ta = LAYOUT_TYPE_ORDER[String(a.type || "")] ?? 50;
-      const tb = LAYOUT_TYPE_ORDER[String(b.type || "")] ?? 50;
-      if (ta !== tb) return ta - tb;
-      return a.id.localeCompare(b.id);
-    });
-
-    layer.forEach((n, i) => {
-      positioned.set(n.id, {
-        x: ORIGIN_X + r * COL_W,
-        y: ORIGIN_Y + i * ROW_H,
-      });
+  for (const n of nodes) {
+    const r = finalRank.get(n.id) || 0;
+    const row = rowMap.get(n.id) ?? 0;
+    positioned.set(n.id, {
+      x: ORIGIN_X + r * COL_W,
+      y: ORIGIN_Y + row * ROW_H,
     });
   }
 
