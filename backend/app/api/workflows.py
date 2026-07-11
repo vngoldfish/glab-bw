@@ -390,12 +390,41 @@ def build_bulk_graph(
         except Exception:
             local_ref_map = {}
 
-        # Merge with API references
+        # Merge with API references and save base64 to persistent library
+        from app.services.reference_image_loader import _decode_data_url
         for ref in references:
-            local_ref_map[ref.name.lower()] = {
-                "name": ref.name,
-                "image": ref.image
-            }
+            if ref.image.startswith("data:") or "base64," in ref.image:
+                try:
+                    parsed = _decode_data_url(ref.image)
+                    if parsed:
+                        raw_bytes, mime_type = parsed
+                        existing_refs = reference_storage._load_manifest()
+                        existing_item = next((item for item in existing_refs if item.get("name") == ref.name), None)
+                        if existing_item:
+                            ref_record = reference_storage.replace_reference_image(existing_item["id"], raw_bytes, mime_type)
+                        else:
+                            ref_record = reference_storage.add_reference(
+                                raw_bytes,
+                                mime_type,
+                                name=ref.name,
+                                label=ref.name,
+                                category="character"
+                            )
+                        local_ref_map[ref.name.lower()] = {
+                            "name": ref.name,
+                            "image": ref_record["image_url"],
+                            "file_path": ref_record["file_path"]
+                        }
+                except Exception:
+                    local_ref_map[ref.name.lower()] = {
+                        "name": ref.name,
+                        "image": ref.image
+                    }
+            else:
+                local_ref_map[ref.name.lower()] = {
+                    "name": ref.name,
+                    "image": ref.image
+                }
 
         ref_node_counter = 0
         for mention, targets in mention_to_gen_ids.items():
