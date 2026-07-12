@@ -2191,6 +2191,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   const [running, setRunning] = useState(false);
   const [, setRunResult] = useState<WorkflowRunResult | null>(null);
@@ -2694,7 +2695,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
         const qid = routeProjectId || searchParams.get("project");
         const list = await listProjects();
-        const openId = qid && list.find((p) => p.id === qid) ? qid : list[0]?.id;
+        const openId = qid && list.find((p) => p.id === qid) ? qid : null;
         if (openId) {
           const doc = await fetchProject(openId);
           setProjectId(doc.id);
@@ -2740,6 +2741,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             setDirty(false);
           }
         } else {
+          const tKey = searchParams.get("template");
+          const ctId = searchParams.get("customTemplate");
+          if (!tKey && !ctId) {
+            setShowProjectSelector(true);
+          }
           const sample = await fetchSampleWorkflow();
           setProjectId(null);
           setName(sample.name || "Project mới");
@@ -3466,11 +3472,31 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       } else {
         setDirty(false);
       }
+      setShowProjectSelector(false);
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  const handleCreateNewProject = async () => {
+    const name = prompt("Nhập tên project mới:", `Project mới`);
+    if (name === null) return; // cancelled
+    const cleanName = name.trim() || `Project mới`;
+    try {
+      const doc = await saveProject({
+        name: cleanName,
+        description: "",
+        nodes: [],
+        edges: [],
+      });
+      await refreshProjects();
+      navigate(`/workflow/${encodeURIComponent(doc.id)}`);
+      setShowProjectSelector(false);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   async function handleDuplicateProject() {
     if (!projectId) {
@@ -4848,6 +4874,184 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         </div>
       )}
     
+      {showProjectSelector && (
+        <div 
+          className="ui-lightbox" 
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(6, 8, 15, 0.94)",
+            backdropFilter: "blur(24px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100000,
+            padding: 24,
+            animation: "fadeIn 0.25s ease-out",
+          }}
+        >
+          <div style={{ position: "absolute", top: 24, right: 24 }}>
+            <button 
+              type="button" 
+              className="btn btn-ghost"
+              onClick={() => setShowProjectSelector(false)}
+              style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.5)" }}
+            >
+              ✕ Bỏ qua (Vào bảng vẽ trống)
+            </button>
+          </div>
+
+          <div style={{ maxWidth: 840, width: "100%", display: "flex", flexDirection: "column", gap: 24 }}>
+            <div style={{ textAlign: "center" }}>
+              <h2 style={{ 
+                fontSize: 28, 
+                fontWeight: 800, 
+                margin: "0 0 8px 0", 
+                letterSpacing: "-0.02em", 
+                background: "linear-gradient(135deg, #a78bfa 0%, #2dd4bf 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}>
+                CHỌN DỰ ÁN WORKFLOW
+              </h2>
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: 0 }}>
+                Chọn một dự án đã có để tiếp tục làm việc, hoặc tạo dự án mới
+              </p>
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <input
+                type="text"
+                placeholder="Tìm kiếm dự án theo tên..."
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 12,
+                  color: "#fff",
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+                  transition: "all 0.2s ease",
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = "#a78bfa";
+                  e.target.style.boxShadow = "0 0 12px rgba(167, 139, 250, 0.2)";
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = "rgba(255,255,255,0.08)";
+                  e.target.style.boxShadow = "0 4px 20px rgba(0,0,0,0.3)";
+                }}
+              />
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: 16,
+              maxHeight: "55vh",
+              overflowY: "auto",
+              paddingRight: 4,
+            }}>
+              {/* Card 1: Create New Project */}
+              <div 
+                onClick={handleCreateNewProject}
+                style={{
+                  border: "2px dashed rgba(167,139,250,0.35)",
+                  borderRadius: 14,
+                  padding: 24,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  minHeight: 140,
+                  boxSizing: "border-box",
+                  background: "rgba(167,139,250,0.02)",
+                  transition: "all 0.2s ease-in-out",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#a78bfa";
+                  e.currentTarget.style.background = "rgba(167,139,250,0.06)";
+                  e.currentTarget.style.transform = "translateY(-4px)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "rgba(167,139,250,0.35)";
+                  e.currentTarget.style.background = "rgba(167,139,250,0.02)";
+                  e.currentTarget.style.transform = "none";
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 8 }}>✨</div>
+                <strong style={{ fontSize: 13, color: "#a78bfa" }}>+ Tạo Project Mới</strong>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>Bắt đầu bảng vẽ trống</span>
+              </div>
+
+              {/* Existing Project Cards */}
+              {projects
+                .filter((p) =>
+                  !projectFilter.trim()
+                    ? true
+                    : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase())
+                )
+                .map((p) => (
+                  <div 
+                    key={p.id}
+                    onClick={() => handleOpenProject(p.id)}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.07)",
+                      borderRadius: 14,
+                      padding: 20,
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                      cursor: "pointer",
+                      minHeight: 140,
+                      boxSizing: "border-box",
+                      background: "rgba(255,255,255,0.02)",
+                      transition: "all 0.2s ease-in-out",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                      e.currentTarget.style.transform = "translateY(-4px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                      e.currentTarget.style.transform = "none";
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: 13, color: "#fff", display: "block", marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.name}
+                      </strong>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 32, lineHeight: 1.4 }}>
+                        {p.description || "Không có mô tả..."}
+                      </span>
+                    </div>
+                    
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, marginTop: 8 }}>
+                      <span style={{ fontSize: 10, color: "#2dd4bf", fontWeight: 700 }}>
+                        📁 {p.node_count ?? 0} node
+                      </span>
+                      <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>
+                        {p.updated_at ? new Date(p.updated_at * 1000).toLocaleDateString() : ""}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
