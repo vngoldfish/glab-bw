@@ -156,7 +156,8 @@ export function mediaUrl(url: string): string {
   if (!raw) return raw;
   if (!raw.startsWith("/api/files/")) return raw;
   try {
-    const rest = raw.slice("/api/files/".length);
+    const [pathPart, queryPart] = raw.split("?");
+    const rest = pathPart.slice("/api/files/".length);
     const encoded = rest
       .split("/")
       .map((seg) => {
@@ -167,7 +168,8 @@ export function mediaUrl(url: string): string {
         }
       })
       .join("/");
-    return `/api/files/${encoded}`;
+    const suffix = queryPart ? `?${queryPart}` : "";
+    return `/api/files/${encoded}${suffix}`;
   } catch {
     return raw.replace(/ /g, "%20");
   }
