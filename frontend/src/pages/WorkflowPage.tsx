@@ -4589,6 +4589,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               proOptions={{ hideAttribution: true }}
               defaultEdgeOptions={edgeOptsRef.current}
               style={{ width: "100%", height: "100%" }}
+              onlyRenderVisibleElements={true}
             >
               <Background gap={18} size={1} />
               <MiniMap
