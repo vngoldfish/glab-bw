@@ -913,6 +913,24 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
   const [showModal, setShowModal] = useState(false);
   const { setNodes, setEdges } = useReactFlow();
 
+  const resolvedStartImage = useMemo(() => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === "start_image");
+    if (!edge) return d.start_image || "";
+    const srcNode = nodes.find(n => n.id === edge.source);
+    if (!srcNode) return d.start_image || "";
+    const nd = srcNode.data as WNodeData;
+    return nd.image || nd.resultUrls?.[0] || "";
+  }, [edges, nodes, id, d.start_image]);
+
+  const resolvedEndImage = useMemo(() => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === "end_image");
+    if (!edge) return d.end_image || "";
+    const srcNode = nodes.find(n => n.id === edge.source);
+    if (!srcNode) return d.end_image || "";
+    const nd = srcNode.data as WNodeData;
+    return nd.image || nd.resultUrls?.[0] || "";
+  }, [edges, nodes, id, d.end_image]);
+
   const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
   const hasStart = fromEdge || Boolean(d.start_image);
   const hasEndEdge = edges.some(e => e.target === id && e.targetHandle === "end_image");
@@ -935,11 +953,12 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
     const seenNames = new Set<string>();
     nodes.forEach(n => {
       const nd = n.data as any;
-      if (n.type === "reference" && nd?.refName && nd?.image) {
+      const imgUrl = nd?.image || nd?.resultUrls?.[0];
+      if (n.type === "reference" && nd?.refName && imgUrl) {
         const name = String(nd.refName).trim();
         if (name && !seenNames.has(name)) {
           seenNames.add(name);
-          chars.push({ name, url: String(nd.image) });
+          chars.push({ name, url: String(imgUrl) });
         }
       }
       if (n.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
@@ -962,11 +981,12 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
       const srcNode = nodes.find(n => n.id === e.source);
       if (!srcNode) return;
       const nd = srcNode.data as any;
-      if (srcNode.type === "reference" && nd?.refName && nd?.image) {
+      const imgUrl = nd?.image || nd?.resultUrls?.[0];
+      if (srcNode.type === "reference" && nd?.refName && imgUrl) {
         const name = String(nd.refName).trim();
         if (name && !seenNames.has(name)) {
           seenNames.add(name);
-          chars.push({ name, url: String(nd.image) });
+          chars.push({ name, url: String(imgUrl) });
         }
       } else if (srcNode.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
         const name = String(nd.refName).trim();
@@ -1191,8 +1211,8 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
             duration: d.studioDuration || 8,
             timelineSegments: d.timelineSegments || [],
             mode: d.mode || "text_to_video",
-            start_image: d.start_image || "",
-            end_image: d.end_image || "",
+            start_image: resolvedStartImage,
+            end_image: resolvedEndImage,
             characterAssets: d.characterAssets || [],
             hasStartImageEdge: fromEdge,
             hasEndImageEdge: hasEndEdge,
