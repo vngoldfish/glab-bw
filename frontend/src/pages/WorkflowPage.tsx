@@ -8,6 +8,8 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useNodes,
+  useEdges,
   type Connection,
   type Edge,
   type Node,
@@ -1020,13 +1022,39 @@ function GeneratePlusNode({ id, data, selected }: NodeProps) {
 
 function VideoPlusNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
+  const nodes = useNodes();
+  const edges = useEdges();
   const [aiBusy, setAiBusy] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const fromEdge = Boolean(d.hasStartImageInput);
+  
+  const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
   const hasStart = fromEdge || Boolean(d.start_image);
-  const hasEndEdge = Boolean(d.hasEndImageInput);
-  const hasRefEdge = Boolean(d.hasReferenceInput);
-  const hasPromptEdge = Boolean(d.hasPromptInput);
+  const hasEndEdge = edges.some(e => e.target === id && e.targetHandle === "end_image");
+  const hasRefEdge = edges.some(e => e.target === id && e.targetHandle === "reference");
+  const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
+
+  const workflowCharacters = useMemo(() => {
+    const chars: Array<{ name: string; url: string }> = [];
+    const seenNames = new Set<string>();
+    nodes.forEach(n => {
+      const nd = n.data as any;
+      if (n.type === "reference" && nd?.refName && nd?.image) {
+        const name = String(nd.refName).trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          chars.push({ name, url: String(nd.image) });
+        }
+      }
+      if (n.type === "generate_plus" && nd?.refName && nd?.resultUrls?.[0]) {
+        const name = String(nd.refName).trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          chars.push({ name, url: String(nd.resultUrls[0]) });
+        }
+      }
+    });
+    return chars;
+  }, [nodes]);
 
   const modeLabel = hasEndEdge
     ? "Ảnh đầu + khung cuối (từ node frame)"
@@ -1308,8 +1336,12 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
             start_image: d.start_image || "",
             end_image: d.end_image || "",
             characterAssets: d.characterAssets || [],
+            hasStartImageEdge: fromEdge,
+            hasEndImageEdge: hasEndEdge,
+            workflowCharacters: workflowCharacters,
+            runStatus: d.runStatus,
           }}
-          onConfirm={(s: VideoStudioSettings) => {
+          onConfirm={(s: VideoStudioSettings, triggerRun?: boolean) => {
             d.onChange?.(id, {
               cameraAngle: s.cameraAngle,
               style: s.style,
@@ -1323,6 +1355,11 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
               characterAssets: s.characterAssets,
             });
             setShowModal(false);
+            if (triggerRun) {
+              setTimeout(() => {
+                d.onRerun?.(id);
+              }, 100);
+            }
           }}
           onClose={() => setShowModal(false)}
         />

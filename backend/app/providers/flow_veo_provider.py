@@ -278,45 +278,19 @@ class FlowVeoProvider(BaseProvider):
         if mode == "text_to_video" and named_items:
             mode = "components"
 
-        # Strict validation for frame modes (do NOT silently rewrite to ingredients)
-        if mode == "start_image" and not reference_items:
-            raise ProviderError(
-                "Ảnh → Video cần 1 ảnh đầu: chọn ở cột Ảnh đầu trên bảng hàng chờ",
-                error_code=400,
-            )
-        if mode == "start_end_image" and len(reference_items) < 2:
-            raise ProviderError(
-                "Video đầu→cuối cần 2 ảnh: chọn Ảnh đầu và Ảnh cuối trên bảng hàng chờ",
-                error_code=400,
-            )
-        if mode == "components" and not reference_items:
-            raise ProviderError(
-                "Ingredients cần ít nhất 1 @tên trong prompt (ảnh có trong thư viện tham chiếu)",
-                error_code=400,
-            )
-
-        # For I2V / FL only first (and second) ordered mentions are frames
-        if mode == "start_image" and len(reference_items) > 1:
-            reference_items = reference_items[:1]
-        elif mode == "start_end_image" and len(reference_items) > 2:
-            reference_items = reference_items[:2]
-
-        # Veo R2V max 3; Omni up to 7
-        max_refs = 7 if is_omni else 3
-        if mode == "components" and len(reference_items) > max_refs:
-            reference_items = reference_items[:max_refs]
-
         start_media_id = None
         end_media_id = None
         reference_media_ids: list[str] = []
 
         edge_refs = params.get("reference_images", [])
 
-        if mode == "components" and reference_items:
-            image_inputs = await self._build_reference_inputs(session, reference_items)
-            reference_media_ids = [item["name"] for item in image_inputs]
-        elif mode == "start_image" and edge_refs:
-            # Prioritize start image from actual edge connections
+        # 1. Extract start and end frames strictly from edge_refs
+        if mode == "start_image":
+            if not edge_refs:
+                raise ProviderError(
+                    "Ảnh → Video cần 1 ảnh đầu: chọn ở cột Ảnh đầu hoặc nối node ảnh",
+                    error_code=400,
+                )
             first_parsed = _parse_reference_image(edge_refs[0])
             if not first_parsed:
                 raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP < 10MB)", error_code=400)
@@ -324,17 +298,12 @@ class FlowVeoProvider(BaseProvider):
             start_media_id = await self._ensure_flow_media_id_resilient(
                 session, first_raw, first_mime
             )
-        elif mode == "start_image" and reference_items:
-            # Fallback if edge_refs is empty
-            first_parsed = _parse_reference_image(reference_items[0])
-            if not first_parsed:
-                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP < 10MB)", error_code=400)
-            first_raw, first_mime = first_parsed
-            start_media_id = await self._ensure_flow_media_id_resilient(
-                session, first_raw, first_mime
-            )
-        elif mode == "start_end_image" and len(edge_refs) >= 2:
-            # Prioritize start and end images from actual edge connections
+        elif mode == "start_end_image":
+            if len(edge_refs) < 2:
+                raise ProviderError(
+                    "Video đầu→cuối cần 2 ảnh: chọn Ảnh đầu và Ảnh cuối trong Studio hoặc nối các node tương ứng",
+                    error_code=400,
+                )
             first_parsed = _parse_reference_image(edge_refs[0])
             second_parsed = _parse_reference_image(edge_refs[1])
             if not first_parsed:
@@ -356,28 +325,21 @@ class FlowVeoProvider(BaseProvider):
             end_media_id = await self._ensure_flow_media_id(
                 session, second_raw, second_mime, force_reupload=True
             )
-        elif mode == "start_end_image" and len(reference_items) >= 2:
-            # Fallback if edge_refs has less than 2 items
-            first_parsed = _parse_reference_image(reference_items[0])
-            second_parsed = _parse_reference_image(reference_items[1])
-            if not first_parsed:
-                raise ProviderError("Ảnh khung đầu không hợp lệ (PNG/JPG/WebP)", error_code=400)
-            if not second_parsed:
-                raise ProviderError("Ảnh khung cuối không hợp lệ (PNG/JPG/WebP)", error_code=400)
-            first_raw, first_mime = first_parsed
-            second_raw, second_mime = second_parsed
-            if first_raw == second_raw:
-                raise ProviderError(
-                    "Ảnh đầu và ảnh cuối trùng nhau — chọn 2 ảnh khác nhau cho video đầu→cuối",
-                    error_code=400,
-                )
-            invalidate_for_bytes(first_raw)
-            invalidate_for_bytes(second_raw)
-            start_media_id = await self._ensure_flow_media_id(
-                session, first_raw, first_mime, force_reupload=True
-            )
-            end_media_id = await self._ensure_flow_media_id(
-                session, second_raw, second_mime, force_reupload=True
+
+        # 2. Build character references from named_items
+        if named_items:
+            char_items = list(named_items)
+            max_refs = 7 if is_omni else 3
+            if len(char_items) > max_refs:
+                char_items = char_items[:max_refs]
+            image_inputs = await self._build_reference_inputs(session, char_items)
+            reference_media_ids = [item["name"] for item in image_inputs]
+
+        # 3. Validation for components mode
+        if mode == "components" and not reference_media_ids:
+            raise ProviderError(
+                "Ingredients cần ít nhất 1 @tên trong prompt (ảnh có trong thư viện tham chiếu)",
+                error_code=400,
             )
 
         duration = params.get("duration") or params.get("video_length")
