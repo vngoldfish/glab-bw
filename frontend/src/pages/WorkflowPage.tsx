@@ -79,17 +79,15 @@ import {
 import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
-import {
-  IMAGE_MODELS,
-  GROK_IMAGE_MODELS,
-  META_IMAGE_MODELS,
-  VIDEO_MODELS,
-  GROK_VIDEO_MODELS,
-  META_VIDEO_MODELS,
-} from "../types";
+
 import { findLibraryRef } from "../referenceUtils";
 import ImageStudioModal, { type ImageStudioSettings } from "../components/ImageStudioModal";
 import VideoStudioModal, { type VideoStudioSettings } from "../components/VideoStudioModal";
+import { useAiRewrite } from "../hooks/useAiRewrite";
+import EngineModelSelector from "../components/workflow/EngineModelSelector";
+import InlinePromptEditor from "../components/workflow/InlinePromptEditor";
+import RefNameInput from "../components/workflow/RefNameInput";
+import ConfigBadges from "../components/workflow/ConfigBadges";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
@@ -748,45 +746,25 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
   );
 }
 
-function GeneratePlusNode({ id, data, selected }: NodeProps) {
+function GenerateNode({ id, data, selected, plus = false }: NodeProps & { plus?: boolean }) {
   const d = data as WNodeData;
-  const [aiBusy, setAiBusy] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const hasPromptEdge = Boolean(d.hasPromptInput);
 
-  async function handleAiImagePrompt() {
-    const source = (d.prompt || "").trim();
-    if (!source) {
-      d.onError?.("Nhập ý/prompt ảnh trên node này trước khi dùng AI");
-      return;
-    }
-    if (aiBusy) return;
-    setAiBusy(true);
-    try {
-      const workflow_context = d.getWorkflowContext?.(id) ?? [];
-      const res = await rewritePromptAi({
-        prompt: source,
-        kind: "image",
-        current_node_id: id,
-        workflow_context,
-      });
-      const next = (res.prompt || "").trim();
-      if (!next) {
-        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
-        return;
-      }
-      d.onChange?.(id, { prompt: next });
-    } catch (err) {
-      d.onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAiBusy(false);
-    }
-  }
+  const { aiBusy, handleAiRewrite, ctxHint } = useAiRewrite({
+    nodeId: id,
+    kind: "image",
+    prompt: d.prompt || "",
+    getWorkflowContext: d.getWorkflowContext,
+    onChange: d.onChange,
+    targetField: "prompt",
+    onError: d.onError,
+  });
 
   return (
     <Shell
       type="generate"
-      title={d.title || "Tạo ảnh +"}
+      title={d.title || (plus ? "Tạo ảnh +" : "Tạo ảnh")}
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
@@ -821,128 +799,38 @@ function GeneratePlusNode({ id, data, selected }: NodeProps) {
       />
       <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
 
-      <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
-        <button
-          type="button"
-          className="wf-btn wf-btn-secondary nodrag"
-          style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
-          onClick={() => setShowModal(true)}
-        >
-          ⚙️ Cấu hình chụp & style +
-        </button>
-      </div>
-
-      {(d.cameraAngle || d.style || d.lighting || d.composition) && (
-        <div style={{ marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 3 }}>
-          {d.cameraAngle && (
-            <span style={{ fontSize: 8, background: "rgba(34, 197, 94, 0.15)", color: "#22c55e", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(34, 197, 94, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              📷 {d.cameraAngle.split(",")[0]}
-            </span>
-          )}
-          {d.style && (
-            <span style={{ fontSize: 8, background: "rgba(129, 140, 248, 0.15)", color: "#818cf8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(129, 140, 248, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              🎨 {d.style.split(",")[0]}
-            </span>
-          )}
-          {d.lighting && (
-            <span style={{ fontSize: 8, background: "rgba(251, 191, 36, 0.15)", color: "#fbbf24", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(251, 191, 36, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              💡 {d.lighting.split(",")[0]}
-            </span>
-          )}
-          {d.composition && (
-            <span style={{ fontSize: 8, background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(99, 102, 241, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              ▦ {d.composition.split(",")[0]}
-            </span>
-          )}
+      {plus && (
+        <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            className="wf-btn wf-btn-secondary nodrag"
+            style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
+            onClick={() => setShowModal(true)}
+          >
+            ⚙️ Cấu hình chụp & style +
+          </button>
         </div>
       )}
 
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Công cụ
-        <select
-          value={d.engine || "flow"}
-          onChange={(e) => {
-            const nextEngine = e.target.value;
-            const defaultModel =
-              nextEngine === "grok" ? "grok-3"
-              : nextEngine === "meta" ? "midjen-base"
-              : "nano_banana_2_lite";
-            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
-          }}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="flow">Google Flow</option>
-          <option value="grok">Grok Imagine</option>
-          <option value="meta">Meta AI</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "midjen-base" : "nano_banana_2_lite")}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          {(!d.engine || d.engine === "flow") &&
-            IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "grok" &&
-            GROK_IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "meta" &&
-            META_IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Tỷ lệ
-        <select
-          value={d.aspect_ratio || "16:9"}
-          onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="1:1">1:1</option>
-          <option value="16:9">16:9</option>
-          <option value="9:16">9:16</option>
-        </select>
-      </label>
+      {plus && <ConfigBadges cameraAngle={d.cameraAngle} style={d.style} lighting={d.lighting} composition={d.composition} />}
+
+      <EngineModelSelector
+        type="image"
+        engine={d.engine}
+        model={d.model}
+        aspect_ratio={d.aspect_ratio}
+        onChange={(patch) => d.onChange?.(id, patch)}
+      />
 
       {!hasPromptEdge && (
-        <div className="nodrag" style={{ marginBottom: 8 }}>
-          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt ảnh</span>
-            <button
-              type="button"
-              className="node-ai-btn"
-              disabled={aiBusy || !(d.prompt || "").trim()}
-              onClick={() => void handleAiImagePrompt()}
-              title="AI viết lại prompt ảnh cho tốt"
-            >
-              {aiBusy ? "AI…" : "✦ AI"}
-            </button>
-          </div>
-          <textarea
-            className="nodrag nowheel"
-            rows={3}
-            value={d.prompt || ""}
-            onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt ảnh hoàn chỉnh"
-            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
-            disabled={aiBusy}
-          />
-          {aiBusy && (
-            <div className="node-ai-status">AI đang viết prompt ảnh…</div>
-          )}
-        </div>
+        <InlinePromptEditor
+          kind="image"
+          value={d.prompt || ""}
+          aiBusy={aiBusy}
+          onAiRewrite={handleAiRewrite}
+          onChange={(text) => d.onChange?.(id, { prompt: text })}
+          ctxHint={ctxHint}
+        />
       )}
 
       {hasPromptEdge && (
@@ -961,35 +849,10 @@ function GeneratePlusNode({ id, data, selected }: NodeProps) {
         label="Ảnh ref (có sẵn)"
       />
       {d.image && (
-        <div style={{ marginTop: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-            <span>Tên gọi ảnh ref trong prompt:</span>
-            {d.refName && <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 11, color: "#14b8a6", fontWeight: 700 }}>@</span>
-            <input
-              type="text"
-              className="nodrag"
-              value={d.refName || ""}
-              onChange={(e) => {
-                const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
-                d.onChange?.(id, { refName: clean });
-              }}
-              placeholder="ten_anh_ref..."
-              style={{
-                flex: 1,
-                background: "rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 4,
-                padding: "2px 6px",
-                fontSize: 10,
-                color: "#fff",
-                outline: "none"
-              }}
-            />
-          </div>
-        </div>
+        <RefNameInput
+          refName={d.refName}
+          onChange={(name) => d.onChange?.(id, { refName: name })}
+        />
       )}
       {d.resultUrls?.length ? (
         <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả gen" />
@@ -1001,7 +864,7 @@ function GeneratePlusNode({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      {showModal && (
+      {plus && showModal && (
         <ImageStudioModal
           initial={{
             cameraAngle: d.cameraAngle || "",
@@ -1025,20 +888,47 @@ function GeneratePlusNode({ id, data, selected }: NodeProps) {
   );
 }
 
-function VideoPlusNode({ id, data, selected }: NodeProps) {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: boolean }) {
   const d = data as WNodeData;
   const nodes = useNodes();
   const edges = useEdges();
-  const [aiBusy, setAiBusy] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  
+
   const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
   const hasStart = fromEdge || Boolean(d.start_image);
   const hasEndEdge = edges.some(e => e.target === id && e.targetHandle === "end_image");
   const hasRefEdge = edges.some(e => e.target === id && e.targetHandle === "reference");
   const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
 
+  const { aiBusy, handleAiRewrite, ctxHint } = useAiRewrite({
+    nodeId: id,
+    kind: "video",
+    prompt: d.prompt_hint || "",
+    getWorkflowContext: d.getWorkflowContext,
+    onChange: d.onChange,
+    targetField: "prompt_hint",
+    onError: d.onError,
+  });
+
   const workflowCharacters = useMemo(() => {
+    if (!plus) return [];
     const chars: Array<{ name: string; url: string }> = [];
     const seenNames = new Set<string>();
     nodes.forEach(n => {
@@ -1050,7 +940,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
           chars.push({ name, url: String(nd.image) });
         }
       }
-      if (n.type === "generate_plus" && nd?.refName && nd?.resultUrls?.[0]) {
+      if (n.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
         const name = String(nd.refName).trim();
         if (name && !seenNames.has(name)) {
           seenNames.add(name);
@@ -1059,9 +949,10 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
       }
     });
     return chars;
-  }, [nodes]);
+  }, [nodes, plus]);
 
   const connectedCharacters = useMemo(() => {
+    if (!plus) return [];
     const chars: Array<{ name: string; url: string }> = [];
     const seenNames = new Set<string>();
     const incomingEdges = edges.filter(e => e.target === id && e.targetHandle === "reference");
@@ -1075,7 +966,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
           seenNames.add(name);
           chars.push({ name, url: String(nd.image) });
         }
-      } else if (srcNode.type === "generate_plus" && nd?.refName && nd?.resultUrls?.[0]) {
+      } else if (srcNode.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
         const name = String(nd.refName).trim();
         if (name && !seenNames.has(name)) {
           seenNames.add(name);
@@ -1084,7 +975,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
       }
     });
     return chars;
-  }, [nodes, edges, id]);
+  }, [nodes, edges, id, plus]);
 
   const modeLabel = hasEndEdge
     ? "Ảnh đầu + khung cuối (từ node frame)"
@@ -1094,40 +985,10 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
         ? "Từ text → video (Tham chiếu nhân vật)"
         : "Từ text → video";
 
-  async function handleAiVideoPrompt() {
-    const source = (d.prompt_hint || "").trim();
-    if (!source) {
-      d.onError?.("Nhập ý/prompt video trên node này trước khi dùng AI");
-      return;
-    }
-    if (aiBusy) return;
-    setAiBusy(true);
-    try {
-      const workflow_context = d.getWorkflowContext?.(id) ?? [];
-      const res = await rewritePromptAi({
-        prompt: source,
-        kind: "video",
-        locale: "vi",
-        current_node_id: id,
-        workflow_context,
-      });
-      const next = (res.prompt || "").trim();
-      if (!next) {
-        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
-        return;
-      }
-      d.onChange?.(id, { prompt_hint: next });
-    } catch (err) {
-      d.onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
   return (
     <Shell
       type="video_generate"
-      title={d.title || "Tạo video +"}
+      title={d.title || (plus ? "Tạo video +" : "Tạo video")}
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
@@ -1180,124 +1041,49 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
       />
       <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
 
-      <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
-        <button
-          type="button"
-          className="wf-btn wf-btn-secondary nodrag"
-          style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.2)" }}
-          onClick={() => setShowModal(true)}
-        >
-          ⚙️ Cấu hình quay & style +
-        </button>
-      </div>
-
-      {(d.cameraAngle || d.style || d.cameraMovement || d.movementSpeed) && (
-        <div style={{ marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 3 }}>
-          {d.cameraMovement && (
-            <span style={{ fontSize: 8, background: "rgba(34, 197, 94, 0.15)", color: "#22c55e", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(34, 197, 94, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              🎥 {d.cameraMovement.split(",")[0]}
-            </span>
-          )}
-          {d.cameraAngle && (
-            <span style={{ fontSize: 8, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(245, 158, 11, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              📷 {d.cameraAngle.split(",")[0]}
-            </span>
-          )}
-          {d.movementSpeed && (
-            <span style={{ fontSize: 8, background: "rgba(6, 182, 212, 0.15)", color: "#06b6d4", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(6, 182, 212, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              ⚡ {d.movementSpeed.split(",")[0]}
-            </span>
-          )}
-          {d.style && (
-            <span style={{ fontSize: 8, background: "rgba(129, 140, 248, 0.15)", color: "#818cf8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(129, 140, 248, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              🎨 {d.style.split(",")[0]}
-            </span>
-          )}
-          {d.studioDuration && (
-            <span style={{ fontSize: 8, background: "rgba(255,255,255, 0.05)", color: "#94a3b8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255, 0.08)" }}>
-              ⏱ {d.studioDuration}s
-            </span>
-          )}
+      {plus && (
+        <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            className="wf-btn wf-btn-secondary nodrag"
+            style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.2)" }}
+            onClick={() => setShowModal(true)}
+          >
+            ⚙️ Cấu hình quay & style +
+          </button>
         </div>
       )}
 
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Công cụ
-        <select
-          value={d.engine || "flow"}
-          onChange={(e) => {
-            const nextEngine = e.target.value;
-            const defaultModel =
-              nextEngine === "grok" ? "grok-3"
-              : nextEngine === "meta" ? "meta-video"
-              : "veo_31_fast";
-            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
-          }}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="flow">Google Flow</option>
-          <option value="grok">Grok Imagine</option>
-          <option value="meta">Meta AI</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "meta-video" : "veo_31_fast")}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          {(!d.engine || d.engine === "flow") &&
-            VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "grok" &&
-            GROK_VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "meta" &&
-            META_VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-        </select>
-      </label>
+      {plus && (
+        <ConfigBadges
+          cameraAngle={d.cameraAngle}
+          style={d.style}
+          cameraMovement={d.cameraMovement}
+          movementSpeed={d.movementSpeed}
+          studioDuration={d.studioDuration}
+        />
+      )}
+
+      <EngineModelSelector
+        type="video"
+        engine={d.engine}
+        model={d.model}
+        onChange={(patch) => d.onChange?.(id, patch)}
+      />
+
       <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
         <span>{modeLabel}</span>
       </div>
 
       {!hasPromptEdge && (
-        <div className="nodrag" style={{ marginBottom: 8 }}>
-          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt video</span>
-            <button
-              type="button"
-              className="node-ai-btn"
-              disabled={aiBusy || !(d.prompt_hint || "").trim()}
-              onClick={() => void handleAiVideoPrompt()}
-              title="AI viết lại prompt video cho tốt"
-            >
-              {aiBusy ? "AI…" : "✦ AI"}
-            </button>
-          </div>
-          <textarea
-            className="nodrag nowheel"
-            rows={3}
-            value={d.prompt_hint || ""}
-            onChange={(e) => d.onChange?.(id, { prompt_hint: e.target.value })}
-            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt video hoàn chỉnh"
-            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
-            disabled={aiBusy}
-          />
-          {aiBusy && (
-            <div className="node-ai-status">AI đang viết prompt video…</div>
-          )}
-        </div>
+        <InlinePromptEditor
+          kind="video"
+          value={d.prompt_hint || ""}
+          aiBusy={aiBusy}
+          onAiRewrite={handleAiRewrite}
+          onChange={(text) => d.onChange?.(id, { prompt_hint: text })}
+          ctxHint={ctxHint}
+        />
       )}
 
       {hasPromptEdge && (
@@ -1353,7 +1139,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      {showModal && (
+      {plus && showModal && (
         <VideoStudioModal
           initial={{
             cameraAngle: d.cameraAngle || "",
@@ -1530,466 +1316,9 @@ function VideoReferenceNode({ id, data, selected }: NodeProps) {
   );
 }
 
-function GenerateNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  const [aiBusy, setAiBusy] = useState(false);
-  const hasPromptEdge = Boolean(d.hasPromptInput);
 
-  async function handleAiImagePrompt() {
-    const source = (d.prompt || "").trim();
-    if (!source) {
-      d.onError?.("Nhập ý/prompt ảnh trên node này trước khi dùng AI");
-      return;
-    }
-    if (aiBusy) return;
-    setAiBusy(true);
-    try {
-      const workflow_context = d.getWorkflowContext?.(id) ?? [];
-      const res = await rewritePromptAi({
-        prompt: source,
-        kind: "image",
-        current_node_id: id,
-        workflow_context,
-      });
-      const next = (res.prompt || "").trim();
-      if (!next) {
-        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
-        return;
-      }
-      d.onChange?.(id, { prompt: next });
-    } catch (err) {
-      d.onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAiBusy(false);
-    }
-  }
 
-  return (
-    <Shell
-      type="generate"
-      title={d.title || "Tạo ảnh"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-      showRerun
-      reused={d.reused}
-      onRerun={() => d.onRerun?.(id)}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="prompt"
-        style={{ top: "22%", background: "#6366f1" }}
-        title="Cổng nhận Prompt: Nối từ node Prompt"
-      />
-      <div style={handleLabelStyle("left", "22%")}>← Prompt</div>
 
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="image"
-        style={{ top: "42%", background: "#14b8a6" }}
-        title="Cổng nhận Ảnh ref: Nối từ Ảnh có sẵn hoặc ảnh kết quả khác"
-      />
-      <div style={handleLabelStyle("left", "42%")}>← Ảnh ref</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="image"
-        style={{ background: "#22c55e" }}
-        title="Cổng xuất Ảnh kết quả: Nối sang cổng Ảnh đầu hoặc Khung cuối của Tạo video"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Công cụ
-        <select
-          value={d.engine || "flow"}
-          onChange={(e) => {
-            const nextEngine = e.target.value;
-            const defaultModel =
-              nextEngine === "grok" ? "grok-3"
-              : nextEngine === "meta" ? "midjen-base"
-              : "nano_banana_2_lite";
-            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
-          }}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="flow">Google Flow</option>
-          <option value="grok">Grok Imagine</option>
-          <option value="meta">Meta AI</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "midjen-base" : "nano_banana_2_lite")}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          {(!d.engine || d.engine === "flow") &&
-            IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "grok" &&
-            GROK_IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "meta" &&
-            META_IMAGE_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Tỷ lệ
-        <select
-          value={d.aspect_ratio || "16:9"}
-          onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="1:1">1:1</option>
-          <option value="16:9">16:9</option>
-          <option value="9:16">9:16</option>
-        </select>
-      </label>
-
-      {/* Prompt hint + AI button — hiện khi không có PromptNode nối */}
-      {!hasPromptEdge && (
-        <div className="nodrag" style={{ marginBottom: 8 }}>
-          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt ảnh</span>
-            <button
-              type="button"
-              className="node-ai-btn"
-              disabled={aiBusy || !(d.prompt || "").trim()}
-              onClick={() => void handleAiImagePrompt()}
-              title="AI viết lại prompt ảnh cho tốt"
-            >
-              {aiBusy ? "AI…" : "✦ AI"}
-            </button>
-          </div>
-          <textarea
-            className="nodrag nowheel"
-            rows={3}
-            value={d.prompt || ""}
-            onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt ảnh hoàn chỉnh"
-            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
-            disabled={aiBusy}
-          />
-          {aiBusy && (
-            <div className="node-ai-status">AI đang viết prompt ảnh…</div>
-          )}
-        </div>
-      )}
-
-      {hasPromptEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
-          ✓ Đã nối node Prompt
-        </div>
-      )}
-
-      <ImageAttachBar
-        nodeId={id}
-        field="image"
-        value={d.image}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Ảnh ref (có sẵn)"
-      />
-      {d.image && (
-        <div style={{ marginTop: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-            <span>Tên gọi ảnh ref trong prompt:</span>
-            {d.refName && <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 11, color: "#14b8a6", fontWeight: 700 }}>@</span>
-            <input
-              type="text"
-              className="nodrag"
-              value={d.refName || ""}
-              onChange={(e) => {
-                const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
-                d.onChange?.(id, { refName: clean });
-              }}
-              placeholder="ten_anh_ref..."
-              style={{
-                flex: 1,
-                background: "rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 4,
-                padding: "2px 6px",
-                fontSize: 10,
-                color: "#fff",
-                outline: "none"
-              }}
-            />
-          </div>
-        </div>
-      )}
-      {d.resultUrls?.length ? (
-        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả gen" />
-      ) : (
-        <div className="node-media-empty">
-          {d.runStatus === "running" || d.runStatus === "pending"
-            ? "Đang tạo ảnh…"
-            : "Ảnh kết quả gen hiện ở đây"}
-        </div>
-      )}
-    </Shell>
-  );
-}
-
-function VideoNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  const [aiBusy, setAiBusy] = useState(false);
-  // Ảnh đầu: từ edge (node ảnh) HOẶC upload khi không nối
-  const fromEdge = Boolean(d.hasStartImageInput);
-  const hasStart = fromEdge || Boolean(d.start_image);
-  const hasEndEdge = Boolean(d.hasEndImageInput);
-  const hasRefEdge = Boolean(d.hasReferenceInput);
-  // Check xem có PromptNode nối vào không
-  const hasPromptEdge = Boolean(d.hasPromptInput);
-
-  // Mode tự suy: text | start | start+end | components (reference)
-  const modeLabel = hasEndEdge
-    ? "Ảnh đầu + khung cuối (từ node frame)"
-    : hasStart
-      ? "Từ ảnh → video"
-      : hasRefEdge
-        ? "Từ text → video (Tham chiếu nhân vật)"
-        : "Từ text → video";
-
-  async function handleAiVideoPrompt() {
-    const source = (d.prompt_hint || "").trim();
-    if (!source) {
-      d.onError?.("Nhập ý/prompt video trên node này trước khi dùng AI");
-      return;
-    }
-    if (aiBusy) return;
-    setAiBusy(true);
-    try {
-      const workflow_context = d.getWorkflowContext?.(id) ?? [];
-      const res = await rewritePromptAi({
-        prompt: source,
-        kind: "video",
-        locale: "vi",
-        current_node_id: id,
-        workflow_context,
-      });
-      const next = (res.prompt || "").trim();
-      if (!next) {
-        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
-        return;
-      }
-      d.onChange?.(id, { prompt_hint: next });
-    } catch (err) {
-      d.onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  return (
-    <Shell
-      type="video_generate"
-      title={d.title || "Tạo video"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-      showRerun
-      reused={d.reused}
-      onRerun={() => d.onRerun?.(id)}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="prompt"
-        style={{ top: "18%", background: "#6366f1" }}
-        title="Cổng nhận Prompt: Nối từ node Prompt"
-      />
-      <div style={handleLabelStyle("left", "18%")}>← Prompt</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="start_image"
-        style={{ top: "38%", background: "#22c55e" }}
-        title="Cổng nhận Ảnh đầu: Nối từ node Tạo ảnh hoặc cổng end_image của Tách frame"
-      />
-      <div style={handleLabelStyle("left", "38%")}>← Ảnh đầu</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="reference"
-        style={{ top: "58%", background: "#06b6d4" }}
-        title="Cổng nhận Nhân vật ref: Nối từ node Ảnh có sẵn để giữ nhất quán nhân vật"
-      />
-      <div style={handleLabelStyle("left", "58%")}>← Nhân vật ref</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="end_image"
-        style={{ top: "78%", background: "#14b8a6" }}
-        title="Cổng nhận Khung cuối: Nối từ cổng end_image của node Tách frame (Video-to-Video)"
-      />
-      <div style={handleLabelStyle("left", "78%")}>← Khung cuối</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="video"
-        style={{ background: "#f59e0b" }}
-        title="Cổng xuất Video kết quả: Nối sang cổng Video của node Tách frame"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Công cụ
-        <select
-          value={d.engine || "flow"}
-          onChange={(e) => {
-            const nextEngine = e.target.value;
-            const defaultModel =
-              nextEngine === "grok" ? "grok-3"
-              : nextEngine === "meta" ? "meta-video"
-              : "veo_31_fast";
-            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
-          }}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="flow">Google Flow</option>
-          <option value="grok">Grok Imagine</option>
-          <option value="meta">Meta AI</option>
-        </select>
-      </label>
-      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-        Model
-        <select
-          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "meta-video" : "veo_31_fast")}
-          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          {(!d.engine || d.engine === "flow") &&
-            VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "grok" &&
-            GROK_VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          {d.engine === "meta" &&
-            META_VIDEO_MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-        </select>
-      </label>
-      <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
-        <span>{modeLabel}</span>
-      </div>
-
-      {/* Prompt hint + AI button — hiện khi không có PromptNode nối */}
-      {!hasPromptEdge && (
-        <div className="nodrag" style={{ marginBottom: 8 }}>
-          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt video</span>
-            <button
-              type="button"
-              className="node-ai-btn"
-              disabled={aiBusy || !(d.prompt_hint || "").trim()}
-              onClick={() => void handleAiVideoPrompt()}
-              title="AI viết lại prompt video cho tốt"
-            >
-              {aiBusy ? "AI…" : "✦ AI"}
-            </button>
-          </div>
-          <textarea
-            className="nodrag nowheel"
-            rows={3}
-            value={d.prompt_hint || ""}
-            onChange={(e) => d.onChange?.(id, { prompt_hint: e.target.value })}
-            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt video hoàn chỉnh"
-            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
-            disabled={aiBusy}
-          />
-          {aiBusy && (
-            <div className="node-ai-status">AI đang viết prompt video…</div>
-          )}
-        </div>
-      )}
-
-      {hasPromptEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
-          ✓ Đã nối node Prompt
-        </div>
-      )}
-
-      {hasRefEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(6,182,212,0.3)", color: "#06b6d4" }}>
-          ✓ Đã nối nhân vật tham chiếu
-        </div>
-      )}
-
-      {fromEdge ? (
-        <div className="node-edge-hint">
-          ✓ Ảnh đầu lấy từ node ảnh đã nối
-        </div>
-      ) : (
-        <ImageAttachBar
-          nodeId={id}
-          field="start_image"
-          value={d.start_image}
-          onChange={(nid, patch) => {
-            // auto mode when user attaches start image
-            d.onChange?.(nid, {
-              ...patch,
-              mode: patch.start_image ? "start_image" : "text_to_video",
-            });
-          }}
-          onPick={d.onPickImage}
-          onPreview={d.onPreview}
-          label="Ảnh đầu (khi không nối node ảnh)"
-        />
-      )}
-
-      {hasEndEdge ? (
-        <div className="node-edge-hint" style={{ marginTop: 6 }}>
-          ✓ Khung cuối lấy từ node Tách frame
-        </div>
-      ) : (
-        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
-          Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
-        </div>
-      )}
-
-      {d.resultUrls?.length ? (
-        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả video" />
-      ) : (
-        <div className="node-media-empty">
-          {d.runStatus === "running" || d.runStatus === "pending"
-            ? "Đang tạo video…"
-            : "Video kết quả hiện ở đây"}
-        </div>
-      )}
-    </Shell>
-  );
-}
 
 function FrameNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
@@ -2068,15 +1397,14 @@ function FrameNode({ id, data, selected }: NodeProps) {
   );
 }
 
-/** Stable module-level maps — never recreate inside the component (RF error #002). */
 const WORKFLOW_NODE_TYPES: Record<string, any> = {
   prompt: memo(PromptNode),
   reference: memo(ReferenceNode),
   video_reference: memo(VideoReferenceNode),
   generate: memo(GenerateNode),
-  generate_plus: memo(GeneratePlusNode),
+  generate_plus: memo((props: NodeProps) => <GenerateNode {...props} plus />),
   video_generate: memo(VideoNode),
-  video_generate_plus: memo(VideoPlusNode),
+  video_generate_plus: memo((props: NodeProps) => <VideoNode {...props} plus />),
   frame_extract: memo(FrameNode),
 };
 
