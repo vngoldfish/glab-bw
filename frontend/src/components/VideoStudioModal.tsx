@@ -323,7 +323,22 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
   }, [startImg, endImg, initial.hasStartImageEdge, initial.hasEndImageEdge]);
 
   // Character library assets
-  const [charAssets, setCharAssets] = useState<CharacterAsset[]>(() => initial.characterAssets || []);
+  const [charAssets, setCharAssets] = useState<CharacterAsset[]>(() => {
+    const list = [...(initial.characterAssets || [])];
+    const seen = new Set(list.map(c => c.name.toLowerCase()));
+    (initial.connectedCharacters || []).forEach(c => {
+      const nameWithAt = c.name.startsWith("@") ? c.name : `@${c.name}`;
+      if (!seen.has(nameWithAt.toLowerCase())) {
+        seen.add(nameWithAt.toLowerCase());
+        list.push({
+          id: `char_wired_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          name: nameWithAt,
+          url: c.url
+        });
+      }
+    });
+    return list;
+  });
   const [newCharName, setNewCharName] = useState("");
 
   // Asset picker target
@@ -556,28 +571,6 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
     }
   }
 
-  // Convert initial.connectedCharacters to local format with isConnected flag
-  const connectedRefs = useMemo(() => {
-    return (initial.connectedCharacters || []).map((c, i) => ({
-      id: `connected_char_${i}`,
-      name: c.name.startsWith("@") ? c.name : `@${c.name}`,
-      url: c.url,
-      isConnected: true,
-    }));
-  }, [initial.connectedCharacters]);
-
-  // Merge local charAssets and connected characters
-  const allActiveChars = useMemo(() => {
-    const list = [...connectedRefs];
-    charAssets.forEach(c => {
-      const cleanName = c.name.toLowerCase();
-      if (!list.some(x => x.name.toLowerCase() === cleanName)) {
-        list.push({ ...c, isConnected: false });
-      }
-    });
-    return list;
-  }, [connectedRefs, charAssets]);
-
   // Format canvas reference nodes list
   const canvasPresets = initial.workflowCharacters || [];
 
@@ -585,9 +578,9 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
   const remainingPresets = useMemo(() => {
     return canvasPresets.filter(preset => {
       const cleanPresetName = preset.name.startsWith("@") ? preset.name : `@${preset.name}`;
-      return !allActiveChars.some(x => x.name.toLowerCase() === cleanPresetName.toLowerCase());
+      return !charAssets.some(x => x.name.toLowerCase() === cleanPresetName.toLowerCase());
     });
-  }, [canvasPresets, allActiveChars]);
+  }, [canvasPresets, charAssets]);
 
   return createPortal(
     <div onClick={onClose} className="nodrag nowheel"
@@ -797,11 +790,13 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                      {/* Studio Active Characters List */}
                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto", marginTop: 4 }}>
                        <div style={{ fontSize: 8, color: "rgba(255,255,255,0.4)", fontWeight: 700 }}>LIST NHÂN VẬT TRONG PHÂN CẢNH STUDIO:</div>
-                       {allActiveChars.length === 0 ? (
+                       {charAssets.length === 0 ? (
                          <div style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", padding: 8, textAlign: "center" }}>Chưa có nhân vật nào được gắn</div>
                        ) : (
-                         allActiveChars.map(c => {
-                           const isWired = (c as any).isConnected;
+                         charAssets.map(c => {
+                           const isWired = (initial.connectedCharacters || []).some(
+                             x => x.name.replace(/^@/, "").toLowerCase() === c.name.replace(/^@/, "").toLowerCase()
+                           );
                            return (
                              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", padding: 3, borderRadius: 5 }}>
                                <img src={mediaUrl(normalizeFileUrl(c.url))} alt="" style={{ width: 22, height: 22, borderRadius: 3, objectFit: "cover" }} />
@@ -813,24 +808,20 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                                    )}
                                  </div>
                                </div>
-                               <button
-                                 type="button"
-                                 onClick={() => insertCharacterTag(c.name)}
-                                 style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 3, color: "#f59e0b", fontSize: 7, padding: "2px 4px", cursor: "pointer" }}
-                               >
-                                 Chèn
-                               </button>
-                               {isWired ? (
-                                 <span style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", padding: "0 4px", cursor: "help" }} title="Nhân vật được nối dây ngoài canvas, hãy gỡ dây nối ngoài canvas nếu muốn xóa">🔒</span>
-                               ) : (
-                                 <button
-                                   type="button"
-                                   onClick={() => setCharAssets(prev => prev.filter(x => x.id !== c.id))}
-                                   style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 9, cursor: "pointer", padding: "0 4px" }}
-                                 >
-                                   ✕
-                                 </button>
-                               )}
+                                <button
+                                  type="button"
+                                  onClick={() => insertCharacterTag(c.name)}
+                                  style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 3, color: "#f59e0b", fontSize: 7, padding: "2px 4px", cursor: "pointer" }}
+                                >
+                                  Chèn
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setCharAssets(prev => prev.filter(x => x.id !== c.id))}
+                                  style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 9, cursor: "pointer", padding: "0 4px" }}
+                                >
+                                  ✕
+                                </button>
                              </div>
                            );
                          })
@@ -977,10 +968,10 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                     />
                     
                     {/* Character tag chips shortcut */}
-                    {allActiveChars.length > 0 && (
+                    {charAssets.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         <span style={{ fontSize: 7, color: "rgba(255,255,255,0.3)", alignSelf: "center" }}>Gắn nhanh:</span>
-                        {allActiveChars.map(c => (
+                        {charAssets.map(c => (
                           <button
                             key={c.id}
                             type="button"
