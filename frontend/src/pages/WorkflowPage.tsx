@@ -4451,32 +4451,37 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                           : "Chưa có ảnh trong project"}
                     </span>
                   )}
-                  {mediaSidebarAssets.map((a, i) => (
-                    <button
-                      key={`${a.path || a.url || a.name}-${i}`}
-                      type="button"
-                      className="workflow-media-thumb"
-                      onClick={() => setLightbox(normalizeFileUrl(a.url))}
-                      title={`${a.name}${a.mtime ? ` · ${new Date(a.mtime * 1000).toLocaleString()}` : ""}`}
-                    >
-                      {a.kind === "video" ? (
-                        <video
-                          src={normalizeFileUrl(a.url)}
-                          muted
-                          preload="metadata"
-                          className="workflow-media-thumb-media"
-                        />
-                      ) : (
-                        <img
-                          src={normalizeFileUrl(a.url)}
-                          alt=""
-                          loading="lazy"
-                          className="workflow-media-thumb-media"
-                        />
-                      )}
-                      {a.kind === "video" && <span className="workflow-media-badge">VIDEO</span>}
-                    </button>
-                  ))}
+                  {mediaSidebarAssets.map((a, i) => {
+                    const cleanUrl = normalizeFileUrl(a.url);
+                    const urlWithCb = a.mtime ? `${cleanUrl}?cb=${a.mtime}` : cleanUrl;
+                    const finalUrl = mediaUrl(urlWithCb);
+                    return (
+                      <button
+                        key={`${a.path || a.url || a.name}-${i}`}
+                        type="button"
+                        className="workflow-media-thumb"
+                        onClick={() => setLightbox(urlWithCb)}
+                        title={`${a.name}${a.mtime ? ` · ${new Date(a.mtime * 1000).toLocaleString()}` : ""}`}
+                      >
+                        {a.kind === "video" ? (
+                          <video
+                            src={finalUrl}
+                            muted
+                            preload="metadata"
+                            className="workflow-media-thumb-media"
+                          />
+                        ) : (
+                          <img
+                            src={finalUrl}
+                            alt=""
+                            loading="lazy"
+                            className="workflow-media-thumb-media"
+                          />
+                        )}
+                        {a.kind === "video" && <span className="workflow-media-badge">VIDEO</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}

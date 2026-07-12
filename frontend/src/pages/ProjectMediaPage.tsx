@@ -4,6 +4,7 @@ import {
   fetchAllProjectAssets,
   deleteProjectAsset,
   normalizeFileUrl,
+  mediaUrl,
   type ProjectAsset,
 } from "../api";
 import { useUiDialog } from "../components/UiDialog";
@@ -208,7 +209,9 @@ export default function ProjectMediaPage({ onError }: { onError: (msg: string) =
           )}
           {filteredAssets.map((a, ai) => {
             const isVid = a.kind === "video" || /\.mp4($|\?)/i.test(a.url || a.name);
-            const url = normalizeFileUrl(a.url);
+            const cleanUrl = normalizeFileUrl(a.url);
+            const urlWithCb = a.mtime ? `${cleanUrl}?cb=${a.mtime}` : cleanUrl;
+            const finalUrl = mediaUrl(urlWithCb);
             const pid = (a as any).project_id;
             const pname = (a as any).project_name;
             return (
@@ -216,13 +219,13 @@ export default function ProjectMediaPage({ onError }: { onError: (msg: string) =
                 <button
                   type="button"
                   className="media-tile-hit"
-                  onClick={() => setLightbox(url)}
+                  onClick={() => setLightbox(urlWithCb)}
                   title="Phóng to"
                 >
                   {isVid ? (
-                    <video src={url} className="media-tile-media" muted preload="metadata" />
+                    <video src={finalUrl} className="media-tile-media" muted preload="metadata" />
                   ) : (
-                    <img src={url} alt={a.name} className="media-tile-media" loading="lazy" />
+                    <img src={finalUrl} alt={a.name} className="media-tile-media" loading="lazy" />
                   )}
                   <span className={`media-kind-badge${isVid ? " is-video" : ""}`}>
                     {isVid ? "VIDEO" : "IMAGE"}
@@ -261,7 +264,7 @@ export default function ProjectMediaPage({ onError }: { onError: (msg: string) =
                     </span>
                   </div>
                   <div className="media-tile-actions" style={{ marginTop: 8 }}>
-                    <a className="btn btn-ghost btn-sm" href={url} download target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <a className="btn btn-ghost btn-sm" href={urlWithCb} download target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                       <Download size={10} /> Tải
                     </a>
                     
@@ -314,9 +317,9 @@ export default function ProjectMediaPage({ onError }: { onError: (msg: string) =
         >
           <div style={{ position: "relative", maxWidth: "90%", maxHeight: "90%" }} onClick={(e) => e.stopPropagation()}>
             {/\.mp4($|\?)/i.test(lightbox) ? (
-              <video src={lightbox} controls autoPlay style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8 }} />
+              <video src={mediaUrl(lightbox)} controls autoPlay style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8 }} />
             ) : (
-              <img src={lightbox} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, objectFit: "contain" }} />
+              <img src={mediaUrl(lightbox)} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, objectFit: "contain" }} />
             )}
             <button
               type="button"
