@@ -47,7 +47,7 @@ const VIDEO_STYLES = [
   { id: "fantasy", label: "Fantasy", en: "Fantasy epic style, magical particle effects, enchanted glowing atmosphere, ethereal", accent: "#818cf8", icon: "⚔️" },
 ];
 
-/* ───── DATA: Camera Angles (reused for video) ───── */
+/* ───── DATA: Camera Angles ───── */
 const VIDEO_ANGLES = [
   { id: "closeup", label: "Cận cảnh", en: "Close-up shot, subject filling frame", icon: "🔍", accent: "#22c55e" },
   { id: "medium", label: "Trung cảnh", en: "Medium shot, waist up, balanced", icon: "👤", accent: "#14b8a6" },
@@ -60,11 +60,12 @@ const VIDEO_ANGLES = [
 ];
 
 /* ───── SVG VIEWPORT ───── */
-function VideoViewport({ movement, angle }: { movement: typeof CAMERA_MOVEMENTS[0] | null; angle: typeof VIDEO_ANGLES[0] | null }) {
-  const mid = movement?.id || "";
+function VideoViewport({ movement, angle }: { movement: string; angle: string }) {
+  const moveItem = CAMERA_MOVEMENTS.find(m => m.en === movement) || null;
+  const angleItem = VIDEO_ANGLES.find(a => a.en === angle) || null;
+  const mid = moveItem?.id || "";
   const pathColor = "#22c55e";
 
-  // Define camera path based on movement type
   function renderPath() {
     switch (mid) {
       case "dolly_in":
@@ -97,7 +98,7 @@ function VideoViewport({ movement, angle }: { movement: typeof CAMERA_MOVEMENTS[
       case "steadicam":
         return (<><path d="M 80,320 C 120,200 280,200 320,320" fill="none" stroke={pathColor} strokeWidth="2" strokeDasharray="6 3" opacity="0.5"><animate attributeName="stroke-dashoffset" from="40" to="0" dur="2s" repeatCount="indefinite" /></path><circle cx="80" cy="320" r="4" fill={pathColor} opacity="0.5" /><polygon points="315,315 315,325 328,320" fill={pathColor} opacity="0.7" /><text x="200" y="185" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="8">🎥 Glide mượt</text></>);
       default:
-        return (<><text x="200" y="320" textAnchor="middle" fill="rgba(255,255,255,0.15)" fontSize="9">Chọn chuyển động camera →</text></>);
+        return (<><text x="200" y="320" textAnchor="middle" fill="rgba(255,255,255,0.15)" fontSize="9">Camera tĩnh</text></>);
     }
   }
 
@@ -131,9 +132,9 @@ function VideoViewport({ movement, angle }: { movement: typeof CAMERA_MOVEMENTS[
       {renderPath()}
 
       {/* Angle indicator */}
-      {angle && (
+      {angleItem && (
         <text x="200" y="390" textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="8">
-          {angle.icon} {angle.label}
+          {angleItem.icon} {angleItem.label}
         </text>
       )}
 
@@ -144,59 +145,30 @@ function VideoViewport({ movement, angle }: { movement: typeof CAMERA_MOVEMENTS[
   );
 }
 
-/* ───── TIMELINE ───── */
-function Timeline({ duration }: { duration: number }) {
-  const seconds = Array.from({ length: Math.ceil(duration) + 1 }, (_, i) => i);
-  return (
-    <div style={{ padding: "8px 0" }}>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 0 }}>
-        {seconds.map(s => (
-          <div key={s} style={{ flex: 1, textAlign: "center", position: "relative" }}>
-            <div style={{ height: s % 5 === 0 ? 14 : 8, width: 1, background: s % 5 === 0 ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.1)", margin: "0 auto 2px" }} />
-            {s % (duration > 10 ? 2 : 1) === 0 && (
-              <span style={{ fontSize: 7, color: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}>{s}s</span>
-            )}
-          </div>
-        ))}
-      </div>
-      {/* Progress bar */}
-      <div style={{ height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, marginTop: 4, overflow: "hidden" }}>
-        <div style={{
-          height: "100%", width: "100%", borderRadius: 2,
-          background: "linear-gradient(90deg, #22c55e, #14b8a6, #06b6d4)",
-          animation: "timelineProgress 3s linear infinite",
-        }} />
-      </div>
-      <style>{`
-        @keyframes timelineProgress { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-      `}</style>
-    </div>
-  );
-}
-
 /* ───── CARD GRID ───── */
 function CardGrid({ items, selected, onSelect, cols = 4 }: {
-  items: { id: string; label: string; icon: string; accent?: string; desc?: string }[];
+  items: { id: string; label: string; icon: string; accent?: string; desc?: string; en?: string }[];
   selected: string;
-  onSelect: (id: string) => void;
+  onSelect: (en: string) => void;
   cols?: number;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 5 }}>
       {items.map(it => {
-        const active = it.id === selected;
+        const val = it.en || "";
+        const active = val === selected;
         const c = it.accent || "#22c55e";
         return (
-          <button key={it.id} type="button" onClick={() => onSelect(it.id === selected ? "" : it.id)} title={it.desc || it.label}
+          <button key={it.id} type="button" onClick={() => onSelect(active ? "" : val)} title={it.desc || it.label}
             style={{
               background: active ? `${c}18` : "rgba(255,255,255,0.02)",
               border: `1px solid ${active ? `${c}60` : "rgba(255,255,255,0.06)"}`,
-              borderRadius: 8, padding: "9px 4px 7px", cursor: "pointer", textAlign: "center",
+              borderRadius: 8, padding: "8px 4px 6px", cursor: "pointer", textAlign: "center",
               transition: "all 0.2s", color: active ? c : "rgba(255,255,255,0.7)", outline: "none", position: "relative",
             }}
           >
             {active && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: c }} />}
-            <div style={{ fontSize: 18, lineHeight: 1 }}>{it.icon}</div>
+            <div style={{ fontSize: 16, lineHeight: 1 }}>{it.icon}</div>
             <div style={{ fontSize: 8, marginTop: 4, fontWeight: active ? 700 : 400, lineHeight: 1.2 }}>{it.label}</div>
           </button>
         );
@@ -208,22 +180,33 @@ function CardGrid({ items, selected, onSelect, cols = 4 }: {
 /* ───── SECTION ───── */
 function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 20 }}>
-      <h3 style={{ margin: "0 0 8px", fontSize: 11, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-        <span style={{ fontSize: 13 }}>{icon}</span> {title}
+    <div style={{ marginBottom: 16 }}>
+      <h3 style={{ margin: "0 0 6px", fontSize: 10, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+        <span style={{ fontSize: 12 }}>{icon}</span> {title}
       </h3>
       {children}
     </div>
   );
 }
 
-/* ───── MAIN MODAL ───── */
+/* ───── TYPES & INTERFACES ───── */
+export interface VideoSegment {
+  id: string;
+  start: number;
+  end: number;
+  movement: string;
+  angle: string;
+  action: string;
+  audio: string;
+}
+
 export interface VideoStudioSettings {
   cameraAngle: string;
   style: string;
   cameraMovement: string;
   movementSpeed: string;
   duration: number;
+  timelineSegments?: VideoSegment[];
 }
 
 interface Props {
@@ -232,145 +215,439 @@ interface Props {
   onClose: () => void;
 }
 
-function findId(items: { id: string; en: string }[], prompt: string): string {
-  if (!prompt) return "";
-  return items.find(i => i.en === prompt)?.id || "";
-}
-
 export default function VideoStudioModal({ initial, onConfirm, onClose }: Props) {
-  const [moveId, setMoveId] = useState(() => findId(CAMERA_MOVEMENTS, initial.cameraMovement));
-  const [speedId, setSpeedId] = useState(() => findId(SPEED_PRESETS, initial.movementSpeed));
-  const [styleId, setStyleId] = useState(() => findId(VIDEO_STYLES, initial.style));
-  const [angleId, setAngleId] = useState(() => findId(VIDEO_ANGLES, initial.cameraAngle));
-  const [duration, setDuration] = useState(initial.duration || 5);
+  const [duration, setDuration] = useState(initial.duration || 10);
+  const [styleId, setStyleId] = useState(() => initial.style || "");
+  const [speedId, setSpeedId] = useState(() => initial.movementSpeed || "");
 
-  const selMove = CAMERA_MOVEMENTS.find(m => m.id === moveId) || null;
-  const selSpeed = SPEED_PRESETS.find(s => s.id === speedId) || null;
-  const selStyle = VIDEO_STYLES.find(s => s.id === styleId) || null;
-  const selAngle = VIDEO_ANGLES.find(a => a.id === angleId) || null;
+  // Initialize segments
+  const [segments, setSegments] = useState<VideoSegment[]>(() => {
+    if (initial.timelineSegments && initial.timelineSegments.length > 0) {
+      return initial.timelineSegments;
+    }
+    return [
+      {
+        id: "seg_1",
+        start: 0,
+        end: initial.duration || 10,
+        movement: initial.cameraMovement || CAMERA_MOVEMENTS[0].en,
+        angle: initial.cameraAngle || VIDEO_ANGLES[1].en,
+        action: "",
+        audio: "",
+      }
+    ];
+  });
 
-  const summary = useMemo(() => {
-    const parts: string[] = [];
-    if (selMove) parts.push(selMove.en);
-    if (selAngle) parts.push(selAngle.en);
-    if (selSpeed) parts.push(selSpeed.en);
-    if (selStyle) parts.push(selStyle.en);
-    parts.push(`${duration} seconds duration`);
-    return parts.join(", ");
-  }, [selMove, selAngle, selSpeed, selStyle, duration]);
+  const [selectedSegId, setSelectedSegId] = useState<string | null>(segments[0]?.id || null);
 
-  const count = [selMove, selAngle, selSpeed, selStyle].filter(Boolean).length;
+  // Auto clean up and constrain segments when duration changes
+  const activeSegments = useMemo(() => {
+    return segments.map(seg => {
+      let nextStart = seg.start;
+      let nextEnd = seg.end;
+      if (nextStart >= duration) {
+        nextStart = Math.max(0, duration - 2);
+      }
+      if (nextEnd > duration || nextEnd <= nextStart) {
+        nextEnd = duration;
+      }
+      return { ...seg, start: nextStart, end: nextEnd };
+    }).sort((a, b) => a.start - b.start);
+  }, [segments, duration]);
+
+  const selectedSeg = activeSegments.find(s => s.id === selectedSegId) || null;
+
+  // Add new segment
+  function handleAddSegment() {
+    // Find gaps
+    const sorted = [...activeSegments].sort((a, b) => a.start - b.start);
+    let gapStart = 0;
+    let gapEnd = duration;
+    let foundGap = false;
+
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].start > gapStart + 0.5) {
+        gapEnd = sorted[i].start;
+        foundGap = true;
+        break;
+      }
+      gapStart = sorted[i].end;
+    }
+
+    if (!foundGap && gapStart < duration - 0.5) {
+      gapEnd = duration;
+      foundGap = true;
+    }
+
+    if (!foundGap) {
+      // Extend duration or create a small 1-second segment at the end
+      alert("Timeline đã kín! Vui lòng tăng tổng thời lượng hoặc thu nhỏ các phân cảnh khác để thêm phân cảnh mới.");
+      return;
+    }
+
+    const newSeg: VideoSegment = {
+      id: `seg_${Date.now()}`,
+      start: gapStart,
+      end: gapEnd,
+      movement: CAMERA_MOVEMENTS[0].en,
+      angle: VIDEO_ANGLES[1].en,
+      action: "",
+      audio: "",
+    };
+
+    setSegments([...activeSegments, newSeg]);
+    setSelectedSegId(newSeg.id);
+  }
+
+  // Delete segment
+  function handleDeleteSegment(id: string) {
+    if (activeSegments.length <= 1) {
+      alert("Video cần ít nhất một phân cảnh!");
+      return;
+    }
+    const next = activeSegments.filter(s => s.id !== id);
+    setSegments(next);
+    setSelectedSegId(next[0]?.id || null);
+  }
+
+  // Update selected segment fields
+  function updateSelected(patch: Partial<Omit<VideoSegment, "id">>) {
+    if (!selectedSegId) return;
+    setSegments(prev => prev.map(s => s.id === selectedSegId ? { ...s, ...patch } : s));
+  }
+
+  // Compute bounding constraints for selected segment to prevent overlaps
+  const limits = useMemo(() => {
+    if (!selectedSeg) return { minStart: 0, maxEnd: duration };
+    const sorted = [...activeSegments].filter(s => s.id !== selectedSeg.id).sort((a, b) => a.start - b.start);
+    let minStart = 0;
+    let maxEnd = duration;
+
+    for (const s of sorted) {
+      if (s.end <= selectedSeg.start) {
+        minStart = Math.max(minStart, s.end);
+      }
+      if (s.start >= selectedSeg.end) {
+        maxEnd = Math.min(maxEnd, s.start);
+      }
+    }
+    return { minStart, maxEnd };
+  }, [activeSegments, selectedSeg, duration]);
+
+  // Compile prompt representation
+  const compiledPrompt = useMemo(() => {
+    const sorted = [...activeSegments].sort((a, b) => a.start - b.start);
+    const parts = sorted.map((seg) => {
+      const moveLabel = CAMERA_MOVEMENTS.find(m => m.en === seg.movement)?.label || "Tĩnh";
+      const angleLabel = VIDEO_ANGLES.find(a => a.en === seg.angle)?.label || "Trung cảnh";
+      const segParts = [
+        `camera ${moveLabel.toLowerCase()}`,
+        `perspective ${angleLabel.toLowerCase()}`
+      ];
+      if (seg.action.trim()) segParts.push(seg.action.trim());
+      if (seg.audio.trim()) segParts.push(`with sound of ${seg.audio.trim()}`);
+      return `[${seg.start}s-${seg.end}s]: ${segParts.join(", ")}`;
+    });
+    return parts.join(". ");
+  }, [activeSegments]);
 
   function handleConfirm() {
+    // Check if there is a gap at the beginning or end, and stretch to cover if needed
+    const sorted = [...activeSegments].sort((a, b) => a.start - b.start);
+    if (sorted.length > 0) {
+      if (sorted[0].start > 0) sorted[0].start = 0;
+      if (sorted[sorted.length - 1].end < duration) sorted[sorted.length - 1].end = duration;
+    }
+    
     onConfirm({
-      cameraAngle: selAngle?.en || "",
-      style: selStyle?.en || "",
-      cameraMovement: selMove?.en || "",
-      movementSpeed: selSpeed?.en || "",
-      duration,
+      cameraAngle: sorted[0]?.angle || "",
+      style: styleId,
+      cameraMovement: compiledPrompt, // We store the fully compiled timeline prompt inside cameraMovement so it feeds into workflow runner
+      movementSpeed: speedId,
+      duration: duration,
+      timelineSegments: sorted,
     });
   }
 
+  // Draw visual timeline track
+  const timelineBlocks = useMemo(() => {
+    const sorted = [...activeSegments].sort((a, b) => a.start - b.start);
+    const result: Array<{ type: "segment" | "gap"; start: number; end: number; segment?: VideoSegment }> = [];
+    let cur = 0;
+    sorted.forEach(seg => {
+      if (seg.start > cur + 0.1) {
+        result.push({ type: "gap", start: cur, end: seg.start });
+      }
+      result.push({ type: "segment", start: seg.start, end: seg.end, segment: seg });
+      cur = seg.end;
+    });
+    if (cur < duration - 0.1) {
+      result.push({ type: "gap", start: cur, end: duration });
+    }
+    return result;
+  }, [activeSegments, duration]);
+
   return createPortal(
     <div onClick={onClose} className="nodrag nowheel"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.88)", display: "flex", padding: 16, zIndex: 99999, backdropFilter: "blur(10px)", animation: "fadeIn 0.25s ease" }}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.9)", display: "flex", padding: 16, zIndex: 99999, backdropFilter: "blur(12px)", animation: "fadeIn 0.2s ease" }}
     >
       <div onClick={e => e.stopPropagation()}
         style={{
           flex: 1, display: "flex", flexDirection: "column",
-          background: "linear-gradient(145deg, #0a0f1e 0%, #141e30 50%, #0c1222 100%)",
+          background: "linear-gradient(150deg, #070913 0%, #0d1222 60%, #080a14 100%)",
           borderRadius: 16, border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden",
-          boxShadow: "0 0 80px rgba(34,197,94,0.06), 0 25px 50px rgba(0,0,0,0.5)",
+          boxShadow: "0 0 85px rgba(34,197,94,0.06), 0 25px 60px rgba(0,0,0,0.6)",
         }}
       >
         {/* Header */}
-        <div style={{ padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)" }}>
+        <div style={{ padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.4)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg, #f59e0b, #ef4444)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🎬</div>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, color: "#fff", fontWeight: 800, letterSpacing: 1 }}>STUDIO VIDEO NÂNG CAO</h2>
-              <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: 0.5 }}>Giả lập studio — Chuyển động camera • Tốc độ • Phong cách • Timeline</p>
+              <h2 style={{ margin: 0, fontSize: 16, color: "#fff", fontWeight: 800, letterSpacing: 1 }}>STUDIO CHUYÊN NGHIỆP VIDEO +</h2>
+              <p style={{ margin: 0, fontSize: 10, color: "rgba(255,255,255,0.4)", letterSpacing: 0.5 }}>Thiết kế video đa phân cảnh — Thiết lập vị trí camera, hoạt cảnh và âm thanh từng giây một</p>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {count > 0 && (
-              <span style={{ fontSize: 10, background: "rgba(245,158,11,0.15)", color: "#f59e0b", padding: "4px 10px", borderRadius: 20, border: "1px solid rgba(245,158,11,0.2)", fontWeight: 700 }}>
-                {count} cấu hình
-              </span>
-            )}
-            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#94a3b8", padding: "8px 14px", cursor: "pointer", fontSize: 16 }}>✕</button>
+            <span style={{ fontSize: 10, background: "rgba(245,158,11,0.12)", color: "#f59e0b", padding: "4px 10px", borderRadius: 20, border: "1px solid rgba(245,158,11,0.2)", fontWeight: 700 }}>
+              {activeSegments.length} phân cảnh · {duration} giây
+            </span>
+            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#94a3b8", padding: "8px 14px", cursor: "pointer", fontSize: 14 }}>✕</button>
           </div>
         </div>
 
         {/* Body */}
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-          {/* Left: Viewport + Timeline */}
-          <div style={{ width: "40%", minWidth: 300, padding: 16, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ flex: 1, background: "rgba(0,0,0,0.4)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.04)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <VideoViewport movement={selMove} angle={selAngle} />
+          
+          {/* Left Panel: Preview + Visual Timeline */}
+          <div style={{ width: "35%", minWidth: 320, padding: 16, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.15)" }}>
+            
+            {/* Viewport */}
+            <div style={{ flex: 1, background: "rgba(0,0,0,0.3)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.04)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <VideoViewport 
+                movement={selectedSeg?.movement || ""} 
+                angle={selectedSeg?.angle || ""} 
+              />
             </div>
-            {/* Movement description */}
-            {selMove && (
-              <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(34,197,94,0.06)", borderRadius: 8, border: "1px solid rgba(34,197,94,0.12)" }}>
-                <div style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>{selMove.icon} {selMove.label}</div>
-                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{selMove.desc}</div>
-              </div>
-            )}
-            {/* Timeline */}
-            <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 9, color: "#94a3b8", fontFamily: "monospace", textTransform: "uppercase" }}>⏱ Timeline ({duration}s)</span>
+
+            {/* Visual Timeline Bar */}
+            <div style={{ marginTop: 12, padding: 12, background: "rgba(0,0,0,0.25)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color: "#a855f7", fontWeight: 700, textTransform: "uppercase" }}>⏱ HÀNG PHÂN CẢNH TIMELINE</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={() => setDuration(Math.max(1, duration - 1))} style={{ width: 22, height: 22, borderRadius: 4, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                  <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 700, minWidth: 24, textAlign: "center" }}>{duration}s</span>
-                  <button onClick={() => setDuration(Math.min(30, duration + 1))} style={{ width: 22, height: 22, borderRadius: 4, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                  <span style={{ fontSize: 8, color: "rgba(255,255,255,0.3)" }}>Tổng thời lượng:</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={60}
+                    value={duration}
+                    onChange={e => setDuration(parseInt(e.target.value))}
+                    style={{ width: 80, height: 4, background: "rgba(255,255,255,0.1)", borderRadius: 2, cursor: "ew-resize" }}
+                  />
+                  <span style={{ fontSize: 11, color: "#a855f7", fontWeight: 700 }}>{duration}s</span>
                 </div>
               </div>
-              <Timeline duration={duration} />
+
+              {/* Tracks Container */}
+              <div style={{ position: "relative", height: 50, background: "rgba(255,255,255,0.03)", borderRadius: 6, display: "flex", overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {timelineBlocks.map((blk, idx) => {
+                  const pct = ((blk.end - blk.start) / duration) * 100;
+                  if (blk.type === "gap") {
+                    return (
+                      <button
+                        key={`gap-${idx}`}
+                        type="button"
+                        onClick={handleAddSegment}
+                        title="Click để thêm phân cảnh"
+                        style={{
+                          width: `${pct}%`, height: "100%", background: "repeating-linear-gradient(45deg, rgba(255,255,255,0.01), rgba(255,255,255,0.01) 4px, rgba(255,255,255,0.03) 4px, rgba(255,255,255,0.03) 8px)",
+                          border: "1px dashed rgba(255,255,255,0.15)", cursor: "pointer", color: "rgba(255,255,255,0.3)", fontSize: 8, fontWeight: 700,
+                          display: "flex", alignItems: "center", justifyContent: "center"
+                        }}
+                      >
+                        + THÊM
+                      </button>
+                    );
+                  }
+                  
+                  const seg = blk.segment!;
+                  const isSel = seg.id === selectedSegId;
+                  const moveLabel = CAMERA_MOVEMENTS.find(m => m.en === seg.movement)?.label.split(" ")[0] || "Tĩnh";
+                  
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => setSelectedSegId(seg.id)}
+                      style={{
+                        width: `${pct}%`, height: "100%",
+                        background: isSel ? "linear-gradient(to bottom, #d97706, #b45309)" : "linear-gradient(to bottom, rgba(255,255,255,0.08), rgba(255,255,255,0.04))",
+                        border: isSel ? "1.5px solid #fbbf24" : "1px solid rgba(255,255,255,0.1)",
+                        cursor: "pointer", display: "flex", flexDirection: "column", justifyContent: "center",
+                        padding: "0 4px", textAlign: "left", transition: "all 0.15s"
+                      }}
+                    >
+                      <div style={{ fontSize: 9, color: isSel ? "#fff" : "#f59e0b", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        #{idx + 1}: {moveLabel}
+                      </div>
+                      <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
+                        {seg.start}s - {seg.end}s
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Timeline labels */}
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, padding: "0 2px" }}>
+                <span style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>0s</span>
+                <span style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>{Math.round(duration / 2)}s</span>
+                <span style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>{duration}s</span>
+              </div>
             </div>
-            {/* Badges */}
-            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {selSpeed && <span style={{ fontSize: 8, padding: "2px 8px", borderRadius: 20, background: `${selSpeed.accent}15`, color: selSpeed.accent, border: `1px solid ${selSpeed.accent}30` }}>{selSpeed.icon} {selSpeed.label}</span>}
-              {selStyle && <span style={{ fontSize: 8, padding: "2px 8px", borderRadius: 20, background: `${selStyle.accent}15`, color: selStyle.accent, border: `1px solid ${selStyle.accent}30` }}>{selStyle.icon} {selStyle.label}</span>}
+
+            {/* global settings */}
+            <div style={{ marginTop: 12, padding: 12, background: "rgba(255,255,255,0.02)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.04)" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>TỐC ĐỘ TOÀN VIDEO</label>
+                  <select
+                    value={speedId}
+                    onChange={e => setSpeedId(e.target.value)}
+                    style={{ width: "100%", background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "4px 6px", fontSize: 10 }}
+                  >
+                    <option value="">-- Mặc định --</option>
+                    {SPEED_PRESETS.map(s => <option key={s.id} value={s.en}>{s.icon} {s.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>PHONG CÁCH TOÀN VIDEO</label>
+                  <select
+                    value={styleId}
+                    onChange={e => setStyleId(e.target.value)}
+                    style={{ width: "100%", background: "#0d1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "4px 6px", fontSize: 10 }}
+                  >
+                    <option value="">-- Mặc định --</option>
+                    {VIDEO_STYLES.map(s => <option key={s.id} value={s.en}>{s.icon} {s.label}</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
+
           </div>
 
-          {/* Right: Controls */}
-          <div style={{ flex: 1, padding: "16px 20px", overflowY: "auto" }}>
-            <Section icon="🎥" title="Chuyển Động Camera / Camera Movement">
-              <CardGrid items={CAMERA_MOVEMENTS} selected={moveId} onSelect={setMoveId} cols={4} />
-            </Section>
-            <Section icon="📷" title="Góc Quay / Camera Angle">
-              <CardGrid items={VIDEO_ANGLES} selected={angleId} onSelect={setAngleId} cols={4} />
-            </Section>
-            <Section icon="⚡" title="Tốc Độ / Speed">
-              <CardGrid items={SPEED_PRESETS} selected={speedId} onSelect={setSpeedId} cols={3} />
-            </Section>
-            <Section icon="🎨" title="Phong Cách Video / Video Style">
-              <CardGrid items={VIDEO_STYLES} selected={styleId} onSelect={setStyleId} cols={4} />
-            </Section>
+          {/* Right Panel: Segment Controls */}
+          <div style={{ flex: 1, padding: "16px 20px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {selectedSeg ? (
+              <>
+                {/* Segment Heading */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: 13, color: "#fff", fontWeight: 700 }}>
+                      CẤU HÌNH PHÂN CẢNH ({selectedSeg.start}s - {selectedSeg.end}s)
+                    </h4>
+                    <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.3)" }}>Chỉnh sửa hoạt động của camera và mô tả hành cảnh trong khung giờ này</p>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" onClick={handleAddSegment} style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 6, color: "#22c55e", padding: "4px 10px", fontSize: 9, cursor: "pointer" }}>
+                      + Thêm phân cảnh
+                    </button>
+                    <button type="button" onClick={() => handleDeleteSegment(selectedSeg.id)} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, color: "#ef4444", padding: "4px 10px", fontSize: 9, cursor: "pointer" }}>
+                      Xóa phân cảnh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Timing Slider */}
+                <div style={{ display: "flex", gap: 16, background: "rgba(255,255,255,0.02)", padding: 10, borderRadius: 8, marginBottom: 14, border: "1px solid rgba(255,255,255,0.04)" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>BẮT ĐẦU: {selectedSeg.start}s</label>
+                    <input
+                      type="range"
+                      min={limits.minStart}
+                      max={Math.max(limits.minStart, selectedSeg.end - 0.5)}
+                      step={0.5}
+                      value={selectedSeg.start}
+                      onChange={e => updateSelected({ start: parseFloat(e.target.value) })}
+                      style={{ width: "100%", cursor: "ew-resize" }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>KẾT THÚC: {selectedSeg.end}s</label>
+                    <input
+                      type="range"
+                      min={Math.max(selectedSeg.start + 0.5, limits.minStart)}
+                      max={limits.maxEnd}
+                      step={0.5}
+                      value={selectedSeg.end}
+                      onChange={e => updateSelected({ end: parseFloat(e.target.value) })}
+                      style={{ width: "100%", cursor: "ew-resize" }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 12 }}>
+                  <Section icon="🎥" title="Hướng Di Chuyển Camera">
+                    <CardGrid items={CAMERA_MOVEMENTS} selected={selectedSeg.movement} onSelect={m => updateSelected({ movement: m })} cols={3} />
+                  </Section>
+
+                  <Section icon="📷" title="Góc Quay Camera">
+                    <CardGrid items={VIDEO_ANGLES} selected={selectedSeg.angle} onSelect={a => updateSelected({ angle: a })} cols={3} />
+                  </Section>
+                </div>
+
+                {/* Prompts detail for this segment */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>🎬 HOẠT CẢNH / HÀNH ĐỘNG PHÂN CẢNH</label>
+                    <textarea
+                      rows={2}
+                      value={selectedSeg.action}
+                      onChange={e => updateSelected({ action: e.target.value })}
+                      placeholder="Mô tả những gì diễn ra trong giây này... (ví dụ: Chú chim vỗ cánh bay đi khỏi cành cây)"
+                      style={{ width: "100%", background: "#0b0f19", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#fff", padding: 8, fontSize: 10, resize: "none" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.4)", marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>🎵 ÂM THANH / TIẾNG ĐỘNG (SOUND FX)</label>
+                    <textarea
+                      rows={2}
+                      value={selectedSeg.audio}
+                      onChange={e => updateSelected({ audio: e.target.value })}
+                      placeholder="Mô tả âm thanh tương ứng... (ví dụ: Tiếng vỗ cánh phành phạch và tiếng chim hót líu lo)"
+                      style={{ width: "100%", background: "#0b0f19", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#fff", padding: 8, fontSize: 10, resize: "none" }}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,0.2)", fontSize: 12 }}>
+                Click chọn một phân cảnh trên timeline để cấu hình chi tiết...
+              </div>
+            )}
           </div>
+
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "12px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ padding: "12px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", marginBottom: 3, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: 1 }}>📝 Prompt bổ sung cho AI:</div>
-            <div style={{ fontSize: 10, color: summary ? "#f59e0b" : "rgba(255,255,255,0.15)", fontFamily: "monospace", lineHeight: 1.5, maxHeight: 40, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              {summary || "Chưa chọn cấu hình nào..."}
+            <div style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", marginBottom: 3, fontFamily: "monospace", textTransform: "uppercase", letterSpacing: 1 }}>📝 Cấu trúc mô tả phân cảnh gửi tới AI:</div>
+            <div style={{ fontSize: 9, color: "#f59e0b", fontFamily: "monospace", lineHeight: 1.4, maxHeight: 36, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              {compiledPrompt}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-            <button onClick={onClose} style={{ padding: "10px 20px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontSize: 12 }}>Hủy</button>
+            <button onClick={onClose} style={{ padding: "10px 20px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, color: "#94a3b8", cursor: "pointer", fontSize: 11 }}>Hủy</button>
             <button onClick={handleConfirm}
-              style={{ padding: "10px 28px", background: "linear-gradient(135deg, #f59e0b, #ea580c)", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, letterSpacing: 0.5, boxShadow: "0 4px 14px rgba(245,158,11,0.3)" }}
+              style={{ padding: "10px 28px", background: "linear-gradient(135deg, #f59e0b, #ea580c)", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 700, letterSpacing: 0.5, boxShadow: "0 4px 14px rgba(245,158,11,0.3)" }}
             >
-              ✓ Xác Nhận
+              ✓ Áp Dụng Studio
             </button>
           </div>
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   );
 }

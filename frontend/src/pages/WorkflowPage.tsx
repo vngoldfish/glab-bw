@@ -112,6 +112,7 @@ type WNodeData = {
   cameraMovement?: string;
   movementSpeed?: string;
   studioDuration?: number;
+  timelineSegments?: any[];
 
   positions?: string;
   /** Preview media after run (image/video URLs) */
@@ -1300,7 +1301,8 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
             style: d.style || "",
             cameraMovement: d.cameraMovement || "",
             movementSpeed: d.movementSpeed || "",
-            duration: d.studioDuration || 5,
+            duration: d.studioDuration || 10,
+            timelineSegments: d.timelineSegments || [],
           }}
           onConfirm={(s: VideoStudioSettings) => {
             d.onChange?.(id, {
@@ -1309,6 +1311,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
               cameraMovement: s.cameraMovement,
               movementSpeed: s.movementSpeed,
               studioDuration: s.duration,
+              timelineSegments: s.timelineSegments,
             });
             setShowModal(false);
           }}
@@ -3205,6 +3208,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.model = "veo_31_fast";
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
+      baseData.studioDuration = 10;
     }
 
 
