@@ -1123,9 +1123,49 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
         <div className="node-edge-hint" style={{ marginTop: 6 }}>
           ✓ Khung cuối lấy từ node Tách frame
         </div>
+      ) : plus ? (
+        <ImageAttachBar
+          nodeId={id}
+          field="end_image"
+          value={d.end_image}
+          onChange={(nid, patch) => {
+            d.onChange?.(nid, {
+              ...patch,
+              mode: patch.end_image ? "start_end_image" : d.start_image ? "start_image" : "text_to_video",
+            });
+          }}
+          onPick={d.onPickImage}
+          onPreview={d.onPreview}
+          label="Khung cuối (khi không nối ngoài)"
+        />
       ) : (
         <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
           Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
+        </div>
+      )}
+
+      {plus && d.characterAssets && d.characterAssets.length > 0 && (
+        <div className="nodrag nopan node-attach-bar" style={{ marginTop: 6 }}>
+          <div className="node-attach-head">
+            <span>Nhân vật/Đồ vật tham chiếu ({d.characterAssets.length})</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+            {d.characterAssets.map((char) => (
+              <button
+                key={char.id}
+                type="button"
+                className="node-attach-thumb"
+                onClick={() => char.url && d.onPreview?.(mediaUrl(char.url))}
+                title={`Xem ${char.name}`}
+                style={{ width: 40, height: 40, position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}
+              >
+                <img src={mediaUrl(char.url)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 6, padding: "1px 0", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                  {char.name}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
