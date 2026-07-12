@@ -235,7 +235,7 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    onClick={() => navigate(`${NAV_ROUTES.workflow}?project=${selected.id}`)}
+                    onClick={() => navigate(`${NAV_ROUTES.workflow}/${encodeURIComponent(selected.id)}`)}
                   >
                     Mở Workflow
                   </button>
@@ -376,7 +376,7 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                     <button
                       type="button"
                       className="btn btn-primary btn-sm"
-                      onClick={() => navigate(`${NAV_ROUTES.workflow}?project=${selected.id}`)}
+                      onClick={() => navigate(`${NAV_ROUTES.workflow}/${encodeURIComponent(selected.id)}`)}
                     >
                       Chạy workflow
                     </button>

@@ -299,6 +299,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/workflow/:projectId"
+                element={
+                  <div className="page-panel" style={{ height: "100%" }}>
+                    <WorkflowPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
                 path={NAV_ROUTES["workflow-templates"]}
                 element={
                   <div className="page-panel">

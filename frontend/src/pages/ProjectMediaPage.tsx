@@ -270,7 +270,7 @@ export default function ProjectMediaPage({ onError }: { onError: (msg: string) =
                     
                     {pid && pid !== "global" && (
                       <Link 
-                        to={`${NAV_ROUTES.workflow}?project=${pid}`}
+                        to={`${NAV_ROUTES.workflow}/${encodeURIComponent(pid)}`}
                         className="btn btn-ghost btn-sm"
                         style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                       >

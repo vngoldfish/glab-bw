@@ -47,7 +47,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   browseInsertMedia,
   deleteProject,
@@ -2182,6 +2182,9 @@ function layoutWorkflowNodes(
 export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const dialog = useUiDialog();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { projectId: routeProjectId } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [name, setName] = useState("Project mới");
@@ -2262,6 +2265,21 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   useEffect(() => {
     projectIdRef.current = projectId;
   }, [projectId]);
+
+  useEffect(() => {
+    if (projectId) {
+      const decodedPath = decodeURIComponent(location.pathname);
+      const expectedPath = `/workflow/${projectId}`;
+      if (decodedPath !== expectedPath) {
+        navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+      }
+    } else {
+      const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
+      if (!hasTemplate && location.pathname !== "/workflow") {
+        navigate("/workflow", { replace: true });
+      }
+    }
+  }, [projectId, location.pathname, navigate, searchParams]);
 
   useEffect(() => {
     (window as any).workflowDirty = dirty;
@@ -2674,7 +2692,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           }
         }
 
-        const qid = searchParams.get("project");
+        const qid = routeProjectId || searchParams.get("project");
         const list = await listProjects();
         const openId = qid && list.find((p) => p.id === qid) ? qid : list[0]?.id;
         if (openId) {

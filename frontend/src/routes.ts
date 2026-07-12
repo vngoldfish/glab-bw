@@ -6,7 +6,7 @@ export const NAV_ROUTES: Record<NavPage, string> = {
   references: "/references",
   "flow-video": "/flow-video",
   "prompt-hub": "/prompt-hub",
-  workflow: "/project",
+  workflow: "/workflow",
   "workflow-templates": "/workflow-templates",
   "video-editor": "/video-editor",
   projects: "/projects",
