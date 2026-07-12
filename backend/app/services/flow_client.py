@@ -780,7 +780,12 @@ class GoogleFlowClient:
                     # "reCAPTCHA evaluation failed" / PERMISSION_DENIED.
                     browser_like = True
                     # FL attempt 2: drop useV2ModelConfig (some accounts need this)
-                    use_v2 = not (active_mode == "start_end_image" and attempt >= 1)
+                    # Lite/relaxed models must not use V2 Model Config (legacy API wrappers)
+                    use_v2 = (
+                        not (active_mode == "start_end_image" and attempt >= 1)
+                        and "lite" not in model_key
+                        and "relaxed" not in model_key
+                    )
                     media_name = await _submit_and_poll(
                         model_key=model_key,
                         mode_name=active_mode,

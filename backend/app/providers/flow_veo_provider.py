@@ -254,7 +254,8 @@ class FlowVeoProvider(BaseProvider):
             named_refs if isinstance(named_refs, list) else [],
             rewrite_markers=rewrite,
             # Frame modes: ignore stray @foo in prompt; use picker payload order
-            strict_unknown_mentions=not frame_mode and mode != "text_to_video",
+            # Non-frame modes (T2V): require explicit @name mentions in prompt to use characters
+            strict_unknown_mentions=not frame_mode,
             prefer_payload_order=frame_mode and "@" not in prompt,
         )
 
@@ -317,13 +318,11 @@ class FlowVeoProvider(BaseProvider):
                     "Ảnh đầu và ảnh cuối trùng nhau — chọn 2 ảnh khác nhau cho video đầu→cuối",
                     error_code=400,
                 )
-            invalidate_for_bytes(first_raw)
-            invalidate_for_bytes(second_raw)
-            start_media_id = await self._ensure_flow_media_id(
-                session, first_raw, first_mime, force_reupload=True
+            start_media_id = await self._ensure_flow_media_id_resilient(
+                session, first_raw, first_mime
             )
-            end_media_id = await self._ensure_flow_media_id(
-                session, second_raw, second_mime, force_reupload=True
+            end_media_id = await self._ensure_flow_media_id_resilient(
+                session, second_raw, second_mime
             )
 
         # 2. Build character references from named_items
@@ -341,6 +340,11 @@ class FlowVeoProvider(BaseProvider):
                 "Ingredients cần ít nhất 1 @tên trong prompt (ảnh có trong thư viện tham chiếu)",
                 error_code=400,
             )
+
+        if mode in {"start_image", "start_end_image"}:
+            import re
+            prompt = re.sub(r"@([a-zA-Z0-9_]+)", r"\1", prompt)
+            reference_media_ids = []
 
         duration = params.get("duration") or params.get("video_length")
         try:

@@ -1,16 +1,11 @@
 import {
   Background,
   Controls,
-  Handle,
   MiniMap,
-  Position,
   ReactFlow,
   addEdge,
   useEdgesState,
   useNodesState,
-  useNodes,
-  useEdges,
-  useReactFlow,
   type Connection,
   type Edge,
   type Node,
@@ -44,8 +39,6 @@ import {
   useRef,
   useState,
   memo,
-  type CSSProperties,
-  type ReactNode,
 } from "react";
 import { Link, useSearchParams, useParams, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -69,7 +62,6 @@ import {
   mediaUrl,
   normalizeFileUrl,
   openProjectFolder,
-  rewritePromptAi,
   runWorkflowGraph,
   saveProject,
   type ProjectAsset,
@@ -82,1587 +74,26 @@ import { NAV_ROUTES } from "../routes";
 import type { NamedReference } from "../types";
 
 import { findLibraryRef } from "../referenceUtils";
-import ImageStudioModal, { type ImageStudioSettings } from "../components/ImageStudioModal";
-import VideoStudioModal, { type VideoStudioSettings } from "../components/VideoStudioModal";
-import { useAiRewrite } from "../hooks/useAiRewrite";
-import EngineModelSelector from "../components/workflow/EngineModelSelector";
-import InlinePromptEditor from "../components/workflow/InlinePromptEditor";
-import RefNameInput from "../components/workflow/RefNameInput";
-import ConfigBadges from "../components/workflow/ConfigBadges";
+import PromptNode from "../components/workflow/nodes/PromptNode";
+import ReferenceNode from "../components/workflow/nodes/ReferenceNode";
+import GenerateNode from "../components/workflow/nodes/GenerateNode";
+import VideoNode from "../components/workflow/nodes/VideoNode";
+import VideoReferenceNode from "../components/workflow/nodes/VideoReferenceNode";
+import FrameNode from "../components/workflow/nodes/FrameNode";
+import {
+  WNodeData,
+  RunStatus,
+  ImageField,
+  isVideoUrl,
+  NODE_COLORS,
+  readFileAsDataUrl
+} from "../components/workflow/nodes/shared";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
 }
 
-type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
 
-type ImageField = "image" | "start_image" | "end_image" | "video";
-
-type WNodeData = {
-  title: string;
-  prompt?: string;
-  engine?: string;
-  model?: string;
-  aspect_ratio?: string;
-  mode?: string;
-  image?: string;
-  video?: string;
-  /** Video start/end attached on node (no edge required) */
-  start_image?: string;
-  end_image?: string;
-
-  cameraAngle?: string;
-  style?: string;
-  lighting?: string;
-  composition?: string;
-  cameraMovement?: string;
-  movementSpeed?: string;
-  studioDuration?: number;
-  timelineSegments?: any[];
-  characterAssets?: any[];
-
-  positions?: string;
-  /** Preview media after run (image/video URLs) */
-  resultUrls?: string[];
-  /** frame_extract meta for continue/reuse */
-  frames?: Array<{ position: string; url: string; path?: string }>;
-  folder?: string;
-  refName?: string;
-  runStatus?: RunStatus;
-  runError?: string;
-  reused?: boolean;
-  onChange?: (id: string, patch: Partial<WNodeData>) => void;
-  onPreview?: (url: string) => void;
-  onRerun?: (id: string) => void;
-  onPickImage?: (id: string, field: ImageField) => void;
-  onError?: (msg: string) => void;
-  /** Build graph context for AI (upstream + downstream nodes) */
-  getWorkflowContext?: (nodeId: string) => WorkflowAiNodeContext[];
-  /** true if an edge feeds start_image / image into this video node */
-  hasStartImageInput?: boolean;
-  /** true if end_image edge connected (e.g. from frame extract) */
-  hasEndImageInput?: boolean;
-  /** true if reference edge connected (for character reference) */
-  hasReferenceInput?: boolean;
-  /** true if a prompt node is connected via prompt edge */
-  hasPromptInput?: boolean;
-  /** AI rewrite style for this prompt node */
-  promptKind?: "image" | "video";
-  /** Inline prompt hint for VideoNode (when no PromptNode connected) */
-  prompt_hint?: string;
-};
-
-const NODE_COLORS: Record<string, string> = {
-  prompt: "#6366f1",
-  reference: "#14b8a6",
-  generate: "#22c55e",
-  video_generate: "#f59e0b",
-  frame_extract: "#ec4899",
-};
-
-const STATUS_META: Record<
-  RunStatus,
-  { label: string; color: string; bg: string }
-> = {
-  idle: { label: "", color: "transparent", bg: "transparent" },
-  pending: { label: "chờ", color: "#94a3b8", bg: "rgba(148,163,184,0.15)" },
-  running: { label: "…", color: "#38bdf8", bg: "rgba(56,189,248,0.18)" },
-  completed: { label: "OK", color: "#4ade80", bg: "rgba(74,222,128,0.15)" },
-  failed: { label: "Lỗi", color: "#f87171", bg: "rgba(248,113,113,0.18)" },
-  skipped: { label: "skip", color: "#a3a3a3", bg: "rgba(163,163,163,0.12)" },
-};
-
-function isVideoUrl(u: string): boolean {
-  return /\.mp4($|\?)/i.test(u) || u.includes("/video");
-}
-
-function MediaPreview({
-  urls,
-  onPreview,
-  max = 4,
-  label,
-}: {
-  urls?: string[];
-  onPreview?: (url: string) => void;
-  max?: number;
-  label?: string;
-}) {
-  if (!urls?.length) return null;
-  // Dedupe identical URLs (frames often appear in both results + frames[])
-  const seen = new Set<string>();
-  const list: string[] = [];
-  for (const raw of urls) {
-    const u = normalizeFileUrl(raw);
-    if (!u || seen.has(u)) continue;
-    seen.add(u);
-    list.push(u);
-    if (list.length >= max) break;
-  }
-  if (!list.length) return null;
-  const single = list.length === 1;
-  const totalUnique = (() => {
-    const s = new Set(urls.map((x) => normalizeFileUrl(x)).filter(Boolean));
-    return s.size;
-  })();
-  return (
-    <div className="nodrag nopan node-media-preview">
-      {label ? <div className="node-media-label">{label}</div> : null}
-      <div className={`node-media-grid${single ? " is-single" : ""}`}>
-        {list.map((u, i) =>
-          isVideoUrl(u) ? (
-            <div key={`media-v-${i}`} className="node-media-item node-media-item--video">
-              <video src={u} controls playsInline preload="metadata" />
-              <span className="node-media-badge">VIDEO{list.length > 1 ? ` ${i + 1}` : ""}</span>
-            </div>
-          ) : (
-            <button
-              key={`media-i-${i}`}
-              type="button"
-              className="node-media-item node-media-item--image"
-              onClick={() => onPreview?.(u)}
-              title="Click phóng to"
-            >
-              <img src={u} alt="" loading="lazy" />
-              <span className="node-media-shine" aria-hidden />
-              <span className="node-media-badge">IMG{list.length > 1 ? ` ${i + 1}` : ""}</span>
-            </button>
-          ),
-        )}
-      </div>
-      {totalUnique > max ? (
-        <div className="node-media-more">+{totalUnique - max} media khác</div>
-      ) : null}
-    </div>
-  );
-}
-
-function Shell({
-  type,
-  title,
-  children,
-  selected,
-  runStatus = "idle",
-  runError,
-  showRerun,
-  onRerun,
-  reused,
-}: {
-  type: string;
-  title: string;
-  children: ReactNode;
-  selected?: boolean;
-  runStatus?: RunStatus;
-  runError?: string;
-  showRerun?: boolean;
-  onRerun?: () => void;
-  reused?: boolean;
-}) {
-  const color = NODE_COLORS[type] || "#888";
-  const st = STATUS_META[runStatus] || STATUS_META.idle;
-  const borderColor =
-    runStatus === "failed"
-      ? "#f87171"
-      : runStatus === "completed"
-        ? color
-        : runStatus === "running"
-          ? "#38bdf8"
-          : selected
-            ? color
-            : "rgba(255,255,255,0.12)";
-
-  return (
-    <div
-      className={runStatus === "running" ? "node-running-glow" : ""}
-      style={{
-        minWidth: 260,
-        maxWidth: 320,
-        borderRadius: 14,
-        border: `1.5px solid ${borderColor}`,
-        background: "rgba(18,20,26,0.97)",
-        boxShadow:
-          runStatus === "running"
-            ? "0 0 0 1px rgba(56,189,248,0.35), 0 8px 24px rgba(0,0,0,0.4)"
-            : selected
-              ? `0 0 0 1px ${color}55, 0 8px 24px rgba(0,0,0,0.4)`
-              : "0 4px 16px rgba(0,0,0,0.35)",
-        fontSize: 12,
-        color: "#e5e7eb",
-      }}
-    >
-      <div
-        style={{
-          padding: "8px 10px",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          background: `${color}22`,
-          borderRadius: "12px 12px 0 0",
-          fontWeight: 600,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {title}
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          {reused && runStatus === "completed" ? (
-            <span style={{ fontSize: 9, color: "#94a3b8", opacity: 0.9 }}>giữ</span>
-          ) : null}
-          {st.label ? (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: st.color,
-                background: st.bg,
-                padding: "2px 6px",
-                borderRadius: 999,
-                letterSpacing: 0.2,
-              }}
-            >
-              {runStatus === "running" ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  <span className="spin-icon" style={{ fontSize: 11, lineHeight: 1 }}>⟳</span>
-                  chạy
-                </span>
-              ) : (
-                st.label
-              )}
-            </span>
-          ) : null}
-          <span style={{ opacity: 0.45, fontWeight: 400, fontSize: 10 }}>{type}</span>
-        </span>
-      </div>
-      <div style={{ padding: 10 }}>
-        {children}
-        {runError ? (
-          <div
-            style={{
-              marginTop: 8,
-              fontSize: 10,
-              color: "#fca5a5",
-              lineHeight: 1.35,
-              maxHeight: 48,
-              overflow: "auto",
-            }}
-          >
-            {runError}
-          </div>
-        ) : null}
-        {showRerun && !runStatus ? (
-          <button
-            type="button"
-            className="nodrag nopan"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRerun?.();
-            }}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              padding: "7px 8px",
-              borderRadius: 8,
-              border: "1px solid rgba(34,197,94,0.3)",
-              background: "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(20,184,166,0.1))",
-              color: "#22c55e",
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 5,
-            }}
-          >
-            ▶ Chạy
-          </button>
-        ) : null}
-        {showRerun && (runStatus === "completed" || runStatus === "failed") ? (
-          <button
-            type="button"
-            className="nodrag nopan"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRerun?.();
-            }}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              padding: "6px 8px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.06)",
-              color: "#e2e8f0",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {runStatus === "failed" ? "↻ Thử lại" : "↻ Chạy lại"}
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function fieldStyle(): CSSProperties {
-  return {
-    width: "100%",
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 6,
-    color: "inherit",
-    padding: 6,
-  };
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Không đọc được file"));
-    reader.readAsDataURL(file);
-  });
-}
-
-/** Attach existing image: upload / library / project */
-function ImageAttachBar({
-  nodeId,
-  field,
-  value,
-  onChange,
-  onPick,
-  onPreview,
-  label = "Ảnh có sẵn",
-}: {
-  nodeId: string;
-  field: ImageField;
-  value?: string;
-  onChange?: (id: string, patch: Partial<WNodeData>) => void;
-  onPick?: (id: string, field: ImageField) => void;
-  onPreview?: (url: string) => void;
-  label?: string;
-}) {
-  const has = Boolean(value);
-  return (
-    <div className="nodrag nopan node-attach-bar">
-      <div className="node-attach-head">
-        <span>{label}</span>
-        {has ? (
-          <button
-            type="button"
-            className="node-attach-clear"
-            onClick={() =>
-              onChange?.(nodeId, {
-                [field]: undefined,
-                ...(field === "image" ? { resultUrls: undefined } : {}),
-              } as Partial<WNodeData>)
-            }
-          >
-            Gỡ
-          </button>
-        ) : null}
-      </div>
-      {has ? (
-        <button
-          type="button"
-          className="node-attach-thumb"
-          onClick={() => value && onPreview?.(mediaUrl(value))}
-          title="Xem ảnh"
-        >
-          <img src={mediaUrl(value!)} alt="" onError={e => { (e.target as HTMLImageElement).style.opacity = "0.3"; }} />
-        </button>
-      ) : (
-        <div className="node-attach-actions">
-          <label className="node-attach-btn">
-            ⬆ Upload
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (!f) return;
-                try {
-                  const url = await readFileAsDataUrl(f);
-                  onChange?.(nodeId, {
-                    [field]: url,
-                    ...(field === "image" ? { resultUrls: [url] } : {}),
-                  } as Partial<WNodeData>);
-                } catch {
-                  /* ignore */
-                }
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="node-attach-btn"
-            onClick={() => onPick?.(nodeId, field)}
-          >
-            📂 Chọn có sẵn
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-const handleLabelStyle = (side: "left" | "right", top: string | number): CSSProperties => ({
-  position: "absolute",
-  top,
-  transform: "translateY(-50%)",
-  [side === "left" ? "right" : "left"]: "100%",
-  [side === "left" ? "marginRight" : "marginLeft"]: "8px",
-  fontSize: "8px",
-  fontWeight: "bold",
-  color: "#f8fafc",
-  pointerEvents: "none",
-  whiteSpace: "nowrap",
-  background: "rgba(15, 23, 42, 0.9)",
-  padding: "2px 5px",
-  borderRadius: "3px",
-  border: "1px solid rgba(255,255,255,0.15)",
-  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-});
-
-function PromptNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  const [aiBusy, setAiBusy] = useState(false);
-  // kind hint; server may override from pipeline (downstream image vs video)
-  const kind = d.promptKind === "video" ? "video" : "image";
-
-  async function handleAiRewrite() {
-    const source = (d.prompt || "").trim();
-    if (!source) {
-      d.onError?.("Nhập ý/prompt trên node này trước khi dùng AI");
-      return;
-    }
-    if (aiBusy) return;
-    setAiBusy(true);
-    try {
-      // Always re-query graph so AI sees latest upstream/downstream nodes
-      const workflow_context = d.getWorkflowContext?.(id) ?? [];
-      const up = workflow_context.filter((c) => c.role === "upstream");
-      const down = workflow_context.filter((c) => c.role === "downstream");
-      // Prefer pipeline-inferred kind: if only video downstream → video, etc.
-      let kindUse: "image" | "video" = kind;
-      const hasVid = down.some((c) => c.type === "video_generate");
-      const hasImg = down.some((c) => c.type === "generate");
-      if (hasVid && !hasImg) kindUse = "video";
-      else if (hasImg && !hasVid) kindUse = "image";
-
-      const res = await rewritePromptAi({
-        prompt: source,
-        kind: kindUse,
-        locale: "vi",
-        current_node_id: id,
-        workflow_context,
-      });
-      const next = (res.prompt || "").trim();
-      if (!next) {
-        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
-        return;
-      }
-      d.onChange?.(id, { prompt: next, promptKind: kindUse });
-      if (next === source) {
-        d.onError?.("AI gần như không đổi prompt — thử model/style khác trong Cài đặt");
-      } else if (up.length > 0) {
-        // soft status: context was used
-        console.info(
-          `[AI prompt] rewritten with ${up.length} upstream + ${down.length} downstream node(s)`,
-        );
-      }
-    } catch (err) {
-      d.onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  // Live count for toolbar hint (graph may change while panel open)
-  const ctxHint = (() => {
-    try {
-      const ctx = d.getWorkflowContext?.(id) ?? [];
-      const up = ctx.filter((c) => c.role === "upstream").length;
-      const down = ctx.filter((c) => c.role === "downstream").length;
-      if (up === 0 && down === 0) return null;
-      return { up, down };
-    } catch {
-      return null;
-    }
-  })();
-
-  return (
-    <Shell
-      type="prompt"
-      title={d.title || "Prompt"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-    >
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="prompt"
-        style={{ background: "#6366f1" }}
-        title="Cổng xuất Prompt: Nối sang cổng Prompt của node Tạo ảnh hoặc Tạo video"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Prompt →</div>
-      <div className="nodrag node-prompt-toolbar">
-        <label className="node-prompt-kind">
-          Gợi ý AI
-          <select
-            value={kind}
-            onChange={(e) =>
-              d.onChange?.(id, { promptKind: e.target.value as "image" | "video" })
-            }
-            title="Gợi ý style AI; nếu đã nối sang Ảnh/Video, AI sẽ ưu tiên theo pipeline"
-          >
-            <option value="image">Viết kiểu ảnh</option>
-            <option value="video">Viết kiểu video</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="node-ai-btn"
-          disabled={aiBusy || !(d.prompt || "").trim()}
-          onClick={() => void handleAiRewrite()}
-          title={
-            ctxHint
-              ? `AI đọc prompt node này + ${ctxHint.up} node trước + ${ctxHint.down} node sau trên graph`
-              : "AI đọc prompt node này; nối graph để phân tích node trước/sau"
-          }
-        >
-          {aiBusy ? "AI…" : "✦ AI"}
-        </button>
-      </div>
-      <textarea
-        className="nodrag nowheel"
-        rows={4}
-        value={d.prompt || ""}
-        onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
-        placeholder="Nhập ý ngắn… AI đọc prompt này + node trước (ảnh/video/frame) rồi viết hợp lý"
-        style={{ ...fieldStyle(), resize: "vertical" }}
-        disabled={aiBusy}
-      />
-      {aiBusy ? (
-        <div className="node-ai-status">
-          AI đang đọc prompt hiện tại
-          {ctxHint ? ` + ${ctxHint.up} node trước` : ""}
-          {" → phân tích pipeline và viết lại…"}
-        </div>
-      ) : (
-        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.35 }}>
-          {ctxHint ? (
-            <>
-              ✦ Sẽ phân tích: prompt node này
-              {ctxHint.up > 0 ? ` · ${ctxHint.up} node trước` : ""}
-              {ctxHint.down > 0 ? ` · ${ctxHint.down} node sau` : ""}
-            </>
-          ) : (
-            <>✦ AI đọc prompt node này; nối sang Ảnh/Video (và node trước) để viết khớp pipeline</>
-          )}
-        </div>
-      )}
-    </Shell>
-  );
-}
-
-function ReferenceNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  // MediaPreview: only use resultUrls (ImageAttachBar already shows thumb for d.image)
-  const previewUrls = d.resultUrls?.length ? d.resultUrls : [];
-  return (
-    <Shell
-      type="reference"
-      title={d.title || "Ảnh có sẵn"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-    >
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="image"
-        style={{ background: "#14b8a6" }}
-        title="Cổng xuất Ảnh: Nối sang cổng Ảnh ref của Tạo ảnh hoặc Nhân vật ref của Tạo video"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Ảnh ref →</div>
-      <ImageAttachBar
-        nodeId={id}
-        field="image"
-        value={d.image}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Gắn ảnh có sẵn"
-      />
-      <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.05)" }}>
-        <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-          <span>Tên gọi trong prompt:</span>
-          {d.refName && <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 11, color: "#14b8a6", fontWeight: 700 }}>@</span>
-          <input
-            type="text"
-            className="nodrag"
-            value={d.refName || ""}
-            onChange={(e) => {
-              const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
-              d.onChange?.(id, { refName: clean, title: clean ? `@${clean}` : "Ảnh có sẵn" });
-            }}
-            placeholder="dat_ten_ref..."
-            style={{
-              flex: 1,
-              background: "rgba(0,0,0,0.25)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 4,
-              padding: "2px 6px",
-              fontSize: 10,
-              color: "#fff",
-              outline: "none"
-            }}
-          />
-        </div>
-      </div>
-      {previewUrls.length > 0 && !d.image && (
-        <MediaPreview urls={previewUrls} onPreview={d.onPreview} max={1} label="Preview" />
-      )}
-      <input
-        className="nodrag"
-        value={
-          d.image?.startsWith("data:") ? "(đã gắn file local)"
-          : d.image ? (d.refName ? `@${d.refName}` : d.image)
-          : ""
-        }
-        onChange={(e) => d.onChange?.(id, { image: e.target.value, resultUrls: e.target.value ? [e.target.value] : undefined })}
-        placeholder="Hoặc dán URL /api/files/..."
-        style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
-      />
-    </Shell>
-  );
-}
-
-function GenerateNode({ id, data, selected, plus = false }: NodeProps & { plus?: boolean }) {
-  const d = data as WNodeData;
-  const [showModal, setShowModal] = useState(false);
-  const hasPromptEdge = Boolean(d.hasPromptInput);
-
-  const { aiBusy, handleAiRewrite, ctxHint } = useAiRewrite({
-    nodeId: id,
-    kind: "image",
-    prompt: d.prompt || "",
-    getWorkflowContext: d.getWorkflowContext,
-    onChange: d.onChange,
-    targetField: "prompt",
-    onError: d.onError,
-  });
-
-  return (
-    <Shell
-      type="generate"
-      title={d.title || (plus ? "Tạo ảnh +" : "Tạo ảnh")}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-      showRerun
-      reused={d.reused}
-      onRerun={() => d.onRerun?.(id)}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="prompt"
-        style={{ top: "22%", background: "#6366f1" }}
-        title="Cổng nhận Prompt: Nối từ node Prompt"
-      />
-      <div style={handleLabelStyle("left", "22%")}>← Prompt</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="image"
-        style={{ top: "42%", background: "#14b8a6" }}
-        title="Cổng nhận Ảnh ref: Nối từ Ảnh có sẵn hoặc ảnh kết quả khác"
-      />
-      <div style={handleLabelStyle("left", "42%")}>← Ảnh ref</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="image"
-        style={{ background: "#22c55e" }}
-        title="Cổng xuất Ảnh kết quả: Nối sang cổng Ảnh đầu hoặc Khung cuối của Tạo video"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
-
-      {plus && (
-        <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            className="wf-btn wf-btn-secondary nodrag"
-            style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
-            onClick={() => setShowModal(true)}
-          >
-            ⚙️ Cấu hình chụp & style +
-          </button>
-        </div>
-      )}
-
-      {plus && <ConfigBadges cameraAngle={d.cameraAngle} style={d.style} lighting={d.lighting} composition={d.composition} />}
-
-      <EngineModelSelector
-        type="image"
-        engine={d.engine}
-        model={d.model}
-        aspect_ratio={d.aspect_ratio}
-        onChange={(patch) => d.onChange?.(id, patch)}
-      />
-
-      {!hasPromptEdge && (
-        <InlinePromptEditor
-          kind="image"
-          value={d.prompt || ""}
-          aiBusy={aiBusy}
-          onAiRewrite={handleAiRewrite}
-          onChange={(text) => d.onChange?.(id, { prompt: text })}
-          ctxHint={ctxHint}
-        />
-      )}
-
-      {hasPromptEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
-          ✓ Đã nối node Prompt
-        </div>
-      )}
-
-      <ImageAttachBar
-        nodeId={id}
-        field="image"
-        value={d.image}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Ảnh ref (có sẵn)"
-      />
-      {d.image && (
-        <RefNameInput
-          refName={d.refName}
-          onChange={(name) => d.onChange?.(id, { refName: name })}
-        />
-      )}
-      {d.resultUrls?.length ? (
-        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả gen" />
-      ) : (
-        <div className="node-media-empty">
-          {d.runStatus === "running" || d.runStatus === "pending"
-            ? "Đang tạo ảnh…"
-            : "Ảnh kết quả gen hiện ở đây"}
-        </div>
-      )}
-
-      {plus && showModal && (
-        <ImageStudioModal
-          initial={{
-            cameraAngle: d.cameraAngle || "",
-            style: d.style || "",
-            lighting: d.lighting || "",
-            composition: d.composition || "",
-          }}
-          onConfirm={(s: ImageStudioSettings) => {
-            d.onChange?.(id, {
-              cameraAngle: s.cameraAngle,
-              style: s.style,
-              lighting: s.lighting,
-              composition: s.composition,
-            });
-            setShowModal(false);
-          }}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-    </Shell>
-  );
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: boolean }) {
-  const d = data as WNodeData;
-  const nodes = useNodes();
-  const edges = useEdges();
-  const [showModal, setShowModal] = useState(false);
-  const { setNodes, setEdges } = useReactFlow();
-
-  const resolvedStartImage = useMemo(() => {
-    const edge = edges.find(e => e.target === id && e.targetHandle === "start_image");
-    if (!edge) return d.start_image || "";
-    const srcNode = nodes.find(n => n.id === edge.source);
-    if (!srcNode) return d.start_image || "";
-    const nd = srcNode.data as WNodeData;
-    return nd.image || nd.resultUrls?.[0] || "";
-  }, [edges, nodes, id, d.start_image]);
-
-  const resolvedEndImage = useMemo(() => {
-    const edge = edges.find(e => e.target === id && e.targetHandle === "end_image");
-    if (!edge) return d.end_image || "";
-    const srcNode = nodes.find(n => n.id === edge.source);
-    if (!srcNode) return d.end_image || "";
-    const nd = srcNode.data as WNodeData;
-    return nd.image || nd.resultUrls?.[0] || "";
-  }, [edges, nodes, id, d.end_image]);
-
-  const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
-  const hasStart = fromEdge || Boolean(d.start_image);
-  const hasEndEdge = edges.some(e => e.target === id && e.targetHandle === "end_image");
-
-  const computedMode = useMemo(() => {
-    const hasStartActive = fromEdge || Boolean(d.start_image) || Boolean(resolvedStartImage);
-    const hasEndActive = hasEndEdge || Boolean(d.end_image) || Boolean(resolvedEndImage);
-    if (hasStartActive && hasEndActive) return "start_end_image";
-    if (hasStartActive) return "start_image";
-    return "text_to_video";
-  }, [fromEdge, d.start_image, resolvedStartImage, hasEndEdge, d.end_image, resolvedEndImage]);
-
-  const hasRefEdge = edges.some(e => e.target === id && e.targetHandle === "reference");
-  const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
-
-  const { aiBusy, handleAiRewrite, ctxHint } = useAiRewrite({
-    nodeId: id,
-    kind: "video",
-    prompt: d.prompt_hint || "",
-    getWorkflowContext: d.getWorkflowContext,
-    onChange: d.onChange,
-    targetField: "prompt_hint",
-    onError: d.onError,
-  });
-
-  const workflowCharacters = useMemo(() => {
-    if (!plus) return [];
-    const chars: Array<{ name: string; url: string }> = [];
-    const seenNames = new Set<string>();
-    nodes.forEach(n => {
-      const nd = n.data as any;
-      const imgUrl = nd?.image || nd?.resultUrls?.[0];
-      if (n.type === "reference" && nd?.refName && imgUrl) {
-        const name = String(nd.refName).trim();
-        if (name && !seenNames.has(name)) {
-          seenNames.add(name);
-          chars.push({ name, url: String(imgUrl) });
-        }
-      }
-      if (n.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
-        const name = String(nd.refName).trim();
-        if (name && !seenNames.has(name)) {
-          seenNames.add(name);
-          chars.push({ name, url: String(nd.resultUrls[0]) });
-        }
-      }
-    });
-    return chars;
-  }, [nodes, plus]);
-
-  const connectedCharacters = useMemo(() => {
-    if (!plus) return [];
-    const chars: Array<{ name: string; url: string }> = [];
-    const seenNames = new Set<string>();
-    const incomingEdges = edges.filter(e => e.target === id && e.targetHandle === "reference");
-    incomingEdges.forEach(e => {
-      const srcNode = nodes.find(n => n.id === e.source);
-      if (!srcNode) return;
-      const nd = srcNode.data as any;
-      const imgUrl = nd?.image || nd?.resultUrls?.[0];
-      if (srcNode.type === "reference" && nd?.refName && imgUrl) {
-        const name = String(nd.refName).trim();
-        if (name && !seenNames.has(name)) {
-          seenNames.add(name);
-          chars.push({ name, url: String(imgUrl) });
-        }
-      } else if (srcNode.type === "generate" && nd?.refName && nd?.resultUrls?.[0]) {
-        const name = String(nd.refName).trim();
-        if (name && !seenNames.has(name)) {
-          seenNames.add(name);
-          chars.push({ name, url: String(nd.resultUrls[0]) });
-        }
-      }
-    });
-    return chars;
-  }, [nodes, edges, id, plus]);
-
-  const allActiveCharacters = useMemo(() => {
-    if (!plus) return [];
-    const list: Array<{ name: string; url: string }> = [];
-    const seenNames = new Set<string>();
-    const normalize = (n: string) => n.replace(/^@/, "").trim().toLowerCase();
-
-    // 1. Add connected characters
-    connectedCharacters.forEach(c => {
-      const norm = normalize(c.name);
-      if (norm && !seenNames.has(norm)) {
-        seenNames.add(norm);
-        const displayName = c.name.startsWith("@") ? c.name : `@${c.name}`;
-        list.push({ name: displayName, url: c.url });
-      }
-    });
-
-    // 2. Add local characterAssets
-    (d.characterAssets || []).forEach((c: any) => {
-      const norm = normalize(c.name || "");
-      if (norm && !seenNames.has(norm)) {
-        seenNames.add(norm);
-        const displayName = c.name.startsWith("@") ? c.name : `@${c.name}`;
-        list.push({ name: displayName, url: String(c.url || "") });
-      }
-    });
-
-    return list;
-  }, [plus, connectedCharacters, d.characterAssets]);
-
-  const modeLabel = hasEndEdge
-    ? "Ảnh đầu + khung cuối (từ node frame)"
-    : hasStart
-      ? "Từ ảnh → video"
-      : hasRefEdge
-        ? "Từ text → video (Tham chiếu nhân vật)"
-        : "Từ text → video";
-
-  return (
-    <Shell
-      type="video_generate"
-      title={d.title || (plus ? "Tạo video +" : "Tạo video")}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-      showRerun
-      reused={d.reused}
-      onRerun={() => d.onRerun?.(id)}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="prompt"
-        style={{ top: "18%", background: "#6366f1" }}
-        title="Cổng nhận Prompt: Nối từ node Prompt"
-      />
-      <div style={handleLabelStyle("left", "18%")}>← Prompt</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="start_image"
-        style={{ top: "38%", background: "#22c55e" }}
-        title="Cổng nhận Ảnh đầu: Nối từ node Tạo ảnh hoặc cổng end_image của Tách frame"
-      />
-      <div style={handleLabelStyle("left", "38%")}>← Ảnh đầu</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="reference"
-        style={{ top: "58%", background: "#06b6d4" }}
-        title="Cổng nhận Nhân vật ref: Nối từ node Ảnh có sẵn để giữ nhất quán nhân vật"
-      />
-      <div style={handleLabelStyle("left", "58%")}>← Nhân vật ref</div>
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="end_image"
-        style={{ top: "78%", background: "#14b8a6" }}
-        title="Cổng nhận Khung cuối: Nối từ cổng end_image của node Tách frame (Video-to-Video)"
-      />
-      <div style={handleLabelStyle("left", "78%")}>← Khung cuối</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="video"
-        style={{ background: "#f59e0b" }}
-        title="Cổng xuất Video kết quả: Nối sang cổng Video của node Tách frame"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
-
-      {plus && (
-        <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            className="wf-btn wf-btn-secondary nodrag"
-            style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.2)" }}
-            onClick={() => setShowModal(true)}
-          >
-            ⚙️ Cấu hình quay & style +
-          </button>
-        </div>
-      )}
-
-      {plus && (
-        <ConfigBadges
-          cameraAngle={d.cameraAngle}
-          style={d.style}
-          cameraMovement={d.cameraMovement}
-          movementSpeed={d.movementSpeed}
-          studioDuration={d.studioDuration}
-        />
-      )}
-
-      <EngineModelSelector
-        type="video"
-        engine={d.engine}
-        model={d.model}
-        onChange={(patch) => d.onChange?.(id, patch)}
-      />
-
-      <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
-        <span>{modeLabel}</span>
-      </div>
-
-      {!hasPromptEdge && (
-        <InlinePromptEditor
-          kind="video"
-          value={d.prompt_hint || ""}
-          aiBusy={aiBusy}
-          onAiRewrite={handleAiRewrite}
-          onChange={(text) => d.onChange?.(id, { prompt_hint: text })}
-          ctxHint={ctxHint}
-        />
-      )}
-
-      {hasPromptEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
-          ✓ Đã nối node Prompt
-        </div>
-      )}
-
-      {hasRefEdge && (
-        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(6,182,212,0.3)", color: "#06b6d4" }}>
-          ✓ Đã nối nhân vật tham chiếu
-        </div>
-      )}
-
-      {plus ? (
-        fromEdge && (
-          <div className="node-edge-hint">
-            ✓ Ảnh đầu lấy từ node ảnh đã nối
-          </div>
-        )
-      ) : fromEdge ? (
-        <div className="node-edge-hint">
-          ✓ Ảnh đầu lấy từ node ảnh đã nối
-        </div>
-      ) : (
-        <ImageAttachBar
-          nodeId={id}
-          field="start_image"
-          value={d.start_image}
-          onChange={(nid, patch) => {
-            d.onChange?.(nid, {
-              ...patch,
-              mode: patch.start_image ? "start_image" : "text_to_video",
-            });
-          }}
-          onPick={d.onPickImage}
-          onPreview={d.onPreview}
-          label="Ảnh đầu (khi không nối node ảnh)"
-        />
-      )}
-
-      {hasEndEdge ? (
-        <div className="node-edge-hint" style={{ marginTop: 6 }}>
-          ✓ Khung cuối lấy từ node Tách frame
-        </div>
-      ) : plus ? null : (
-        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
-          Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
-        </div>
-      )}
-
-      {plus && allActiveCharacters.length > 0 && (
-        <div className="nodrag nopan node-attach-bar" style={{ marginTop: 6 }}>
-          <div className="node-attach-head">
-            <span>Nhân vật/Đồ vật tham chiếu ({allActiveCharacters.length})</span>
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-            {allActiveCharacters.map((char, index) => (
-              <button
-                key={index}
-                type="button"
-                className="node-attach-thumb"
-                onClick={() => char.url && d.onPreview?.(mediaUrl(char.url))}
-                title={`Xem ${char.name}`}
-                style={{ width: 40, height: 40, position: "relative", borderRadius: 4, overflow: "hidden", border: "1px solid rgba(255,255,255,0.15)" }}
-              >
-                <img src={mediaUrl(char.url)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 6, padding: "1px 0", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                  {char.name}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {d.resultUrls?.length ? (
-        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả video" />
-      ) : (
-        <div className="node-media-empty">
-          {d.runStatus === "running" || d.runStatus === "pending"
-            ? "Đang tạo video…"
-            : "Video kết quả gen hiện ở đây"}
-        </div>
-      )}
-
-      {plus && showModal && (
-        <VideoStudioModal
-          initial={{
-            cameraAngle: d.cameraAngle || "",
-            style: d.style || "",
-            cameraMovement: d.cameraMovement || "",
-            movementSpeed: d.movementSpeed || "",
-            duration: d.studioDuration || 8,
-            timelineSegments: d.timelineSegments || [],
-            mode: computedMode,
-            start_image: resolvedStartImage,
-            end_image: resolvedEndImage,
-            characterAssets: d.characterAssets || [],
-            hasStartImageEdge: fromEdge,
-            hasEndImageEdge: hasEndEdge,
-            workflowCharacters: workflowCharacters,
-            connectedCharacters: connectedCharacters,
-            runStatus: d.runStatus,
-          }}
-          onConfirm={(s: VideoStudioSettings, triggerRun?: boolean) => {
-            d.onChange?.(id, {
-              cameraAngle: s.cameraAngle,
-              style: s.style,
-              cameraMovement: s.cameraMovement,
-              movementSpeed: s.movementSpeed,
-              studioDuration: s.duration,
-              timelineSegments: s.timelineSegments,
-              mode: s.mode,
-              start_image: s.start_image,
-              end_image: s.end_image,
-              characterAssets: s.characterAssets,
-            });
-
-            // ─── SPARK REFERENCE NODES & EDGES ON CANVAS ───
-            const newNodesToAdd: Node[] = [];
-            const newEdgesToAdd: Edge[] = [];
-            const edgesToRemove: string[] = [];
-
-            const videoNode = nodes.find(n => n.id === id);
-            const basePos = videoNode ? videoNode.position : { x: 0, y: 0 };
-
-            // Handle start_image
-            const startEdge = edges.find(e => e.target === id && e.targetHandle === "start_image");
-            if (s.start_image) {
-              if (startEdge) {
-                setNodes(nds => nds.map(n => n.id === startEdge.source ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    image: s.start_image,
-                    resultUrls: [s.start_image]
-                  }
-                } : n));
-              } else {
-                const newRefId = `node_ref_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-                newNodesToAdd.push({
-                  id: newRefId,
-                  type: "reference",
-                  position: { x: basePos.x - 320, y: basePos.y - 80 },
-                  data: {
-                    image: s.start_image,
-                    resultUrls: [s.start_image],
-                    title: "Ảnh có sẵn",
-                    refName: "",
-                    onChange: d.onChange,
-                    onPreview: d.onPreview,
-                    onPickImage: d.onPickImage,
-                    onError: d.onError,
-                  }
-                });
-                newEdgesToAdd.push({
-                  id: `edge_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                  source: newRefId,
-                  sourceHandle: "image",
-                  target: id,
-                  targetHandle: "start_image",
-                  animated: true,
-                  style: { stroke: "#64748b", strokeWidth: 2 },
-                });
-              }
-            } else {
-              if (startEdge && startEdge.source.startsWith("node_ref_start_")) {
-                edgesToRemove.push(startEdge.id);
-                setNodes(nds => nds.filter(n => n.id !== startEdge.source));
-              }
-            }
-
-            // Handle end_image
-            const endEdge = edges.find(e => e.target === id && e.targetHandle === "end_image");
-            if (s.end_image) {
-              if (endEdge) {
-                setNodes(nds => nds.map(n => n.id === endEdge.source ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    image: s.end_image,
-                    resultUrls: [s.end_image]
-                  }
-                } : n));
-              } else {
-                const newRefId = `node_ref_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-                newNodesToAdd.push({
-                  id: newRefId,
-                  type: "reference",
-                  position: { x: basePos.x - 320, y: basePos.y + 160 },
-                  data: {
-                    image: s.end_image,
-                    resultUrls: [s.end_image],
-                    title: "Ảnh có sẵn",
-                    refName: "",
-                    onChange: d.onChange,
-                    onPreview: d.onPreview,
-                    onPickImage: d.onPickImage,
-                    onError: d.onError,
-                  }
-                });
-                newEdgesToAdd.push({
-                  id: `edge_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                  source: newRefId,
-                  sourceHandle: "image",
-                  target: id,
-                  targetHandle: "end_image",
-                  animated: true,
-                  style: { stroke: "#64748b", strokeWidth: 2 },
-                });
-              }
-            } else {
-              if (endEdge && endEdge.source.startsWith("node_ref_end_")) {
-                edgesToRemove.push(endEdge.id);
-                setNodes(nds => nds.filter(n => n.id !== endEdge.source));
-              }
-            }
-
-            // Handle characterAssets
-            const existingRefEdges = edges.filter(e => e.target === id && e.targetHandle === "reference");
-            const newCharAssets = s.characterAssets || [];
-
-            // Remove unreferenced character nodes
-            existingRefEdges.forEach(edge => {
-              const srcNode = nodes.find(n => n.id === edge.source);
-              if (srcNode && srcNode.type === "reference") {
-                const nodeName = srcNode.data.refName || "";
-                const isStillActive = newCharAssets.some(c => c.name.replace(/[^a-zA-Z0-9_]/g, "") === nodeName);
-                if (!isStillActive && edge.source.startsWith("node_ref_char_")) {
-                  edgesToRemove.push(edge.id);
-                  setNodes(nds => nds.filter(n => n.id !== edge.source));
-                }
-              }
-            });
-
-            // Create new character reference nodes
-            newCharAssets.forEach((char, index) => {
-              const cleanName = char.name.replace(/[^a-zA-Z0-9_]/g, "");
-              const isRepresented = existingRefEdges.some(edge => {
-                const srcNode = nodes.find(n => n.id === edge.source);
-                return srcNode && (srcNode.data.refName === cleanName || srcNode.data.image === char.url);
-              });
-
-              if (!isRepresented) {
-                const newRefId = `node_ref_char_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`;
-                newNodesToAdd.push({
-                  id: newRefId,
-                  type: "reference",
-                  position: { x: basePos.x - 320, y: basePos.y + 40 + (index * 60) },
-                  data: {
-                    image: char.url,
-                    resultUrls: [char.url],
-                    refName: cleanName,
-                    title: cleanName ? `@${cleanName}` : "Ảnh có sẵn",
-                    onChange: d.onChange,
-                    onPreview: d.onPreview,
-                    onPickImage: d.onPickImage,
-                    onError: d.onError,
-                  }
-                });
-                newEdgesToAdd.push({
-                  id: `edge_char_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-                  source: newRefId,
-                  sourceHandle: "image",
-                  target: id,
-                  targetHandle: "reference",
-                  animated: true,
-                  style: { stroke: "#64748b", strokeWidth: 2 },
-                });
-              } else {
-                existingRefEdges.forEach(edge => {
-                  const srcNode = nodes.find(n => n.id === edge.source);
-                  if (srcNode && srcNode.data.refName === cleanName) {
-                    setNodes(nds => nds.map(n => n.id === srcNode.id ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        image: char.url,
-                        resultUrls: [char.url]
-                      }
-                    } : n));
-                  }
-                });
-              }
-            });
-
-            if (newNodesToAdd.length > 0) {
-              setNodes(nds => [...nds, ...newNodesToAdd]);
-            }
-            if (edgesToRemove.length > 0 || newEdgesToAdd.length > 0) {
-              setEdges(eds => eds.filter(e => !edgesToRemove.includes(e.id)).concat(newEdgesToAdd));
-            }
-
-            setShowModal(false);
-            if (triggerRun) {
-              setTimeout(() => {
-                d.onRerun?.(id);
-              }, 100);
-            }
-          }}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-    </Shell>
-  );
-}
-
-/** Attach existing video: upload / library / project */
-function VideoAttachBar({
-  nodeId,
-  field,
-  value,
-  onChange,
-  onPick,
-  onPreview,
-  label = "Video có sẵn",
-}: {
-  nodeId: string;
-  field: "video";
-  value?: string;
-  onChange?: (id: string, patch: Partial<WNodeData>) => void;
-  onPick?: (id: string, field: "video") => void;
-  onPreview?: (url: string) => void;
-  label?: string;
-}) {
-  const has = Boolean(value);
-  return (
-    <div className="nodrag nopan node-attach-bar">
-      <div className="node-attach-head">
-        <span>{label}</span>
-        {has ? (
-          <button
-            type="button"
-            className="node-attach-clear"
-            onClick={() =>
-              onChange?.(nodeId, {
-                [field]: undefined,
-                resultUrls: undefined,
-              } as Partial<WNodeData>)
-            }
-          >
-            Gỡ
-          </button>
-        ) : null}
-      </div>
-      {has ? (
-        <button
-          type="button"
-          className="node-attach-thumb node-attach-thumb--video"
-          onClick={() => value && onPreview?.(mediaUrl(value))}
-          title="Xem video"
-          style={{ position: "relative" }}
-        >
-          <video src={mediaUrl(value!)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(0,0,0,0.25)", color: "#fff", fontSize: 16 }}>▶</span>
-        </button>
-      ) : (
-        <div className="node-attach-actions">
-          <label className="node-attach-btn">
-            ⬆ Upload
-            <input
-              type="file"
-              accept="video/*"
-              hidden
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (!f) return;
-                try {
-                  const url = await readFileAsDataUrl(f);
-                  onChange?.(nodeId, {
-                    [field]: url,
-                    resultUrls: [url],
-                  } as Partial<WNodeData>);
-                } catch {
-                  /* ignore */
-                }
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="node-attach-btn"
-            onClick={() => onPick?.(nodeId, field)}
-          >
-            📂 Chọn có sẵn
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VideoReferenceNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  const previewUrls = d.resultUrls?.length ? d.resultUrls : [];
-  return (
-    <Shell
-      type="video_reference"
-      title={d.title || "Video có sẵn"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-    >
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="video"
-        style={{ background: "#f59e0b" }}
-        title="Cổng xuất Video: Nối sang cổng Video gốc của node Tách frame"
-      />
-      <div style={handleLabelStyle("right", "50%")}>Video ref →</div>
-      <VideoAttachBar
-        nodeId={id}
-        field="video"
-        value={d.video}
-        onChange={d.onChange}
-        onPick={d.onPickImage}
-        onPreview={d.onPreview}
-        label="Gắn video có sẵn"
-      />
-      {previewUrls.length > 0 && !d.video && (
-        <MediaPreview urls={previewUrls} onPreview={d.onPreview} max={1} label="Preview" />
-      )}
-      <input
-        className="nodrag"
-        value={
-          d.video?.startsWith("data:") ? "(đã gắn file local)"
-          : d.video || ""
-        }
-        onChange={(e) => d.onChange?.(id, { video: e.target.value, resultUrls: e.target.value ? [e.target.value] : undefined })}
-        placeholder="Hoặc dán URL /api/files/..."
-        style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
-      />
-    </Shell>
-  );
-}
-
-
-
-
-
-function FrameNode({ id, data, selected }: NodeProps) {
-  const d = data as WNodeData;
-  return (
-    <Shell
-      type="frame_extract"
-      title={d.title || "Tách frame"}
-      selected={selected}
-      runStatus={d.runStatus}
-      runError={d.runError}
-      showRerun
-      reused={d.reused}
-      onRerun={() => d.onRerun?.(id)}
-    >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="video"
-        style={{ background: "#f59e0b" }}
-        title="Cổng nhận Video gốc: Nối từ cổng Video của node Tạo video"
-      />
-      <div style={handleLabelStyle("left", "50%")}>← Video gốc</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="image"
-        style={{ top: "40%", background: "#22c55e" }}
-        title="Cổng xuất Mọi frame: Trích xuất tất cả các frame của video"
-      />
-      <div style={handleLabelStyle("right", "40%")}>Mọi frame →</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="start_image"
-        style={{ top: "62%", background: "#14b8a6" }}
-        title="Cổng xuất Khung đầu: Chỉ lấy frame đầu tiên của video"
-      />
-      <div style={handleLabelStyle("right", "62%")}>Khung đầu →</div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="end_image"
-        style={{ top: "82%", background: "#ec4899" }}
-        title="Cổng xuất Khung cuối: Chỉ lấy frame cuối cùng để nối video tiếp theo"
-      />
-      <div style={handleLabelStyle("right", "82%")}>Khung cuối →</div>
-      <label className="nodrag">
-        Lấy frame
-        <select
-          value={d.positions || "end"}
-          onChange={(e) => d.onChange?.(id, { positions: e.target.value })}
-          style={{ ...fieldStyle(), marginTop: 2 }}
-        >
-          <option value="end">Chỉ khung cuối (nối video tiếp)</option>
-          <option value="start">Chỉ khung đầu</option>
-          <option value="start,end">Đầu + cuối</option>
-          <option value="start,middle,end">Đầu + giữa + cuối</option>
-        </select>
-      </label>
-      <small className="muted" style={{ display: "block", marginTop: 4, fontSize: 10 }}>
-        Nối <strong>end_image</strong> (chấm phải dưới) → Video kế <strong>start_image</strong>
-      </small>
-      {d.resultUrls?.length ? (
-        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={3} label="Frames" />
-      ) : (
-        <div className="node-media-empty">
-          {d.runStatus === "running" || d.runStatus === "pending"
-            ? "Đang tách frame…"
-            : "Frame hiện ở đây sau khi chạy"}
-        </div>
-      )}
-    </Shell>
-  );
-}
 
 const WORKFLOW_NODE_TYPES: Record<string, any> = {
   prompt: memo(PromptNode),
@@ -2268,19 +699,26 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }, [projectId]);
 
   useEffect(() => {
+    console.log("DEBUG: URL sync running. projectId state:", projectId, "routeProjectId:", routeProjectId, "pathname:", location.pathname);
     if (projectId) {
       const decodedPath = decodeURIComponent(location.pathname);
       const expectedPath = `/workflow/${projectId}`;
       if (decodedPath !== expectedPath) {
-        navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+        if (!routeProjectId || routeProjectId === projectId) {
+          console.log("DEBUG: Navigating from", decodedPath, "to expectedPath:", expectedPath);
+          navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+        }
       }
     } else {
-      const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
-      if (!hasTemplate && location.pathname !== "/workflow") {
-        navigate("/workflow", { replace: true });
+      if (!routeProjectId) {
+        const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
+        if (!hasTemplate && location.pathname !== "/workflow") {
+          console.log("DEBUG: Redirecting blank projectId to /workflow");
+          navigate("/workflow", { replace: true });
+        }
       }
     }
-  }, [projectId, location.pathname, navigate, searchParams]);
+  }, [projectId, routeProjectId, location.pathname, navigate, searchParams]);
 
   useEffect(() => {
     (window as any).workflowDirty = dirty;
@@ -2693,74 +1131,25 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           }
         }
 
-        const qid = routeProjectId || searchParams.get("project");
-        const list = await listProjects();
-        const openId = qid && list.find((p) => p.id === qid) ? qid : null;
-        if (openId) {
-          const doc = await fetchProject(openId);
-          setProjectId(doc.id);
-          setName(doc.name || "Project");
-          setDescription(doc.description || "");
-          let assets: ProjectAsset[] = [];
-          try {
-            const media = await fetchProjectAssets(openId);
-            assets = media.assets || [];
-            setProjectAssets(
-              [...assets].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0)).slice(0, 120),
-            );
-          } catch {
-            /* ignore */
-          }
-          const loaded = loadProjectNodes(doc, assets);
-          nodesRef.current = loaded;
-          setNodes(loaded);
-          setEdges((doc.edges as Edge[]) || []);
-          // Persist recovered previews so next reload keeps them
-          const needsPersist = loaded.some((n) => {
-            const d = n.data as WNodeData;
-            return d.runStatus === "completed" && Boolean(d.resultUrls?.length);
-          });
-          const hadSaved = ((doc.nodes as Node[]) || []).some((n) => {
-            const d = (n.data || {}) as WNodeData;
-            return Boolean(d.resultUrls?.length);
-          });
-          if (needsPersist && !hadSaved) {
-            try {
-              await saveProject(
-                projectPayload(loaded, (doc.edges as Edge[]) || [], {
-                  name: doc.name || "Project",
-                  description: doc.description || "",
-                }),
-                openId,
-              );
-              setDirty(false);
-            } catch {
-              setDirty(true);
-            }
-          } else {
-            setDirty(false);
-          }
-        } else {
-          const tKey = searchParams.get("template");
-          const ctId = searchParams.get("customTemplate");
-          if (!tKey && !ctId) {
-            setShowProjectSelector(true);
-          }
+        // If no template is loaded and no routeProjectId is specified, show project selector
+        if (!tKey && !ctId && !routeProjectId && !searchParams.get("project")) {
+          console.log("DEBUG: No template/routeProjectId on init. Opening selector.");
+          setShowProjectSelector(true);
           const sample = await fetchSampleWorkflow();
           setProjectId(null);
           setName(sample.name || "Project mới");
           setDescription("");
           setNodes(attachHandlers((sample.nodes as Node[]) || []));
           setEdges((sample.edges as Edge[]) || []);
-          setDirty(true);
+          setDirty(false); // set to false initially to prevent unneeded confirm dialog on first click
           setProjectAssets([]);
+          requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
         }
-        requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
       } catch (e) {
         onError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [attachHandlers, onError, refreshProjectAssets, refreshProjects, searchParams, setSearchParams, setEdges, setNodes]);
+  }, [attachHandlers, onError, refreshProjects, searchParams, setSearchParams, setEdges, setNodes, routeProjectId]);
 
   // mark dirty when graph edits
   const onNodesChangeTracked: typeof onNodesChange = useCallback(
@@ -3425,7 +1814,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         cancelLabel: "Hủy",
         tone: "danger",
       });
-      if (!ok) return;
+      if (!ok) {
+        if (projectId) {
+          navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+        } else {
+          navigate("/workflow", { replace: true });
+        }
+        return;
+      }
     }
     try {
       const doc = await fetchProject(id);
@@ -3476,6 +1872,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e));
+      if (projectId) {
+        navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+      } else {
+        navigate("/workflow", { replace: true });
+      }
     }
   }
 
@@ -3497,6 +1898,29 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       onError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  useEffect(() => {
+    console.log("DEBUG: routeProjectId observer. routeProjectId:", routeProjectId, "active projectId state:", projectId);
+    if (routeProjectId) {
+      if (projectId !== routeProjectId) {
+        console.log("DEBUG: routeProjectId does not match projectId state. Loading project:", routeProjectId);
+        void handleOpenProject(routeProjectId);
+      }
+    } else {
+      const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
+      if (!hasTemplate && projectId !== null) {
+        console.log("DEBUG: Route is blank but projectId is set. Resetting and showing selector.");
+        setProjectId(null);
+        setName("Project mới");
+        setDescription("");
+        setNodes([]);
+        setEdges([]);
+        setDirty(false);
+        setProjectAssets([]);
+        setShowProjectSelector(true);
+      }
+    }
+  }, [routeProjectId, projectId, searchParams]);
 
   async function handleDuplicateProject() {
     if (!projectId) {
@@ -4102,7 +2526,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                             <button
                               type="button"
                               className="wf-project-info-btn"
-                              onClick={() => void handleOpenProject(p.id)}
+                              onClick={() => navigate(`/workflow/${p.id}`)}
                               title={p.description || p.name}
                             >
                               <span className="wf-project-title">{p.name}</span>
@@ -5004,42 +3428,99 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 .map((p) => (
                   <div 
                     key={p.id}
-                    onClick={() => handleOpenProject(p.id)}
+                    onClick={() => {
+                      console.log("DEBUG: Card clicked for project ID:", p.id);
+                      navigate(`/workflow/${p.id}`);
+                    }}
                     style={{
-                      border: "1px solid rgba(255,255,255,0.07)",
-                      borderRadius: 14,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      borderRadius: 16,
                       padding: 20,
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
                       cursor: "pointer",
-                      minHeight: 140,
+                      minHeight: 145,
                       boxSizing: "border-box",
-                      background: "rgba(255,255,255,0.02)",
-                      transition: "all 0.2s ease-in-out",
+                      background: "rgba(255,255,255,0.015)",
+                      position: "relative",
+                      transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)";
-                      e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.05)";
                       e.currentTarget.style.transform = "translateY(-4px)";
+                      e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.2)";
+                      const delBtn = e.currentTarget.querySelector('.overlay-delete-btn') as HTMLElement;
+                      if (delBtn) delBtn.style.opacity = '1';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)";
-                      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                      e.currentTarget.style.background = "rgba(255,255,255,0.015)";
                       e.currentTarget.style.transform = "none";
+                      e.currentTarget.style.boxShadow = "none";
+                      const delBtn = e.currentTarget.querySelector('.overlay-delete-btn') as HTMLElement;
+                      if (delBtn) delBtn.style.opacity = '0';
                     }}
                   >
+                    {/* Delete button inside card */}
+                    <button
+                      type="button"
+                      className="overlay-delete-btn"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const ok = await dialog.confirm({
+                          title: "Xóa project?",
+                          message: `“${p.name}” sẽ bị xóa vĩnh viễn khỏi danh sách.`,
+                          confirmLabel: "Xóa",
+                          cancelLabel: "Hủy",
+                          tone: "danger",
+                        });
+                        if (!ok) return;
+                        await deleteProject(p.id);
+                        if (projectId === p.id) {
+                          setProjectId(null);
+                          setName("Project mới");
+                          setNodes([]);
+                          setEdges([]);
+                          setDirty(true);
+                        }
+                        await refreshProjects();
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: 12,
+                        right: 12,
+                        width: 22,
+                        height: 22,
+                        borderRadius: "50%",
+                        background: "rgba(239, 68, 68, 0.15)",
+                        border: "1px solid rgba(239, 68, 68, 0.2)",
+                        color: "#ef4444",
+                        fontSize: 10,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        opacity: 0,
+                        transition: "opacity 0.2s, background 0.2s",
+                      }}
+                      title="Xóa project"
+                    >
+                      ✕
+                    </button>
+
                     <div>
-                      <strong style={{ fontSize: 13, color: "#fff", display: "block", marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <strong style={{ fontSize: 13, color: "#fff", display: "block", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 20 }}>
                         {p.name}
                       </strong>
-                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 32, lineHeight: 1.4 }}>
-                        {p.description || "Không có mô tả..."}
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 32, lineHeight: 1.45 }}>
+                        {p.description || "Chưa có ghi chú mô tả."}
                       </span>
                     </div>
                     
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 10, marginTop: 8 }}>
-                      <span style={{ fontSize: 10, color: "#2dd4bf", fontWeight: 700 }}>
+                      <span style={{ fontSize: 10, color: "#2dd4bf", fontWeight: 700, background: "rgba(45,212,191,0.08)", padding: "1px 6px", borderRadius: 4 }}>
                         📁 {p.node_count ?? 0} node
                       </span>
                       <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)" }}>

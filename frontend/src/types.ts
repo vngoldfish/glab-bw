@@ -120,9 +120,9 @@ export interface VideoConfig {
 export const VIDEO_MODELS = [
   { value: "omni_flash", label: "Gemini Omni Flash" },
   { value: "veo_31_fast", label: "Veo 3.1 Fast" },
-  { value: "veo_31_lite", label: "Veo 3.1 Lite" },
+  { value: "veo_31_lite", label: "Veo 3.1 Lite (Tốn credit)" },
   { value: "veo_31_quality", label: "Veo 3.1 Quality" },
-  { value: "veo_31_lite_relaxed", label: "Veo 3.1 Lite Relaxed" },
+  { value: "veo_31_lite_relaxed", label: "Veo 3.1 Lite [Lower Priority] (0 credit)" },
 ] as const;
 
 export const GROK_VIDEO_MODELS = [

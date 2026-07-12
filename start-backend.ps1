@@ -12,7 +12,7 @@ function Log($m) {
 
 function BackendUp {
   try {
-    $r = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 2
+    $r = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 10
     return $r.StatusCode -eq 200
   } catch { return $false }
 }
@@ -30,26 +30,34 @@ Write-Host "  API http://127.0.0.1:8765  Auth http://127.0.0.1:18923"
 Write-Host ""
 
 $proc = $null
+$consecutive_failures = 0
 while ($true) {
-  if (-not (BackendUp)) {
-    Log "DOWN — restarting via run-api.bat"
-    if ($proc -and -not $proc.HasExited) {
-      try { $proc.Kill() } catch {}
-    }
-    KillPorts
-    Start-Sleep 1
-    $proc = Start-Process -FilePath "cmd.exe" `
-      -ArgumentList "/c `"$Bat`"" `
-      -WorkingDirectory $Root `
-      -WindowStyle Hidden `
-      -PassThru
-    $ok = $false
-    for ($i = 0; $i -lt 20; $i++) {
+  if (BackendUp) {
+    $consecutive_failures = 0
+  } else {
+    $consecutive_failures++
+    Log "Health check failed (consecutive=$consecutive_failures/3)"
+    if ($consecutive_failures -ge 3) {
+      Log "DOWN (3 consecutive failures) — restarting via run-api.bat"
+      $consecutive_failures = 0
+      if ($proc -and -not $proc.HasExited) {
+        try { $proc.Kill() } catch {}
+      }
+      KillPorts
       Start-Sleep 1
-      if (BackendUp) { $ok = $true; break }
-      if ($proc.HasExited) { break }
+      $proc = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c `"$Bat`"" `
+        -WorkingDirectory $Root `
+        -WindowStyle Hidden `
+        -PassThru
+      $ok = $false
+      for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep 1
+        if (BackendUp) { $ok = $true; break }
+        if ($proc.HasExited) { break }
+      }
+      if ($ok) { Log "UP pid=$($proc.Id)" } else { Log "FAILED exit=$($proc.ExitCode) — retry 5s"; Start-Sleep 5; continue }
     }
-    if ($ok) { Log "UP pid=$($proc.Id)" } else { Log "FAILED exit=$($proc.ExitCode) — retry 5s"; Start-Sleep 5; continue }
   }
-  Start-Sleep 5
+  Start-Sleep 10
 }

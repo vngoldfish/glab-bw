@@ -68,6 +68,10 @@ VIDEO_MODELS_I2V_START = {
         "16:9": "veo_3_1_i2v_s_landscape",
         "9:16": "veo_3_1_i2v_s_portrait",
     },
+    "veo_31_lite_relaxed": {
+        "16:9": "veo_3_1_i2v_lite_landscape",
+        "9:16": "veo_3_1_i2v_lite_portrait",
+    },
     "omni_flash": {
         "16:9": "abra_t2v_8s",
         "9:16": "abra_t2v_8s",
@@ -86,6 +90,10 @@ VIDEO_MODELS_I2V_START_ULTRA = {
     "veo_31_quality": {
         "16:9": "veo_3_1_i2v_s_landscape",
         "9:16": "veo_3_1_i2v_s_portrait",
+    },
+    "veo_31_lite_relaxed": {
+        "16:9": "veo_3_1_i2v_lite_landscape",
+        "9:16": "veo_3_1_i2v_lite_portrait",
     },
     "omni_flash": {
         "16:9": "abra_t2v_8s",
