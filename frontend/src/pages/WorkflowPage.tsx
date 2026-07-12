@@ -10,6 +10,7 @@ import {
   useNodesState,
   useNodes,
   useEdges,
+  useReactFlow,
   type Connection,
   type Edge,
   type Node,
@@ -910,6 +911,7 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
   const nodes = useNodes();
   const edges = useEdges();
   const [showModal, setShowModal] = useState(false);
+  const { setNodes, setEdges } = useReactFlow();
 
   const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
   const hasStart = fromEdge || Boolean(d.start_image);
@@ -1211,6 +1213,182 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
               end_image: s.end_image,
               characterAssets: s.characterAssets,
             });
+
+            // ─── SPARK REFERENCE NODES & EDGES ON CANVAS ───
+            const newNodesToAdd: Node[] = [];
+            const newEdgesToAdd: Edge[] = [];
+            const edgesToRemove: string[] = [];
+
+            const videoNode = nodes.find(n => n.id === id);
+            const basePos = videoNode ? videoNode.position : { x: 0, y: 0 };
+
+            // Handle start_image
+            const startEdge = edges.find(e => e.target === id && e.targetHandle === "start_image");
+            if (s.start_image) {
+              if (startEdge) {
+                setNodes(nds => nds.map(n => n.id === startEdge.source ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    image: s.start_image,
+                    resultUrls: [s.start_image]
+                  }
+                } : n));
+              } else {
+                const newRefId = `node_ref_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                newNodesToAdd.push({
+                  id: newRefId,
+                  type: "reference",
+                  position: { x: basePos.x - 320, y: basePos.y - 80 },
+                  data: {
+                    image: s.start_image,
+                    resultUrls: [s.start_image],
+                    title: "Ảnh có sẵn",
+                    refName: "",
+                    onChange: d.onChange,
+                    onPreview: d.onPreview,
+                    onPickImage: d.onPickImage,
+                    onError: d.onError,
+                  }
+                });
+                newEdgesToAdd.push({
+                  id: `edge_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                  source: newRefId,
+                  sourceHandle: "image",
+                  target: id,
+                  targetHandle: "start_image",
+                  animated: true,
+                  style: { stroke: "#64748b", strokeWidth: 2 },
+                });
+              }
+            } else {
+              if (startEdge && startEdge.source.startsWith("node_ref_start_")) {
+                edgesToRemove.push(startEdge.id);
+                setNodes(nds => nds.filter(n => n.id !== startEdge.source));
+              }
+            }
+
+            // Handle end_image
+            const endEdge = edges.find(e => e.target === id && e.targetHandle === "end_image");
+            if (s.end_image) {
+              if (endEdge) {
+                setNodes(nds => nds.map(n => n.id === endEdge.source ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    image: s.end_image,
+                    resultUrls: [s.end_image]
+                  }
+                } : n));
+              } else {
+                const newRefId = `node_ref_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+                newNodesToAdd.push({
+                  id: newRefId,
+                  type: "reference",
+                  position: { x: basePos.x - 320, y: basePos.y + 160 },
+                  data: {
+                    image: s.end_image,
+                    resultUrls: [s.end_image],
+                    title: "Ảnh có sẵn",
+                    refName: "",
+                    onChange: d.onChange,
+                    onPreview: d.onPreview,
+                    onPickImage: d.onPickImage,
+                    onError: d.onError,
+                  }
+                });
+                newEdgesToAdd.push({
+                  id: `edge_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                  source: newRefId,
+                  sourceHandle: "image",
+                  target: id,
+                  targetHandle: "end_image",
+                  animated: true,
+                  style: { stroke: "#64748b", strokeWidth: 2 },
+                });
+              }
+            } else {
+              if (endEdge && endEdge.source.startsWith("node_ref_end_")) {
+                edgesToRemove.push(endEdge.id);
+                setNodes(nds => nds.filter(n => n.id !== endEdge.source));
+              }
+            }
+
+            // Handle characterAssets
+            const existingRefEdges = edges.filter(e => e.target === id && e.targetHandle === "reference");
+            const newCharAssets = s.characterAssets || [];
+
+            // Remove unreferenced character nodes
+            existingRefEdges.forEach(edge => {
+              const srcNode = nodes.find(n => n.id === edge.source);
+              if (srcNode && srcNode.type === "reference") {
+                const nodeName = srcNode.data.refName || "";
+                const isStillActive = newCharAssets.some(c => c.name.replace(/[^a-zA-Z0-9_]/g, "") === nodeName);
+                if (!isStillActive && edge.source.startsWith("node_ref_char_")) {
+                  edgesToRemove.push(edge.id);
+                  setNodes(nds => nds.filter(n => n.id !== edge.source));
+                }
+              }
+            });
+
+            // Create new character reference nodes
+            newCharAssets.forEach((char, index) => {
+              const cleanName = char.name.replace(/[^a-zA-Z0-9_]/g, "");
+              const isRepresented = existingRefEdges.some(edge => {
+                const srcNode = nodes.find(n => n.id === edge.source);
+                return srcNode && (srcNode.data.refName === cleanName || srcNode.data.image === char.url);
+              });
+
+              if (!isRepresented) {
+                const newRefId = `node_ref_char_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`;
+                newNodesToAdd.push({
+                  id: newRefId,
+                  type: "reference",
+                  position: { x: basePos.x - 320, y: basePos.y + 40 + (index * 60) },
+                  data: {
+                    image: char.url,
+                    resultUrls: [char.url],
+                    refName: cleanName,
+                    title: cleanName ? `@${cleanName}` : "Ảnh có sẵn",
+                    onChange: d.onChange,
+                    onPreview: d.onPreview,
+                    onPickImage: d.onPickImage,
+                    onError: d.onError,
+                  }
+                });
+                newEdgesToAdd.push({
+                  id: `edge_char_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+                  source: newRefId,
+                  sourceHandle: "image",
+                  target: id,
+                  targetHandle: "reference",
+                  animated: true,
+                  style: { stroke: "#64748b", strokeWidth: 2 },
+                });
+              } else {
+                existingRefEdges.forEach(edge => {
+                  const srcNode = nodes.find(n => n.id === edge.source);
+                  if (srcNode && srcNode.data.refName === cleanName) {
+                    setNodes(nds => nds.map(n => n.id === srcNode.id ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        image: char.url,
+                        resultUrls: [char.url]
+                      }
+                    } : n));
+                  }
+                });
+              }
+            });
+
+            if (newNodesToAdd.length > 0) {
+              setNodes(nds => [...nds, ...newNodesToAdd]);
+            }
+            if (edgesToRemove.length > 0 || newEdgesToAdd.length > 0) {
+              setEdges(eds => eds.filter(e => !edgesToRemove.includes(e.id)).concat(newEdgesToAdd));
+            }
+
             setShowModal(false);
             if (triggerRun) {
               setTimeout(() => {
