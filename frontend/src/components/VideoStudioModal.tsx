@@ -668,10 +668,10 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                     </div>
 
                     {mode !== "text_to_video" && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", gap: 8, width: "100%", marginBottom: 6 }}>
                         
                         {/* Start image slot */}
-                        <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
+                        <div style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                             <span style={{ fontSize: 8, color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>🖼 KHUNG HÌNH ĐẦU (START IMAGE)</span>
                             {initial.hasStartImageEdge ? (
@@ -682,28 +682,28 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                           </div>
                           
                           {initial.hasStartImageEdge ? (
-                            <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
-                              <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 700 }}>🔗 Khung đầu được liên kết ngoài</div>
+                            <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4, height: 75, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <div style={{ fontSize: 8, color: "#22c55e", fontWeight: 700 }}>🔗 Khung đầu được liên kết ngoài</div>
                             </div>
                           ) : startImg ? (
-                            <img src={mediaUrl(normalizeFileUrl(startImg))} alt="" style={{ width: "100%", height: 50, objectFit: "cover", borderRadius: 4 }} />
+                            <img src={mediaUrl(normalizeFileUrl(startImg))} alt="" style={{ width: "100%", height: 75, objectFit: "cover", borderRadius: 4 }} />
                           ) : (
-                            <div style={{ display: "flex", gap: 4 }}>
-                              <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
+                            <div style={{ display: "flex", gap: 4, height: 75, flexDirection: "column", justifyContent: "center" }}>
+                              <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
                                 ⬆ Tải ảnh
                                 <input type="file" accept="image/*" hidden onChange={async e => {
                                   const f = e.target.files?.[0];
                                   if (f) setStartImg(await readFileAsDataUrl(f));
                                 }} />
                               </label>
-                              <button onClick={() => setPickerTarget("start")} style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>📂 Chọn thư viện</button>
+                              <button onClick={() => setPickerTarget("start")} style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)", padding: "4px 0" }}>📂 Chọn thư viện</button>
                             </div>
                           )}
                         </div>
 
                         {/* End image slot */}
                         {mode === "start_end_image" && (
-                          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
+                          <div style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                               <span style={{ fontSize: 8, color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>🖼 KHUNG HÌNH CUỐI (END IMAGE)</span>
                               {initial.hasEndImageEdge ? (
@@ -714,21 +714,21 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                             </div>
 
                             {initial.hasEndImageEdge ? (
-                              <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
-                                <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 700 }}>🔗 Khung cuối được liên kết ngoài</div>
+                              <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4, height: 75, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <div style={{ fontSize: 8, color: "#22c55e", fontWeight: 700 }}>🔗 Khung cuối được liên kết ngoài</div>
                               </div>
                             ) : endImg ? (
-                              <img src={mediaUrl(normalizeFileUrl(endImg))} alt="" style={{ width: "100%", height: 50, objectFit: "cover", borderRadius: 4 }} />
+                              <img src={mediaUrl(normalizeFileUrl(endImg))} alt="" style={{ width: "100%", height: 75, objectFit: "cover", borderRadius: 4 }} />
                             ) : (
-                              <div style={{ display: "flex", gap: 4 }}>
-                                <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
+                              <div style={{ display: "flex", gap: 4, height: 75, flexDirection: "column", justifyContent: "center" }}>
+                                <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
                                   ⬆ Tải ảnh
                                   <input type="file" accept="image/*" hidden onChange={async e => {
                                     const f = e.target.files?.[0];
                                     if (f) setEndImg(await readFileAsDataUrl(f));
                                   }} />
                                 </label>
-                                <button onClick={() => setPickerTarget("end")} style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>📂 Chọn thư viện</button>
+                                <button onClick={() => setPickerTarget("end")} style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)", padding: "4px 0" }}>📂 Chọn thư viện</button>
                               </div>
                             )}
                           </div>
