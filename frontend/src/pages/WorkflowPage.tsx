@@ -1012,22 +1012,25 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
     if (!plus) return [];
     const list: Array<{ name: string; url: string }> = [];
     const seenNames = new Set<string>();
+    const normalize = (n: string) => n.replace(/^@/, "").trim().toLowerCase();
 
     // 1. Add connected characters
     connectedCharacters.forEach(c => {
-      const name = c.name.trim();
-      if (name && !seenNames.has(name)) {
-        seenNames.add(name);
-        list.push(c);
+      const norm = normalize(c.name);
+      if (norm && !seenNames.has(norm)) {
+        seenNames.add(norm);
+        const displayName = c.name.startsWith("@") ? c.name : `@${c.name}`;
+        list.push({ name: displayName, url: c.url });
       }
     });
 
     // 2. Add local characterAssets
     (d.characterAssets || []).forEach((c: any) => {
-      const name = String(c.name || "").trim();
-      if (name && !seenNames.has(name)) {
-        seenNames.add(name);
-        list.push({ name, url: String(c.url || "") });
+      const norm = normalize(c.name || "");
+      if (norm && !seenNames.has(norm)) {
+        seenNames.add(norm);
+        const displayName = c.name.startsWith("@") ? c.name : `@${c.name}`;
+        list.push({ name: displayName, url: String(c.url || "") });
       }
     });
 
