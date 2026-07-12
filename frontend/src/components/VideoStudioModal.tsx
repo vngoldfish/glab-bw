@@ -600,10 +600,10 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           
           {/* Left Panel: Preview + Reference Assets Library */}
-          <div style={{ width: "32%", minWidth: 280, padding: 12, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.12)" }}>
+          <div style={{ width: "40%", minWidth: 320, padding: 12, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.12)" }}>
             
             {/* Viewport */}
-            <div style={{ height: 230, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ flex: 1, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <VideoViewport 
                 movement={selectedSeg?.movement || ""} 
                 angle={selectedSeg?.angle || ""} 
@@ -611,7 +611,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
             </div>
 
             {/* Reference Assets Library Section */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", marginTop: 12, overflow: "hidden" }}>
+            <div style={{ height: 180, flex: "none", display: "flex", flexDirection: "column", marginTop: 12, overflow: "hidden" }}>
               
               {/* Tabs */}
               <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.05)", marginBottom: 8 }}>
