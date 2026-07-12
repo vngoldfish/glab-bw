@@ -538,6 +538,22 @@ async def _execute_node(
                 })
             except Exception as e:
                 logger.error("Failed to convert connected reference %s to data URL: %s", ref["name"], e)
+
+        # Collect studio character assets defined inside the node's custom settings
+        studio_chars = data.get("characterAssets") or []
+        for char in studio_chars:
+            char_name = char.get("name", "").lstrip("@").strip()
+            char_url = char.get("url")
+            if char_name and char_url:
+                try:
+                    data_url = await _url_to_data_url(char_url)
+                    active_named_refs = [r for r in active_named_refs if r.get("name") != char_name]
+                    active_named_refs.append({
+                        "name": char_name,
+                        "data": data_url
+                    })
+                except Exception as e:
+                    logger.error("Failed to convert studio reference %s to data URL: %s", char_name, e)
                 
         params["named_references"] = active_named_refs
         out = await handle_batch_item(prompt, provider, params)

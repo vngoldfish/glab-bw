@@ -113,6 +113,7 @@ type WNodeData = {
   movementSpeed?: string;
   studioDuration?: number;
   timelineSegments?: any[];
+  characterAssets?: any[];
 
   positions?: string;
   /** Preview media after run (image/video URLs) */
@@ -1301,8 +1302,12 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
             style: d.style || "",
             cameraMovement: d.cameraMovement || "",
             movementSpeed: d.movementSpeed || "",
-            duration: d.studioDuration || 10,
+            duration: d.studioDuration || 8,
             timelineSegments: d.timelineSegments || [],
+            mode: d.mode || "text_to_video",
+            start_image: d.start_image || "",
+            end_image: d.end_image || "",
+            characterAssets: d.characterAssets || [],
           }}
           onConfirm={(s: VideoStudioSettings) => {
             d.onChange?.(id, {
@@ -1312,6 +1317,10 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
               movementSpeed: s.movementSpeed,
               studioDuration: s.duration,
               timelineSegments: s.timelineSegments,
+              mode: s.mode,
+              start_image: s.start_image,
+              end_image: s.end_image,
+              characterAssets: s.characterAssets,
             });
             setShowModal(false);
           }}
