@@ -280,6 +280,7 @@ export interface VideoStudioSettings {
   hasStartImageEdge?: boolean;
   hasEndImageEdge?: boolean;
   workflowCharacters?: Array<{ name: string; url: string }>;
+  connectedCharacters?: Array<{ name: string; url: string }>;
   runStatus?: string;
 }
 
@@ -533,16 +534,38 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
     }
   }
 
+  // Convert initial.connectedCharacters to local format with isConnected flag
+  const connectedRefs = useMemo(() => {
+    return (initial.connectedCharacters || []).map((c, i) => ({
+      id: `connected_char_${i}`,
+      name: c.name.startsWith("@") ? c.name : `@${c.name}`,
+      url: c.url,
+      isConnected: true,
+    }));
+  }, [initial.connectedCharacters]);
+
+  // Merge local charAssets and connected characters
+  const allActiveChars = useMemo(() => {
+    const list = [...connectedRefs];
+    charAssets.forEach(c => {
+      const cleanName = c.name.toLowerCase();
+      if (!list.some(x => x.name.toLowerCase() === cleanName)) {
+        list.push({ ...c, isConnected: false });
+      }
+    });
+    return list;
+  }, [connectedRefs, charAssets]);
+
   // Format canvas reference nodes list
   const canvasPresets = initial.workflowCharacters || [];
 
-  // Filter presets that are not already imported in studio charAssets
+  // Filter presets that are not already active
   const remainingPresets = useMemo(() => {
     return canvasPresets.filter(preset => {
       const cleanPresetName = preset.name.startsWith("@") ? preset.name : `@${preset.name}`;
-      return !charAssets.some(x => x.name.toLowerCase() === cleanPresetName.toLowerCase());
+      return !allActiveChars.some(x => x.name.toLowerCase() === cleanPresetName.toLowerCase());
     });
-  }, [canvasPresets, charAssets]);
+  }, [canvasPresets, allActiveChars]);
 
   return createPortal(
     <div onClick={onClose} className="nodrag nowheel"
@@ -580,7 +603,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
           <div style={{ width: "32%", minWidth: 280, padding: 12, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.12)" }}>
             
             {/* Viewport */}
-            <div style={{ height: 180, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ height: 230, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <VideoViewport 
                 movement={selectedSeg?.movement || ""} 
                 angle={selectedSeg?.angle || ""} 
@@ -636,11 +659,11 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                     </div>
 
                     {mode !== "text_to_video" && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         
                         {/* Start image slot */}
-                        <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: 8 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                             <span style={{ fontSize: 8, color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>🖼 KHUNG HÌNH ĐẦU (START IMAGE)</span>
                             {initial.hasStartImageEdge ? (
                               <span style={{ fontSize: 8, color: "#22c55e", fontWeight: 600 }}>✓ Đang nối ngoài</span>
@@ -650,15 +673,14 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                           </div>
                           
                           {initial.hasStartImageEdge ? (
-                            <div style={{ textAlign: "center", padding: "6px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
+                            <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
                               <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 700 }}>🔗 Khung đầu được liên kết ngoài</div>
-                              <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>Giá trị được lấy trực tiếp từ node nguồn đã nối</div>
                             </div>
                           ) : startImg ? (
-                            <img src={mediaUrl(normalizeFileUrl(startImg))} alt="" style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 4 }} />
+                            <img src={mediaUrl(normalizeFileUrl(startImg))} alt="" style={{ width: "100%", height: 50, objectFit: "cover", borderRadius: 4 }} />
                           ) : (
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
                                 ⬆ Tải ảnh
                                 <input type="file" accept="image/*" hidden onChange={async e => {
                                   const f = e.target.files?.[0];
@@ -672,8 +694,8 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
 
                         {/* End image slot */}
                         {mode === "start_end_image" && (
-                          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: 8 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6, padding: "4px 6px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                               <span style={{ fontSize: 8, color: "rgba(255,255,255,0.5)", fontWeight: 700 }}>🖼 KHUNG HÌNH CUỐI (END IMAGE)</span>
                               {initial.hasEndImageEdge ? (
                                 <span style={{ fontSize: 8, color: "#22c55e", fontWeight: 600 }}>✓ Đang nối ngoài</span>
@@ -683,15 +705,14 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                             </div>
 
                             {initial.hasEndImageEdge ? (
-                              <div style={{ textAlign: "center", padding: "6px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
+                              <div style={{ textAlign: "center", padding: "4px", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 4 }}>
                                 <div style={{ fontSize: 9, color: "#22c55e", fontWeight: 700 }}>🔗 Khung cuối được liên kết ngoài</div>
-                                <div style={{ fontSize: 7, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>Giá trị được lấy từ node Tách frame đã nối ngoài</div>
                               </div>
                             ) : endImg ? (
-                              <img src={mediaUrl(normalizeFileUrl(endImg))} alt="" style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 4 }} />
+                              <img src={mediaUrl(normalizeFileUrl(endImg))} alt="" style={{ width: "100%", height: 50, objectFit: "cover", borderRadius: 4 }} />
                             ) : (
-                              <div style={{ display: "flex", gap: 6 }}>
-                                <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <label style={{ flex: 1, background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: 6, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 9, color: "rgba(255,255,255,0.6)" }}>
                                   ⬆ Tải ảnh
                                   <input type="file" accept="image/*" hidden onChange={async e => {
                                     const f = e.target.files?.[0];
@@ -751,38 +772,48 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                       </div>
                     )}
 
-                    {/* Studio Active Characters List */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto", marginTop: 4 }}>
-                      <div style={{ fontSize: 8, color: "rgba(255,255,255,0.4)", fontWeight: 700 }}>LIST NHÂN VẬT TRONG PHÂN CẢNH STUDIO:</div>
-                      {charAssets.length === 0 ? (
-                        <div style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", padding: 8, textAlign: "center" }}>Chưa có nhân vật nào được gắn</div>
-                      ) : (
-                        charAssets.map(c => (
-                          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", padding: 4, borderRadius: 6 }}>
-                            <img src={mediaUrl(normalizeFileUrl(c.url))} alt="" style={{ width: 28, height: 28, borderRadius: 4, objectFit: "cover" }} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {c.name}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => insertCharacterTag(c.name)}
-                              style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 4, color: "#f59e0b", fontSize: 7, padding: "2px 4px", cursor: "pointer" }}
-                            >
-                              Chèn
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setCharAssets(prev => prev.filter(x => x.id !== c.id))}
-                              style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 9, cursor: "pointer", padding: "0 4px" }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
+                     {/* Studio Active Characters List */}
+                     <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto", marginTop: 4 }}>
+                       <div style={{ fontSize: 8, color: "rgba(255,255,255,0.4)", fontWeight: 700 }}>LIST NHÂN VẬT TRONG PHÂN CẢNH STUDIO:</div>
+                       {allActiveChars.length === 0 ? (
+                         <div style={{ fontSize: 8, color: "rgba(255,255,255,0.3)", padding: 8, textAlign: "center" }}>Chưa có nhân vật nào được gắn</div>
+                       ) : (
+                         allActiveChars.map(c => {
+                           const isWired = (c as any).isConnected;
+                           return (
+                             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", padding: 3, borderRadius: 5 }}>
+                               <img src={mediaUrl(normalizeFileUrl(c.url))} alt="" style={{ width: 22, height: 22, borderRadius: 3, objectFit: "cover" }} />
+                               <div style={{ flex: 1, minWidth: 0 }}>
+                                 <div style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
+                                   {c.name}
+                                   {isWired && (
+                                     <span style={{ fontSize: 6, color: "#22c55e", background: "rgba(34,197,94,0.1)", padding: "1px 3px", borderRadius: 3, fontWeight: 700 }}>Dây nối</span>
+                                   )}
+                                 </div>
+                               </div>
+                               <button
+                                 type="button"
+                                 onClick={() => insertCharacterTag(c.name)}
+                                 style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 3, color: "#f59e0b", fontSize: 7, padding: "2px 4px", cursor: "pointer" }}
+                               >
+                                 Chèn
+                               </button>
+                               {isWired ? (
+                                 <span style={{ fontSize: 8, color: "rgba(255,255,255,0.25)", padding: "0 4px", cursor: "help" }} title="Nhân vật được nối dây ngoài canvas, hãy gỡ dây nối ngoài canvas nếu muốn xóa">🔒</span>
+                               ) : (
+                                 <button
+                                   type="button"
+                                   onClick={() => setCharAssets(prev => prev.filter(x => x.id !== c.id))}
+                                   style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: 9, cursor: "pointer", padding: "0 4px" }}
+                                 >
+                                   ✕
+                                 </button>
+                               )}
+                             </div>
+                           );
+                         })
+                       )}
+                     </div>
                   </div>
                 )}
               </div>
@@ -924,10 +955,10 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                     />
                     
                     {/* Character tag chips shortcut */}
-                    {charAssets.length > 0 && (
+                    {allActiveChars.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                         <span style={{ fontSize: 7, color: "rgba(255,255,255,0.3)", alignSelf: "center" }}>Gắn nhanh:</span>
-                        {charAssets.map(c => (
+                        {allActiveChars.map(c => (
                           <button
                             key={c.id}
                             type="button"

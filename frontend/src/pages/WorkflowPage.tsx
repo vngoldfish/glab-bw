@@ -1056,6 +1056,31 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
     return chars;
   }, [nodes]);
 
+  const connectedCharacters = useMemo(() => {
+    const chars: Array<{ name: string; url: string }> = [];
+    const seenNames = new Set<string>();
+    const incomingEdges = edges.filter(e => e.target === id && e.targetHandle === "reference");
+    incomingEdges.forEach(e => {
+      const srcNode = nodes.find(n => n.id === e.source);
+      if (!srcNode) return;
+      const nd = srcNode.data as any;
+      if (srcNode.type === "reference" && nd?.refName && nd?.image) {
+        const name = String(nd.refName).trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          chars.push({ name, url: String(nd.image) });
+        }
+      } else if (srcNode.type === "generate_plus" && nd?.refName && nd?.resultUrls?.[0]) {
+        const name = String(nd.refName).trim();
+        if (name && !seenNames.has(name)) {
+          seenNames.add(name);
+          chars.push({ name, url: String(nd.resultUrls[0]) });
+        }
+      }
+    });
+    return chars;
+  }, [nodes, edges, id]);
+
   const modeLabel = hasEndEdge
     ? "Ảnh đầu + khung cuối (từ node frame)"
     : hasStart
@@ -1339,6 +1364,7 @@ function VideoPlusNode({ id, data, selected }: NodeProps) {
             hasStartImageEdge: fromEdge,
             hasEndImageEdge: hasEndEdge,
             workflowCharacters: workflowCharacters,
+            connectedCharacters: connectedCharacters,
             runStatus: d.runStatus,
           }}
           onConfirm={(s: VideoStudioSettings, triggerRun?: boolean) => {
