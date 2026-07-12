@@ -42,6 +42,7 @@ import {
   useMemo,
   useRef,
   useState,
+  memo,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -2068,15 +2069,15 @@ function FrameNode({ id, data, selected }: NodeProps) {
 }
 
 /** Stable module-level maps — never recreate inside the component (RF error #002). */
-const WORKFLOW_NODE_TYPES: Record<string, typeof PromptNode> = {
-  prompt: PromptNode,
-  reference: ReferenceNode,
-  video_reference: VideoReferenceNode,
-  generate: GenerateNode,
-  generate_plus: GeneratePlusNode,
-  video_generate: VideoNode,
-  video_generate_plus: VideoPlusNode,
-  frame_extract: FrameNode,
+const WORKFLOW_NODE_TYPES: Record<string, any> = {
+  prompt: memo(PromptNode),
+  reference: memo(ReferenceNode),
+  video_reference: memo(VideoReferenceNode),
+  generate: memo(GenerateNode),
+  generate_plus: memo(GeneratePlusNode),
+  video_generate: memo(VideoNode),
+  video_generate_plus: memo(VideoPlusNode),
+  frame_extract: memo(FrameNode),
 };
 
 const WORKFLOW_DEFAULT_EDGE_OPTIONS = {
