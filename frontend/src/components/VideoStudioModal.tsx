@@ -79,8 +79,17 @@ function LocalAssetPicker({ onClose, onSelect }: { onClose: () => void; onSelect
   }, []);
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999999, padding: 24, backdropFilter: "blur(6px)" }}>
-      <div style={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, width: "90%", maxWidth: 640, height: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999999, padding: 24, backdropFilter: "blur(6px)" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, width: "90%", maxWidth: 640, height: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+      >
         <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0, fontSize: 13, color: "#fff", fontWeight: 700 }}>📂 CHỌN ẢNH TỪ THƯ VIỆN DỰ ÁN</h3>
           <button onClick={onClose} style={{ background: "transparent", border: "none", color: "#94a3b8", fontSize: 16, cursor: "pointer" }}>✕</button>
