@@ -309,6 +309,19 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
   const [startImg, setStartImg] = useState(() => initial.start_image || "");
   const [endImg, setEndImg] = useState(() => initial.end_image || "");
 
+  // Auto-switch mode based on presence of start and end images
+  useEffect(() => {
+    const hasStart = initial.hasStartImageEdge || Boolean(startImg);
+    const hasEnd = initial.hasEndImageEdge || Boolean(endImg);
+    if (hasStart && hasEnd) {
+      setMode("start_end_image");
+    } else if (hasStart) {
+      setMode("start_image");
+    } else {
+      setMode("text_to_video");
+    }
+  }, [startImg, endImg, initial.hasStartImageEdge, initial.hasEndImageEdge]);
+
   // Character library assets
   const [charAssets, setCharAssets] = useState<CharacterAsset[]>(() => initial.characterAssets || []);
   const [newCharName, setNewCharName] = useState("");

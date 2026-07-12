@@ -934,6 +934,14 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
   const fromEdge = edges.some(e => e.target === id && e.targetHandle === "start_image");
   const hasStart = fromEdge || Boolean(d.start_image);
   const hasEndEdge = edges.some(e => e.target === id && e.targetHandle === "end_image");
+
+  const computedMode = useMemo(() => {
+    const hasStartActive = fromEdge || Boolean(d.start_image) || Boolean(resolvedStartImage);
+    const hasEndActive = hasEndEdge || Boolean(d.end_image) || Boolean(resolvedEndImage);
+    if (hasStartActive && hasEndActive) return "start_end_image";
+    if (hasStartActive) return "start_image";
+    return "text_to_video";
+  }, [fromEdge, d.start_image, resolvedStartImage, hasEndEdge, d.end_image, resolvedEndImage]);
   const hasRefEdge = edges.some(e => e.target === id && e.targetHandle === "reference");
   const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
 
@@ -1210,7 +1218,7 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
             movementSpeed: d.movementSpeed || "",
             duration: d.studioDuration || 8,
             timelineSegments: d.timelineSegments || [],
-            mode: d.mode || "text_to_video",
+            mode: computedMode,
             start_image: resolvedStartImage,
             end_image: resolvedEndImage,
             characterAssets: d.characterAssets || [],
