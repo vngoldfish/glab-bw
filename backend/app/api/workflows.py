@@ -198,7 +198,8 @@ def build_bulk_graph(
             m = re.match(r"^(\d+(?:\.\d+)?)\s*(.*)", line)
             if m:
                 prefix = m.group(1)
-                text = m.group(2).strip() or "No prompt"
+                raw_text = m.group(2).strip()
+                text = re.sub(r'^[.:\-;,]\s*', '', raw_text).strip() or "No prompt"
             else:
                 prefix = f"__auto_{box_idx}_{line_idx}"
                 text = line
