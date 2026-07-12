@@ -23,12 +23,14 @@ import {
   fetchVideoEditorStatus,
   listEditProjects,
   mediaUrl,
+  openOutputFolder,
   saveEditProject,
   type EditProjectMeta,
   type MediaInsertSource,
   type ProjectAsset,
   type VideoAssembleResult,
 } from "../api";
+import { Folder } from "lucide-react";
 import { useUiDialog } from "../components/UiDialog";
 import { NAV_ROUTES } from "../routes";
 
@@ -937,6 +939,22 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
           >
             ✎ Đổi tên
           </button>
+          {editId && (
+            <button
+              type="button"
+              className="st-btn-ghost st-btn-sm"
+              onClick={() => {
+                const folder = "G-Labs BW/video_edits/" + editId;
+                console.log("VideoEditorPage - Mở thư mục lưu:", folder);
+                void openOutputFolder(folder).catch((e) => onError(String(e)));
+              }}
+              title="Mở thư mục dự án dựng video trên máy tính"
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+            >
+              <Folder size={12} />
+              Thư mục lưu
+            </button>
+          )}
           <span className="st-save-hint">{saving ? "Đang lưu…" : "Đã đồng bộ"}</span>
           <Link to={NAV_ROUTES.workflow} className="st-link">
             Workflow

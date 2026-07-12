@@ -102,6 +102,32 @@ async def _url_to_data_url(url: str) -> str:
     raise ValueError(f"Cannot load media: {url[:100]}")
 
 
+def _find_incoming_modifiers(nid: str, workflow: dict[str, Any] | None) -> list[str]:
+    if not workflow:
+        return []
+    edges = list(workflow.get("edges") or [])
+    nodes = list(workflow.get("nodes") or [])
+    nmap = {str(n["id"]): n for n in nodes}
+    modifiers = []
+    for e in edges:
+        if str(e.get("target")) == nid:
+            src = str(e.get("source"))
+            src_node = nmap.get(src)
+            if src_node and src_node.get("type") in {"generate_plus", "video_generate_plus"}:
+                src_data = src_node.get("data") or {}
+                if src_node.get("type") == "generate_plus":
+                    for fld in ("cameraAngle", "style", "lighting", "composition"):
+                        val = src_data.get(fld)
+                        if val:
+                            modifiers.append(val)
+                elif src_node.get("type") == "video_generate_plus":
+                    for fld in ("cameraAngle", "style", "cameraMovement", "movementSpeed"):
+                        val = src_data.get(fld)
+                        if val:
+                            modifiers.append(val)
+    return modifiers
+
+
 def _restore_outputs_from_result(
     nid: str,
     ntype: str,
@@ -131,11 +157,11 @@ def _restore_outputs_from_result(
         return
 
     results = list(prior.get("results") or [])
-    if ntype == "generate":
+    if ntype in {"generate", "generate_plus"}:
         if results:
             outputs[nid]["image"] = results
         return
-    if ntype == "video_generate":
+    if ntype in {"video_generate", "video_generate_plus"}:
         if results:
             outputs[nid]["video"] = results
         return
@@ -267,13 +293,12 @@ async def _execute_node(
         }
 
 
-    if ntype == "generate":
+    if ntype in {"generate", "generate_plus"}:
         prompt = ""
         if inputs.get("prompt"):
             prompt = str(inputs["prompt"][0])
         prompt = prompt or str(data.get("prompt") or "").strip()
-        if not prompt:
-            raise ValueError("Generate needs prompt")
+
         # Edge inputs + optional images attached on the node itself
         refs = list(inputs.get("image") or [])
         for key in ("image", "ref_image", "reference_image"):
@@ -285,6 +310,27 @@ async def _execute_node(
             for val in extra:
                 if val and val not in refs:
                     refs.append(val)
+
+        if not prompt:
+            if ntype == "generate_plus" and refs:
+                pass
+            else:
+                node_title = data.get("title") or ("Tạo ảnh +" if ntype == "generate_plus" else "Tạo ảnh")
+                raise ValueError(f"Node '{node_title}' chưa có prompt (vui lòng nhập prompt hoặc nối từ node Prompt)")
+
+        # Append style/camera angle modifiers from connected generate_plus/video_generate_plus nodes
+        modifiers = _find_incoming_modifiers(nid, workflow)
+        # For generate_plus nodes, also inject own studio settings
+        if ntype == "generate_plus":
+            for field in ("cameraAngle", "style", "lighting", "composition"):
+                val = data.get(field)
+                if val:
+                    modifiers.append(val)
+        if modifiers:
+            if prompt:
+                prompt = f"{prompt}, {', '.join(modifiers)}"
+            else:
+                prompt = ", ".join(modifiers)
         ref_data: list[str] = []
         for r in refs[:3]:
             if str(r).startswith("data:"):
@@ -313,7 +359,7 @@ async def _execute_node(
             ),
             "aspect_ratio": data.get("aspect_ratio") or "1:1",
             "count": int(data.get("count") or 1),
-            "save_mode": "task",
+            "save_mode": "flat",
             "output_folder": img_folder,
             "custom_prefix": custom_prefix,
             "mode": "t2i",
@@ -353,7 +399,7 @@ async def _execute_node(
             "folder": out.get("folder"),
         }
 
-    if ntype == "video_generate":
+    if ntype in {"video_generate", "video_generate_plus"}:
         prompt = ""
         if inputs.get("prompt"):
             prompt = str(inputs["prompt"][0])
@@ -364,8 +410,7 @@ async def _execute_node(
             or str(data.get("prompt_hint") or "").strip()
             or str(data.get("text") or "").strip()
         )
-        if not prompt:
-            raise ValueError("Video needs prompt")
+
         start_refs = list(inputs.get("start_image") or inputs.get("image") or [])
         end_refs = list(inputs.get("end_image") or [])
         
@@ -379,7 +424,7 @@ async def _execute_node(
                 if str(e.get("target")) == nid and str(e.get("targetHandle")) == "reference":
                     src_id = str(e.get("source"))
                     src_node = nodes_map.get(src_id)
-                    if src_node and src_node.get("type") == "reference":
+                    if src_node and src_node.get("type") in {"reference", "generate_plus"}:
                         src_data = src_node.get("data") or {}
                         ref_name = src_data.get("refName")
                         img_val = outputs.get(src_id, {}).get("image")
@@ -401,6 +446,29 @@ async def _execute_node(
             if val and val not in end_refs:
                 end_refs.insert(0, val)
                 break
+
+        has_any_ref = bool(start_refs or end_refs or connected_references)
+
+        if not prompt:
+            if ntype == "video_generate_plus" and has_any_ref:
+                pass
+            else:
+                node_title = data.get("title") or ("Tạo video +" if ntype == "video_generate_plus" else "Tạo video")
+                raise ValueError(f"Node '{node_title}' chưa có prompt (vui lòng nhập prompt hoặc nối từ node Prompt)")
+
+        # Append style/camera angle modifiers from connected generate_plus/video_generate_plus nodes
+        modifiers = _find_incoming_modifiers(nid, workflow)
+        # For video_generate_plus nodes, also inject own studio settings
+        if ntype == "video_generate_plus":
+            for field in ("cameraAngle", "style", "cameraMovement", "movementSpeed"):
+                val = data.get(field)
+                if val:
+                    modifiers.append(val)
+        if modifiers:
+            if prompt:
+                prompt = f"{prompt}, {', '.join(modifiers)}"
+            else:
+                prompt = ", ".join(modifiers)
         
         # Default mode: components if we have reference edges, otherwise start_image if start_refs, otherwise text_to_video
         # Determine provider
@@ -422,7 +490,7 @@ async def _execute_node(
             ),
             "aspect_ratio": data.get("aspect_ratio") or "16:9",
             "mode": mode,
-            "save_mode": "task",
+            "save_mode": "flat",
             "output_folder": vid_folder,
             "resolution": data.get("resolution") or ["720p"],
             "custom_prefix": custom_prefix,
@@ -626,7 +694,7 @@ async def run_workflow(
                 if nid not in only_set:
                     if prior_nr and prior_nr.get("status") == "completed":
                         should_skip = True
-                    elif ntype in {"prompt", "reference", "video_reference"}:
+                    elif ntype in {"prompt", "reference", "video_reference", "generate_plus", "video_generate_plus"}:
                         should_skip = False
 
                     else:

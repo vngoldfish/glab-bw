@@ -28,7 +28,7 @@ def project_output_folder(project_id: str, kind: str) -> str:
     return f"G-Labs BW/projects/{project_id}"
 
 
-def _is_media(path: Path) -> bool:
+def is_media(path: Path) -> bool:
     return path.suffix.lower() in {
         ".png",
         ".jpg",
@@ -41,27 +41,28 @@ def _is_media(path: Path) -> bool:
     }
 
 
-def _kind_of(path: Path) -> str:
+def kind_of(path: Path) -> str:
     if path.suffix.lower() in {".mp4", ".webm", ".mov"}:
         return "video"
     return "image"
 
 
-def list_assets(project_id: str, *, kind: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-    roots = [
-        project_root(project_id),
-        settings.data_dir / "workflow" / "anh",
-        settings.data_dir / "workflow" / "video"
-    ]
+def list_assets(project_id: str, *, kind: str | None = None, limit: int = 200, include_global: bool = False) -> list[dict[str, Any]]:
+    roots = [project_root(project_id)]
+    if include_global:
+        roots.extend([
+            settings.data_dir / "workflow" / "anh",
+            settings.data_dir / "workflow" / "video"
+        ])
     data_root = settings.data_dir.resolve()
     items: list[dict[str, Any]] = []
     for root in roots:
         if not root.exists():
             continue
         for p in root.rglob("*"):
-            if not p.is_file() or not _is_media(p):
+            if not p.is_file() or not is_media(p):
                 continue
-            k = _kind_of(p)
+            k = kind_of(p)
             if kind in {"image", "images"} and k != "image":
                 continue
             if kind in {"video", "videos"} and k != "video":
@@ -149,7 +150,7 @@ def clear_outputs(project_id: str, *, kind: str | None = None) -> dict[str, int]
         if not folder.is_dir():
             continue
         for p in folder.rglob("*"):
-            if p.is_file() and _is_media(p):
+            if p.is_file() and is_media(p):
                 try:
                     sz = p.stat().st_size
                     p.unlink()

@@ -215,7 +215,14 @@ async def open_folder(body: OpenFolderRequest) -> dict:
         raise HTTPException(status_code=404, detail={"error": f"Folder not found: {folder}"})
 
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", str(path)])
+        try:
+            subprocess.Popen(["explorer.exe", "/separate,", str(path)])
+        except Exception:
+            try:
+                import os
+                os.startfile(path)
+            except Exception:
+                subprocess.Popen(["explorer.exe", str(path)])
     elif sys.platform == "darwin":
         subprocess.Popen(["open", str(path)])
     else:
@@ -252,7 +259,11 @@ async def get_file(file_path: str) -> FileResponse:
         ".mp4": "video/mp4",
     }
     media_type = media_types.get(file_path_resolved.suffix.lower(), "application/octet-stream")
-    return FileResponse(file_path_resolved, media_type=media_type)
+    return FileResponse(
+        file_path_resolved,
+        media_type=media_type,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 # --- REMOTE CALLABLE WEBHOOK ENDPOINTS ---

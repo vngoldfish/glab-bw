@@ -17,6 +17,7 @@ import {
   saveFlowVideoSnapshot,
 } from "../flowVideoStorage";
 import { NAV_ROUTES } from "../routes";
+import { Folder } from "lucide-react";
 import PromptMentionField, {
   type PromptMentionFieldHandle,
 } from "./PromptMentionField";
@@ -1020,6 +1021,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           </span>
           <span className="pill pill-purple">Batch</span>
           <span className="pill pill-green">{activeCount} tài khoản</span>
+          <button
+            type="button"
+            className="wf-btn wf-btn-secondary"
+            style={{ padding: "4px 10px", borderRadius: "10px", fontSize: "11px", marginLeft: "12px", border: "1px solid rgba(255, 255, 255, 0.1)" }}
+            onClick={() => {
+              const folder = config.outputFolder || (config.engine === "grok" ? "G-Labs BW/grok_output" : "G-Labs BW/video_output");
+              console.log("FlowVideoPage - Mở thư mục lưu:", folder);
+              void openOutputFolder(folder).catch((e) => onError(String(e)));
+            }}
+            title="Mở thư mục lưu video trên máy tính"
+          >
+            <Folder size={12} style={{ marginRight: "4px", color: "var(--muted)" }} />
+            Thư mục lưu
+          </button>
         </div>
         <div className="flow-page-stats">
           <div className="flow-stat-mini flow-stat-mini--accent">

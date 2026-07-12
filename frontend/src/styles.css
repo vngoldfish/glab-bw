@@ -6563,23 +6563,91 @@ textarea:focus {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  background: linear-gradient(90deg, rgba(10, 13, 24, 0.72) 0%, rgba(20, 24, 42, 0.5) 100%);
+  background: linear-gradient(90deg, rgba(10, 13, 24, 0.75) 0%, rgba(20, 24, 42, 0.55) 100%);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  padding: 10px 20px;
+  padding: 12px 20px;
   border-radius: 16px;
-  backdrop-filter: blur(12px);
-  margin-bottom: 12px;
+  backdrop-filter: blur(14px);
+  margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+
+.wf-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.wf-title-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wf-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.wf-project-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 12, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 6px 12px;
+  min-width: 220px;
+  transition: all var(--transition);
+}
+
+.wf-project-name-wrapper:focus-within {
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: rgba(8, 12, 22, 0.85);
+}
+
+.wf-project-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.wf-project-input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  width: 100%;
+  outline: none;
+  padding: 0;
+}
+
+.wf-project-input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.wf-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .wf-btn-group {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 4px;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 3px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .wf-btn {
@@ -6598,9 +6666,18 @@ textarea:focus {
   transition: all var(--transition);
 }
 
+.wf-btn svg {
+  color: var(--muted);
+  transition: color var(--transition);
+}
+
 .wf-btn:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.wf-btn:hover:not(:disabled) svg {
+  color: var(--text-secondary);
 }
 
 .wf-btn:active:not(:disabled) {
@@ -6613,14 +6690,18 @@ textarea:focus {
 }
 
 .wf-btn-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
   color: white !important;
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.wf-btn-primary svg {
+  color: white !important;
 }
 
 .wf-btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
   box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
   color: white !important;
 }
@@ -6634,6 +6715,36 @@ textarea:focus {
 .wf-btn-secondary:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.wf-btn-run-secondary {
+  background: rgba(99, 102, 241, 0.12) !important;
+  color: #c4b5fd !important;
+  border: 1px solid rgba(139, 92, 246, 0.2) !important;
+}
+
+.wf-btn-run-secondary svg {
+  color: #c4b5fd !important;
+}
+
+.wf-btn-run-secondary:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.2) !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
+}
+
+.wf-btn-save-highlight {
+  background: rgba(34, 197, 94, 0.08) !important;
+  color: #4ade80 !important;
+  border: 1px solid rgba(34, 197, 94, 0.15) !important;
+}
+
+.wf-btn-save-highlight svg {
+  color: #4ade80 !important;
+}
+
+.wf-btn-save-highlight:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.15) !important;
+  border-color: rgba(34, 197, 94, 0.3) !important;
 }
 
 .wf-input {

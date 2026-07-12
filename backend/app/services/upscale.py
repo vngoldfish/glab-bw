@@ -46,6 +46,22 @@ class UpscaleService:
     def save_bytes(self, data: bytes, filename: str, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / filename
+        if path.exists():
+            import datetime
+            try:
+                mtime = path.stat().st_mtime
+                dt = datetime.datetime.fromtimestamp(mtime)
+                time_str = dt.strftime("%H%M%S")
+                new_name = f"{path.stem}_old_{time_str}{path.suffix}"
+                new_path = path.parent / new_name
+                counter = 1
+                while new_path.exists():
+                    new_name = f"{path.stem}_old_{time_str}_{counter}{path.suffix}"
+                    new_path = path.parent / new_name
+                    counter += 1
+                path.rename(new_path)
+            except Exception:
+                pass
         path.write_bytes(data)
         return path
 

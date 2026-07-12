@@ -17,6 +17,7 @@ import DocsPage from "./pages/DocsPage";
 import ApiDocsPage from "./pages/ApiDocsPage";
 import ExtensionPage from "./pages/ExtensionPage";
 import ProjectsPage from "./pages/ProjectsPage";
+import ProjectMediaPage from "./pages/ProjectMediaPage";
 import PromptHubPage from "./pages/PromptHubPage";
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -298,6 +299,14 @@ export default function App() {
                 element={
                   <div className="page-panel">
                     <ProjectsPage onError={setError} />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES["project-media"]}
+                element={
+                  <div className="page-panel">
+                    <ProjectMediaPage onError={setError} />
                   </div>
                 }
               />

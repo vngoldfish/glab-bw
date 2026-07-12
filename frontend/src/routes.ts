@@ -10,6 +10,7 @@ export const NAV_ROUTES: Record<NavPage, string> = {
   "workflow-templates": "/workflow-templates",
   "video-editor": "/video-editor",
   projects: "/projects",
+  "project-media": "/project-media",
   docs: "/docs",
   "api-docs": "/api-docs",
   grok: "/grok",

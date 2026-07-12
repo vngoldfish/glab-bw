@@ -17,6 +17,20 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  Save,
+  Copy,
+  Plus,
+  Play,
+  SkipForward,
+  Maximize2,
+  FolderHeart,
+  Grid,
+  BookOpen,
+  Layout,
+  Folder,
+  EyeOff
+} from "lucide-react";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -67,6 +81,8 @@ import {
   META_VIDEO_MODELS,
 } from "../types";
 import { findLibraryRef } from "../referenceUtils";
+import ImageStudioModal, { type ImageStudioSettings } from "../components/ImageStudioModal";
+import VideoStudioModal, { type VideoStudioSettings } from "../components/VideoStudioModal";
 
 interface WorkflowPageProps {
   onError: (msg: string) => void;
@@ -88,6 +104,14 @@ type WNodeData = {
   /** Video start/end attached on node (no edge required) */
   start_image?: string;
   end_image?: string;
+
+  cameraAngle?: string;
+  style?: string;
+  lighting?: string;
+  composition?: string;
+  cameraMovement?: string;
+  movementSpeed?: string;
+  studioDuration?: number;
 
   positions?: string;
   /** Preview media after run (image/video URLs) */
@@ -318,6 +342,34 @@ function Shell({
             {runError}
           </div>
         ) : null}
+        {showRerun && !runStatus ? (
+          <button
+            type="button"
+            className="nodrag nopan"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRerun?.();
+            }}
+            style={{
+              marginTop: 8,
+              width: "100%",
+              padding: "7px 8px",
+              borderRadius: 8,
+              border: "1px solid rgba(34,197,94,0.3)",
+              background: "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(20,184,166,0.1))",
+              color: "#22c55e",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+            }}
+          >
+            ▶ Chạy
+          </button>
+        ) : null}
         {showRerun && (runStatus === "completed" || runStatus === "failed") ? (
           <button
             type="button"
@@ -339,7 +391,7 @@ function Shell({
               cursor: "pointer",
             }}
           >
-            {runStatus === "failed" ? "↻ Thử lại" : "↻ Tạo lại"}
+            {runStatus === "failed" ? "↻ Thử lại" : "↻ Chạy lại"}
           </button>
         ) : null}
       </div>
@@ -683,6 +735,586 @@ function ReferenceNode({ id, data, selected }: NodeProps) {
         placeholder="Hoặc dán URL /api/files/..."
         style={{ ...fieldStyle(), marginTop: 6, fontSize: 10 }}
       />
+    </Shell>
+  );
+}
+
+function GeneratePlusNode({ id, data, selected }: NodeProps) {
+  const d = data as WNodeData;
+  const [aiBusy, setAiBusy] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const hasPromptEdge = Boolean(d.hasPromptInput);
+
+  async function handleAiImagePrompt() {
+    const source = (d.prompt || "").trim();
+    if (!source) {
+      d.onError?.("Nhập ý/prompt ảnh trên node này trước khi dùng AI");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      const res = await rewritePromptAi({
+        prompt: source,
+        kind: "image",
+        current_node_id: id,
+        workflow_context,
+      });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
+        return;
+      }
+      d.onChange?.(id, { prompt: next });
+    } catch (err) {
+      d.onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <Shell
+      type="generate"
+      title={d.title || "Tạo ảnh +"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+      showRerun
+      reused={d.reused}
+      onRerun={() => d.onRerun?.(id)}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="prompt"
+        style={{ top: "22%", background: "#6366f1" }}
+        title="Cổng nhận Prompt: Nối từ node Prompt"
+      />
+      <div style={handleLabelStyle("left", "22%")}>← Prompt</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="image"
+        style={{ top: "42%", background: "#14b8a6" }}
+        title="Cổng nhận Ảnh ref: Nối từ Ảnh có sẵn hoặc ảnh kết quả khác"
+      />
+      <div style={handleLabelStyle("left", "42%")}>← Ảnh ref</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="image"
+        style={{ background: "#22c55e" }}
+        title="Cổng xuất Ảnh kết quả: Nối sang cổng Ảnh đầu hoặc Khung cuối của Tạo video"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
+
+      <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
+        <button
+          type="button"
+          className="wf-btn wf-btn-secondary nodrag"
+          style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
+          onClick={() => setShowModal(true)}
+        >
+          ⚙️ Cấu hình chụp & style +
+        </button>
+      </div>
+
+      {(d.cameraAngle || d.style || d.lighting || d.composition) && (
+        <div style={{ marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 3 }}>
+          {d.cameraAngle && (
+            <span style={{ fontSize: 8, background: "rgba(34, 197, 94, 0.15)", color: "#22c55e", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(34, 197, 94, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              📷 {d.cameraAngle.split(",")[0]}
+            </span>
+          )}
+          {d.style && (
+            <span style={{ fontSize: 8, background: "rgba(129, 140, 248, 0.15)", color: "#818cf8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(129, 140, 248, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              🎨 {d.style.split(",")[0]}
+            </span>
+          )}
+          {d.lighting && (
+            <span style={{ fontSize: 8, background: "rgba(251, 191, 36, 0.15)", color: "#fbbf24", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(251, 191, 36, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              💡 {d.lighting.split(",")[0]}
+            </span>
+          )}
+          {d.composition && (
+            <span style={{ fontSize: 8, background: "rgba(99, 102, 241, 0.15)", color: "#6366f1", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(99, 102, 241, 0.2)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              ▦ {d.composition.split(",")[0]}
+            </span>
+          )}
+        </div>
+      )}
+
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Công cụ
+        <select
+          value={d.engine || "flow"}
+          onChange={(e) => {
+            const nextEngine = e.target.value;
+            const defaultModel =
+              nextEngine === "grok" ? "grok-3"
+              : nextEngine === "meta" ? "midjen-base"
+              : "nano_banana_2_lite";
+            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
+          }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="flow">Google Flow</option>
+          <option value="grok">Grok Imagine</option>
+          <option value="meta">Meta AI</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Model
+        <select
+          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "midjen-base" : "nano_banana_2_lite")}
+          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          {(!d.engine || d.engine === "flow") &&
+            IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "grok" &&
+            GROK_IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "meta" &&
+            META_IMAGE_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Tỷ lệ
+        <select
+          value={d.aspect_ratio || "16:9"}
+          onChange={(e) => d.onChange?.(id, { aspect_ratio: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="1:1">1:1</option>
+          <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+        </select>
+      </label>
+
+      {!hasPromptEdge && (
+        <div className="nodrag" style={{ marginBottom: 8 }}>
+          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt ảnh</span>
+            <button
+              type="button"
+              className="node-ai-btn"
+              disabled={aiBusy || !(d.prompt || "").trim()}
+              onClick={() => void handleAiImagePrompt()}
+              title="AI viết lại prompt ảnh cho tốt"
+            >
+              {aiBusy ? "AI…" : "✦ AI"}
+            </button>
+          </div>
+          <textarea
+            className="nodrag nowheel"
+            rows={3}
+            value={d.prompt || ""}
+            onChange={(e) => d.onChange?.(id, { prompt: e.target.value })}
+            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt ảnh hoàn chỉnh"
+            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
+            disabled={aiBusy}
+          />
+          {aiBusy && (
+            <div className="node-ai-status">AI đang viết prompt ảnh…</div>
+          )}
+        </div>
+      )}
+
+      {hasPromptEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
+          ✓ Đã nối node Prompt
+        </div>
+      )}
+
+      <ImageAttachBar
+        nodeId={id}
+        field="image"
+        value={d.image}
+        onChange={d.onChange}
+        onPick={d.onPickImage}
+        onPreview={d.onPreview}
+        label="Ảnh ref (có sẵn)"
+      />
+      {d.image && (
+        <div style={{ marginTop: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+            <span>Tên gọi ảnh ref trong prompt:</span>
+            {d.refName && <strong style={{ color: "#14b8a6" }}>@{d.refName}</strong>}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 11, color: "#14b8a6", fontWeight: 700 }}>@</span>
+            <input
+              type="text"
+              className="nodrag"
+              value={d.refName || ""}
+              onChange={(e) => {
+                const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                d.onChange?.(id, { refName: clean });
+              }}
+              placeholder="ten_anh_ref..."
+              style={{
+                flex: 1,
+                background: "rgba(0,0,0,0.25)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 4,
+                padding: "2px 6px",
+                fontSize: 10,
+                color: "#fff",
+                outline: "none"
+              }}
+            />
+          </div>
+        </div>
+      )}
+      {d.resultUrls?.length ? (
+        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} label="Kết quả gen" />
+      ) : (
+        <div className="node-media-empty">
+          {d.runStatus === "running" || d.runStatus === "pending"
+            ? "Đang tạo ảnh…"
+            : "Ảnh kết quả gen hiện ở đây"}
+        </div>
+      )}
+
+      {showModal && (
+        <ImageStudioModal
+          initial={{
+            cameraAngle: d.cameraAngle || "",
+            style: d.style || "",
+            lighting: d.lighting || "",
+            composition: d.composition || "",
+          }}
+          onConfirm={(s: ImageStudioSettings) => {
+            d.onChange?.(id, {
+              cameraAngle: s.cameraAngle,
+              style: s.style,
+              lighting: s.lighting,
+              composition: s.composition,
+            });
+            setShowModal(false);
+          }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+    </Shell>
+  );
+}
+
+function VideoPlusNode({ id, data, selected }: NodeProps) {
+  const d = data as WNodeData;
+  const [aiBusy, setAiBusy] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const fromEdge = Boolean(d.hasStartImageInput);
+  const hasStart = fromEdge || Boolean(d.start_image);
+  const hasEndEdge = Boolean(d.hasEndImageInput);
+  const hasRefEdge = Boolean(d.hasReferenceInput);
+  const hasPromptEdge = Boolean(d.hasPromptInput);
+
+  const modeLabel = hasEndEdge
+    ? "Ảnh đầu + khung cuối (từ node frame)"
+    : hasStart
+      ? "Từ ảnh → video"
+      : hasRefEdge
+        ? "Từ text → video (Tham chiếu nhân vật)"
+        : "Từ text → video";
+
+  async function handleAiVideoPrompt() {
+    const source = (d.prompt_hint || "").trim();
+    if (!source) {
+      d.onError?.("Nhập ý/prompt video trên node này trước khi dùng AI");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(true);
+    try {
+      const workflow_context = d.getWorkflowContext?.(id) ?? [];
+      const res = await rewritePromptAi({
+        prompt: source,
+        kind: "video",
+        locale: "vi",
+        current_node_id: id,
+        workflow_context,
+      });
+      const next = (res.prompt || "").trim();
+      if (!next) {
+        d.onError?.("AI trả về prompt rỗng — kiểm tra API AI trong Cài đặt");
+        return;
+      }
+      d.onChange?.(id, { prompt_hint: next });
+    } catch (err) {
+      d.onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <Shell
+      type="video_generate"
+      title={d.title || "Tạo video +"}
+      selected={selected}
+      runStatus={d.runStatus}
+      runError={d.runError}
+      showRerun
+      reused={d.reused}
+      onRerun={() => d.onRerun?.(id)}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="prompt"
+        style={{ top: "18%", background: "#6366f1" }}
+        title="Cổng nhận Prompt: Nối từ node Prompt"
+      />
+      <div style={handleLabelStyle("left", "18%")}>← Prompt</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="start_image"
+        style={{ top: "38%", background: "#22c55e" }}
+        title="Cổng nhận Ảnh đầu: Nối từ node Tạo ảnh hoặc cổng end_image của Tách frame"
+      />
+      <div style={handleLabelStyle("left", "38%")}>← Ảnh đầu</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="reference"
+        style={{ top: "58%", background: "#06b6d4" }}
+        title="Cổng nhận Nhân vật ref: Nối từ node Ảnh có sẵn để giữ nhất quán nhân vật"
+      />
+      <div style={handleLabelStyle("left", "58%")}>← Nhân vật ref</div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="end_image"
+        style={{ top: "78%", background: "#14b8a6" }}
+        title="Cổng nhận Khung cuối: Nối từ cổng end_image của node Tách frame (Video-to-Video)"
+      />
+      <div style={handleLabelStyle("left", "78%")}>← Khung cuối</div>
+
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="video"
+        style={{ background: "#f59e0b" }}
+        title="Cổng xuất Video kết quả: Nối sang cổng Video của node Tách frame"
+      />
+      <div style={handleLabelStyle("right", "50%")}>Video kết quả →</div>
+
+      <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
+        <button
+          type="button"
+          className="wf-btn wf-btn-secondary nodrag"
+          style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.2)" }}
+          onClick={() => setShowModal(true)}
+        >
+          ⚙️ Cấu hình quay & style +
+        </button>
+      </div>
+
+      {(d.cameraAngle || d.style || d.cameraMovement || d.movementSpeed) && (
+        <div style={{ marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 3 }}>
+          {d.cameraMovement && (
+            <span style={{ fontSize: 8, background: "rgba(34, 197, 94, 0.15)", color: "#22c55e", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(34, 197, 94, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              🎥 {d.cameraMovement.split(",")[0]}
+            </span>
+          )}
+          {d.cameraAngle && (
+            <span style={{ fontSize: 8, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(245, 158, 11, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              📷 {d.cameraAngle.split(",")[0]}
+            </span>
+          )}
+          {d.movementSpeed && (
+            <span style={{ fontSize: 8, background: "rgba(6, 182, 212, 0.15)", color: "#06b6d4", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(6, 182, 212, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              ⚡ {d.movementSpeed.split(",")[0]}
+            </span>
+          )}
+          {d.style && (
+            <span style={{ fontSize: 8, background: "rgba(129, 140, 248, 0.15)", color: "#818cf8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(129, 140, 248, 0.2)", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              🎨 {d.style.split(",")[0]}
+            </span>
+          )}
+          {d.studioDuration && (
+            <span style={{ fontSize: 8, background: "rgba(255,255,255, 0.05)", color: "#94a3b8", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255, 0.08)" }}>
+              ⏱ {d.studioDuration}s
+            </span>
+          )}
+        </div>
+      )}
+
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Công cụ
+        <select
+          value={d.engine || "flow"}
+          onChange={(e) => {
+            const nextEngine = e.target.value;
+            const defaultModel =
+              nextEngine === "grok" ? "grok-3"
+              : nextEngine === "meta" ? "meta-video"
+              : "veo_31_fast";
+            d.onChange?.(id, { engine: nextEngine, model: defaultModel });
+          }}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          <option value="flow">Google Flow</option>
+          <option value="grok">Grok Imagine</option>
+          <option value="meta">Meta AI</option>
+        </select>
+      </label>
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Model
+        <select
+          value={d.model || (d.engine === "grok" ? "grok-3" : d.engine === "meta" ? "meta-video" : "veo_31_fast")}
+          onChange={(e) => d.onChange?.(id, { model: e.target.value })}
+          style={{ ...fieldStyle(), marginTop: 2 }}
+        >
+          {(!d.engine || d.engine === "flow") &&
+            VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "grok" &&
+            GROK_VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          {d.engine === "meta" &&
+            META_VIDEO_MODELS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+        </select>
+      </label>
+      <div className="node-config-compact nodrag" style={{ marginBottom: 8 }}>
+        <span>{modeLabel}</span>
+      </div>
+
+      {!hasPromptEdge && (
+        <div className="nodrag" style={{ marginBottom: 8 }}>
+          <div className="node-prompt-toolbar" style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "#94a3b8" }}>Prompt video</span>
+            <button
+              type="button"
+              className="node-ai-btn"
+              disabled={aiBusy || !(d.prompt_hint || "").trim()}
+              onClick={() => void handleAiVideoPrompt()}
+              title="AI viết lại prompt video cho tốt"
+            >
+              {aiBusy ? "AI…" : "✦ AI"}
+            </button>
+          </div>
+          <textarea
+            className="nodrag nowheel"
+            rows={3}
+            value={d.prompt_hint || ""}
+            onChange={(e) => d.onChange?.(id, { prompt_hint: e.target.value })}
+            placeholder="Nhập ý ngắn… AI sẽ viết thành prompt video hoàn chỉnh"
+            style={{ ...fieldStyle(), resize: "vertical", fontSize: 11 }}
+            disabled={aiBusy}
+          />
+          {aiBusy && (
+            <div className="node-ai-status">AI đang viết prompt video…</div>
+          )}
+        </div>
+      )}
+
+      {hasPromptEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(99,102,241,0.3)", color: "#818cf8" }}>
+          ✓ Đã nối node Prompt
+        </div>
+      )}
+
+      {hasRefEdge && (
+        <div className="node-edge-hint" style={{ marginBottom: 6, borderColor: "rgba(6,182,212,0.3)", color: "#06b6d4" }}>
+          ✓ Đã nối nhân vật tham chiếu
+        </div>
+      )}
+
+      {fromEdge ? (
+        <div className="node-edge-hint">
+          ✓ Ảnh đầu lấy từ node ảnh đã nối
+        </div>
+      ) : (
+        <ImageAttachBar
+          nodeId={id}
+          field="start_image"
+          value={d.start_image}
+          onChange={(nid, patch) => {
+            d.onChange?.(nid, {
+              ...patch,
+              mode: patch.start_image ? "start_image" : "text_to_video",
+            });
+          }}
+          onPick={d.onPickImage}
+          onPreview={d.onPreview}
+          label="Ảnh đầu (khi không nối node ảnh)"
+        />
+      )}
+
+      {hasEndEdge ? (
+        <div className="node-edge-hint" style={{ marginTop: 6 }}>
+          ✓ Khung cuối lấy từ node Tách frame
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
+          Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
+        </div>
+      )}
+
+      {d.resultUrls?.length ? (
+        <MediaPreview urls={d.resultUrls} onPreview={d.onPreview} max={2} label="Kết quả video" />
+      ) : (
+        <div className="node-media-empty">
+          {d.runStatus === "running" || d.runStatus === "pending"
+            ? "Đang tạo video…"
+            : "Video kết quả gen hiện ở đây"}
+        </div>
+      )}
+
+      {showModal && (
+        <VideoStudioModal
+          initial={{
+            cameraAngle: d.cameraAngle || "",
+            style: d.style || "",
+            cameraMovement: d.cameraMovement || "",
+            movementSpeed: d.movementSpeed || "",
+            duration: d.studioDuration || 5,
+          }}
+          onConfirm={(s: VideoStudioSettings) => {
+            d.onChange?.(id, {
+              cameraAngle: s.cameraAngle,
+              style: s.style,
+              cameraMovement: s.cameraMovement,
+              movementSpeed: s.movementSpeed,
+              studioDuration: s.duration,
+            });
+            setShowModal(false);
+          }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </Shell>
   );
 }
@@ -1362,7 +1994,9 @@ const WORKFLOW_NODE_TYPES: Record<string, typeof PromptNode> = {
   reference: ReferenceNode,
   video_reference: VideoReferenceNode,
   generate: GenerateNode,
+  generate_plus: GeneratePlusNode,
   video_generate: VideoNode,
+  video_generate_plus: VideoPlusNode,
   frame_extract: FrameNode,
 };
 
@@ -1429,12 +2063,20 @@ function mergeRunResultIntoNodes(
       return n;
     }
     const status = (raw.status || "idle") as RunStatus;
-    const urls = extractUrlsFromNodeResult(raw);
-    const frames = (raw.frames || []).map((f) => ({
-      position: String(f.position || ""),
-      url: normalizeFileUrl(f.url),
-      path: f.path,
-    }));
+    const cb = Date.now();
+    const urls = extractUrlsFromNodeResult(raw).map((u) => {
+      const sep = u.includes("?") ? "&" : "?";
+      return `${u}${sep}cb=${cb}`;
+    });
+    const frames = (raw.frames || []).map((f) => {
+      const u = normalizeFileUrl(f.url);
+      const sep = u.includes("?") ? "&" : "?";
+      return {
+        position: String(f.position || ""),
+        url: `${u}${sep}cb=${cb}`,
+        path: f.path,
+      };
+    });
     const prev = n.data as WNodeData;
     return {
       ...n,
@@ -2408,9 +3050,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     setNodes((nds) => {
       let changed = false;
       const next = nds.map((n) => {
-        if (n.type !== "video_generate" && n.type !== "generate") return n;
+        if (n.type !== "video_generate" && n.type !== "generate" && n.type !== "generate_plus" && n.type !== "video_generate_plus") return n;
 
-        if (n.type === "generate") {
+        if (n.type === "generate" || n.type === "generate_plus") {
           const hasPrompt = edges.some(
             (e) => e.target === n.id && e.targetHandle === "prompt",
           );
@@ -2521,7 +3163,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const titles: Record<string, string> = {
       prompt: "Prompt",
       reference: "Ảnh có sẵn",
+      generate_plus: "Tạo ảnh +",
       video_reference: "Video có sẵn",
+      video_generate_plus: "Tạo video +",
       generate: "Tạo ảnh",
       video_generate: "Tạo video",
       frame_extract: "Tách frame",
@@ -2553,6 +3197,15 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     if (type === "frame_extract") baseData.positions = "end";
     if (type === "reference") baseData.image = "";
     if (type === "video_reference") baseData.video = "";
+    if (type === "generate_plus") {
+      baseData.model = "nano_banana_2_lite";
+      baseData.aspect_ratio = "16:9";
+    }
+    if (type === "video_generate_plus") {
+      baseData.model = "veo_31_fast";
+      baseData.mode = "start_image";
+      baseData.aspect_ratio = "16:9";
+    }
 
 
     let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -3389,13 +4042,147 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   return (
     <div className="workflow-page">
       <header className="wf-header-bar">
-        <div className="page-title-group" style={{ margin: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Workflow</h1>
-          <span className="pill pill-purple" style={{ fontSize: 9 }}>PROJECT</span>
+        <div className="wf-header-left">
+          <div className="wf-title-section">
+            <h1 className="wf-title">Workflow</h1>
+            <span className="pill pill-purple" style={{ fontSize: 9 }}>PROJECT</span>
+            {dirty && <span className="wf-status-badge dirty">chưa lưu</span>}
+            {running && <span className="wf-status-badge running">Đang chạy…</span>}
+          </div>
+
+          <div className="wf-project-name-wrapper">
+            <Folder className="wf-project-icon" size={14} />
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setDirty(true);
+              }}
+              className="wf-project-input"
+              placeholder="Tên project"
+            />
+          </div>
+        </div>
+
+        <div className="wf-header-right">
+          {progressLabel ? (
+            <span className="muted" style={{ fontSize: 11, marginRight: 8, maxWidth: 150, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={progressLabel}>
+              {progressLabel}
+            </span>
+          ) : null}
+
+          {/* Group 1: Project Operations */}
+          <div className="wf-btn-group">
+            <button
+              type="button"
+              className={`wf-btn ${dirty ? "wf-btn-save-highlight" : ""}`}
+              onClick={() => void handleSaveProject(false)}
+              title="Lưu project (nodes + preview + trạng thái)"
+            >
+              <Save size={13} />
+              <span>Lưu{saveHint ? ` · ${saveHint}` : ""}</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleSaveProject(true)}
+              title="Lưu thành project mới"
+            >
+              <Copy size={13} />
+              <span>Lưu như…</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleSaveAsTemplate()}
+              title="Lưu cấu trúc node hiện tại thành mẫu để dùng lại"
+            >
+              <FolderHeart size={13} />
+              <span>Lưu thành mẫu</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => void handleNewProject()}
+              title="Tạo project mới"
+            >
+              <Plus size={13} />
+              <span>Project</span>
+            </button>
+          </div>
+
+          {/* Group 2: Canvas View Controls */}
+          <div className="wf-btn-group">
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={clearPreviews}
+              disabled={running}
+              title="Xóa preview trên node (không xóa file đã gen)"
+            >
+              <EyeOff size={13} />
+              <span>Xóa preview</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              onClick={() => rf.current?.fitView({ padding: 0.2 })}
+              title="Căn chỉnh khung nhìn hiển thị hết các node"
+            >
+              <Maximize2 size={13} />
+              <span>Fit view</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              disabled={nodes.length === 0}
+              title="Sắp xếp node trái → phải theo luồng nối (pipeline)"
+              onClick={() => handleLayout("pipeline")}
+            >
+              <Layout size={13} />
+              <span>Sắp xếp</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn"
+              disabled={nodes.length === 0}
+              title="Gom node theo loại (Prompt / Ảnh / Video…) thành cột"
+              onClick={() => handleLayout("grid")}
+            >
+              <Grid size={13} />
+              <span>Theo loại</span>
+            </button>
+          </div>
+
+          {/* Group 3: Execution Actions */}
+          <div className="wf-btn-group" style={{ background: "transparent", border: "none", padding: 0 }}>
+            <button
+              type="button"
+              className="wf-btn wf-btn-primary"
+              disabled={running || nodes.length === 0}
+              onClick={() => void handleRun()}
+              title="Chạy toàn bộ các node trong workflow"
+            >
+              <Play size={13} fill="white" />
+              <span>{running ? "Đang chạy…" : "Chạy hết"}</span>
+            </button>
+            <button
+              type="button"
+              className="wf-btn wf-btn-run-secondary"
+              disabled={running || nodes.length === 0}
+              onClick={() => void handleContinue()}
+              title="Giữ node đã OK — chỉ chạy node mới / chưa xong / lỗi"
+            >
+              <SkipForward size={13} />
+              <span>Tiếp tục</span>
+            </button>
+          </div>
+
+          {/* Docs link */}
           <Link
             to={NAV_ROUTES.docs}
             className="wf-btn wf-btn-secondary"
-            style={{ padding: "4px 8px" }}
+            style={{ padding: "6px 12px", borderRadius: "10px" }}
             title="Hướng dẫn nối node, chạy pipeline"
             onClick={(e) => {
               if (!dirty) return;
@@ -3412,112 +4199,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               })();
             }}
           >
-            Document
+            <BookOpen size={13} />
+            <span>Document</span>
           </Link>
-          {dirty && <span className="wf-status-badge dirty">chưa lưu</span>}
-          {running && <span className="wf-status-badge running">Đang chạy…</span>}
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setDirty(true);
-            }}
-            className="wf-input"
-            style={{ minWidth: 160 }}
-            placeholder="Tên project"
-          />
-          <div className="wf-btn-group">
-            <button
-              type="button"
-              className="wf-btn"
-              onClick={() => void handleSaveProject(false)}
-              title="Lưu project (nodes + preview + trạng thái)"
-            >
-              💾 Lưu{saveHint ? ` · ${saveHint}` : ""}
-            </button>
-            <button
-              type="button"
-              className="wf-btn"
-              onClick={() => void handleSaveProject(true)}
-              title="Lưu thành project mới"
-            >
-              Lưu như…
-            </button>
-            <button
-              type="button"
-              className="wf-btn"
-              onClick={() => void handleSaveAsTemplate()}
-              title="Lưu cấu trúc node hiện tại thành mẫu để dùng lại"
-            >
-              Lưu thành mẫu
-            </button>
-            <button type="button" className="wf-btn" onClick={() => void handleNewProject()}>
-              + Project
-            </button>
-          </div>
-
-          <div className="wf-btn-group">
-            <button
-              type="button"
-              className="wf-btn"
-              onClick={clearPreviews}
-              disabled={running}
-              title="Xóa preview trên node (không xóa file đã gen)"
-            >
-              Xóa preview
-            </button>
-            <button
-              type="button"
-              className="wf-btn"
-              onClick={() => rf.current?.fitView({ padding: 0.2 })}
-            >
-              Fit view
-            </button>
-            <button
-              type="button"
-              className="wf-btn"
-              disabled={nodes.length === 0}
-              title="Sắp xếp node trái → phải theo luồng nối (pipeline)"
-              onClick={() => handleLayout("pipeline")}
-            >
-              ⊡ Sắp xếp
-            </button>
-            <button
-              type="button"
-              className="wf-btn"
-              disabled={nodes.length === 0}
-              title="Gom node theo loại (Prompt / Ảnh / Video…) thành cột"
-              onClick={() => handleLayout("grid")}
-            >
-              ▦ Theo loại
-            </button>
-          </div>
-          {progressLabel ? (
-            <span className="muted" style={{ fontSize: 11, maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {progressLabel}
-            </span>
-          ) : null}
-          <div className="wf-btn-group" style={{ background: "transparent", border: "none", padding: 0 }}>
-            <button
-              type="button"
-              className="wf-btn wf-btn-primary"
-              disabled={running || nodes.length === 0}
-              onClick={() => void handleRun()}
-            >
-              {running ? "Đang chạy…" : "▶ Chạy hết"}
-            </button>
-            <button
-              type="button"
-              className="wf-btn wf-btn-secondary"
-              disabled={running || nodes.length === 0}
-              onClick={() => void handleContinue()}
-              title="Giữ node đã OK — chỉ chạy node mới / chưa xong / lỗi"
-            >
-              ⏭ Tiếp tục
-            </button>
-          </div>
         </div>
       </header>
 
@@ -3530,7 +4214,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 [
                   ["prompt", "Prompt", "+"],
                   ["reference", "Ảnh có sẵn", "🖼"],
+                  ["generate_plus", "Tạo ảnh +", "🎨✨"],
                   ["video_reference", "Video có sẵn", "📹"],
+                  ["video_generate_plus", "Tạo video +", "🎬✨"],
                   ["generate", "Tạo ảnh", "🎨"],
                   ["video_generate", "Tạo video", "🎬"],
                   ["frame_extract", "Tách frame", "🎞"],

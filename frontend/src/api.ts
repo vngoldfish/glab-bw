@@ -1135,6 +1135,11 @@ export async function openProjectFolder(id: string): Promise<void> {
   await ensureOk(res, "Không mở thư mục project");
 }
 
+export async function openFolderByPath(folderPath: string): Promise<void> {
+  const res = await apiFetch(`/api/projects/open-folder-by-path?folder_path=${encodeURIComponent(folderPath)}`, { method: "POST" });
+  await ensureOk(res, "Không mở được thư mục");
+}
+
 /* —— Video Editor (dựng / ghép clip, G-Labs parity) —— */
 
 export interface VideoEditorClipIn {

@@ -8,6 +8,7 @@ export type NavPage =
   | "workflow-templates"
   | "video-editor"
   | "projects"
+  | "project-media"
   | "docs"
   | "api-docs"
   | "grok"
