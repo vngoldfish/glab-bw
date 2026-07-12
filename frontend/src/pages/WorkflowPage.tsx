@@ -3208,7 +3208,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.model = "veo_31_fast";
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
-      baseData.studioDuration = 10;
+      baseData.studioDuration = 8;
     }
 
 

@@ -216,7 +216,7 @@ interface Props {
 }
 
 export default function VideoStudioModal({ initial, onConfirm, onClose }: Props) {
-  const [duration, setDuration] = useState(initial.duration || 10);
+  const [duration, setDuration] = useState(initial.duration || 8);
   const [styleId, setStyleId] = useState(() => initial.style || "");
   const [speedId, setSpeedId] = useState(() => initial.movementSpeed || "");
 
@@ -229,7 +229,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
       {
         id: "seg_1",
         start: 0,
-        end: initial.duration || 10,
+        end: initial.duration || 8,
         movement: initial.cameraMovement || CAMERA_MOVEMENTS[0].en,
         angle: initial.cameraAngle || VIDEO_ANGLES[1].en,
         action: "",
