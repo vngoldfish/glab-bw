@@ -17,6 +17,8 @@ import {
   Webhook,
   Puzzle,
   Settings,
+  ChevronLeft,
+  ChevronRight,
   type LucideIcon
 } from "lucide-react";
 
@@ -69,22 +71,35 @@ interface SidebarProps {
   extensionConnected: boolean;
   grokTab?: string;
   flowTab?: string;
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
 export default function Sidebar({
   extensionConnected,
   grokTab = "…",
   flowTab = "…",
+  collapsed,
+  onToggle,
 }: SidebarProps) {
   const dialog = useUiDialog();
   const navigate = useNavigate();
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ position: "relative" }}>
+      {/* Floating Toggle Handle */}
+      <button
+        type="button"
+        className="sidebar-toggle-handle"
+        onClick={onToggle}
+        title={collapsed ? "Mở rộng menu chính" : "Thu gọn menu chính"}
+      >
+        {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+      </button>
       <div className="sidebar-brand">
-        <span className="sidebar-logo">G</span>
+        <span className="sidebar-logo">B</span>
         <div>
-          <strong>G-Labs BW</strong>
+          <strong>Bawui APP 1</strong>
           <small>Automation</small>
         </div>
       </div>

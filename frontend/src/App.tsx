@@ -67,6 +67,16 @@ export default function App() {
   const [extension, setExtension] = useState<ExtensionStatus | null>(null);
   const [error, setError] = useState("");
   const [sessionWarn, setSessionWarn] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("sidebar_collapsed") === "true";
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      localStorage.setItem("sidebar_collapsed", String(!prev));
+      return !prev;
+    });
+  };
 
   const activeCount = useMemo(
     () => accounts.filter((a) => a.enabled && a.has_credentials).length,
@@ -155,8 +165,10 @@ export default function App() {
 
   return (
     <ReferenceLibraryProvider>
-      <div className="app-shell">
+      <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
         <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
           extensionConnected={extension?.connected ?? false}
           flowTab={extension?.flow_tab ?? "…"}
           grokTab={extension?.grok_tab ?? "…"}
@@ -164,7 +176,7 @@ export default function App() {
         <main className="main-area">
           <div className="titlebar">
             <div className="titlebar-brand">
-              <span>G-Labs BW</span>
+              <span>Bawui APP 1</span>
               <span className="titlebar-version">v0.2.0</span>
             </div>
             <div className="titlebar-meta">

@@ -27,7 +27,7 @@ from app.api import (
     webhook,
     workflows,
 )
-from app.core.config import PROJECT_ROOT, settings
+from app.core.config import PROJECT_ROOT, RESOURCES_ROOT, settings
 from app.core.logging_setup import setup_logging
 from app.core.task_queue import task_queue
 from app.services.auth_bridge import auth_bridge as auth_bridge_state
@@ -190,7 +190,7 @@ app.include_router(video_editor.router, prefix="/api")
 app.include_router(auth_bridge.router)
 
 # Production UI: frontend/dist (vite build). Dev still uses Vite :5173.
-FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+FRONTEND_DIST = RESOURCES_ROOT / "frontend" / "dist"
 _HAS_STATIC = (FRONTEND_DIST / "index.html").is_file()
 
 

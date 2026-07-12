@@ -3,8 +3,18 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import sys
+
 # backend/app/core/config.py -> project root (g-labs-bw/)
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+IS_FROZEN = getattr(sys, 'frozen', False)
+
+if IS_FROZEN:
+    # Run from compiled executable: write files next to exe
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+    RESOURCES_ROOT = Path(sys._MEIPASS).resolve()
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+    RESOURCES_ROOT = PROJECT_ROOT
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Giá trị CORS_ORIGINS mặc định khi KHÔNG có .env (môi trường local dev)
@@ -18,7 +28,7 @@ _LOCAL_ORIGINS = [
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(PROJECT_ROOT / ".env"), env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "G-Labs BW"
     host: str = "127.0.0.1"

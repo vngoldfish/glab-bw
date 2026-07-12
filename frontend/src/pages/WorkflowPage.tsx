@@ -30,7 +30,11 @@ import {
   BookOpen,
   Layout,
   Folder,
-  EyeOff
+  EyeOff,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import {
   useCallback,
@@ -2608,6 +2612,48 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [showBulkPopup, setShowBulkPopup] = useState(false);
   /** Only mount ReactFlow when wrapper has real px size (avoids RF error #004). */
   const [canvasReady, setCanvasReady] = useState(false);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("wf_left_sidebar_collapsed") === "true";
+  });
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("wf_right_sidebar_collapsed") === "true";
+  });
+  const [addNodesExpanded, setAddNodesExpanded] = useState(() => {
+    return localStorage.getItem("wf_add_nodes_expanded") !== "false";
+  });
+  const [projectsExpanded, setProjectsExpanded] = useState(() => {
+    return localStorage.getItem("wf_projects_expanded") !== "false";
+  });
+  const [mediaProjectExpanded, setMediaProjectExpanded] = useState(() => {
+    return localStorage.getItem("wf_media_project_expanded") !== "false";
+  });
+  const [headerCollapsed, setHeaderCollapsed] = useState(() => {
+    return localStorage.getItem("wf_header_collapsed") === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("wf_left_sidebar_collapsed", String(leftSidebarCollapsed));
+  }, [leftSidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("wf_right_sidebar_collapsed", String(rightSidebarCollapsed));
+  }, [rightSidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("wf_add_nodes_expanded", String(addNodesExpanded));
+  }, [addNodesExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem("wf_projects_expanded", String(projectsExpanded));
+  }, [projectsExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem("wf_media_project_expanded", String(mediaProjectExpanded));
+  }, [mediaProjectExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem("wf_header_collapsed", String(headerCollapsed));
+  }, [headerCollapsed]);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const rf = useRef<ReactFlowInstance | null>(null);
   // Freeze prop identity for the lifetime of this mount
@@ -4117,7 +4163,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   return (
     <div className="workflow-page">
-      <header className="wf-header-bar">
+      <header className={`wf-header-bar ${headerCollapsed ? "collapsed" : ""}`}>
         <div className="wf-header-left">
           <div className="wf-title-section">
             <h1 className="wf-title">Workflow</h1>
@@ -4282,154 +4328,248 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       </header>
 
       <div className="workflow-body">
-        <aside className="wf-sidebar-panel" style={{ height: "100%" }}>
-          <div className="wf-panel-card">
-            <h3>Thêm node</h3>
-            <div className="wf-node-add-grid">
-              {(
-                [
-                  ["prompt", "Prompt", "+"],
-                  ["reference", "Ảnh có sẵn", "🖼"],
-                  ["generate_plus", "Tạo ảnh +", "🎨✨"],
-                  ["video_reference", "Video có sẵn", "📹"],
-                  ["video_generate_plus", "Tạo video +", "🎬✨"],
-                  ["generate", "Tạo ảnh", "🎨"],
-                  ["video_generate", "Tạo video", "🎬"],
-                  ["frame_extract", "Tách frame", "🎞"],
-                ] as const
+        <aside className={`wf-sidebar-panel ${leftSidebarCollapsed ? "collapsed" : ""}`} style={{ height: "100%" }}>
+          {leftSidebarCollapsed ? (
+            /* Mini Sidebar Mode */
+            <div className="wf-mini-sidebar-content">
+              {/* Node Add Icons */}
+              <div className="wf-mini-node-add-list">
+                {(
+                  [
+                    ["prompt", "Prompt", "+"],
+                    ["reference", "Ảnh có sẵn", "🖼"],
+                    ["generate_plus", "Tạo ảnh +", "🎨✨"],
+                    ["video_reference", "Video có sẵn", "📹"],
+                    ["video_generate_plus", "Tạo video +", "🎬✨"],
+                    ["generate", "Tạo ảnh", "🎨"],
+                    ["video_generate", "Tạo video", "🎬"],
+                    ["frame_extract", "Tách frame", "🎞"],
+                  ] as const
+                ).map(([t, label, icon]) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className="wf-mini-node-btn"
+                    onClick={() => addNode(t)}
+                    title={`Thêm ${label}`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
 
-              ).map(([t, label, icon]) => (
-                <button key={t} type="button" className="wf-node-add-btn" onClick={() => addNode(t)}>
-                  <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
+              {/* Projects indicator / quick open */}
+              <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8, width: "100%", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="wf-mini-node-btn"
+                  onClick={() => setLeftSidebarCollapsed(false)}
+                  title="Mở Projects (Click để mở rộng sidebar)"
+                  style={{ color: "#a78bfa" }}
+                >
+                  <Folder size={16} />
                 </button>
-              ))}
-              <button
-                type="button"
-                className="wf-node-add-btn"
-                onClick={() => {
-                  setBulkBoxes([]);
-                  setShowBulkPopup(true);
-                }}
-                style={{
-                  gridColumn: "span 2",
-                  marginTop: 4,
-                  borderStyle: "dashed",
-                  borderColor: "rgba(129, 140, 248, 0.4)",
-                  color: "#a5b4fc",
-                  background: "rgba(129, 140, 248, 0.05)",
-                  justifyContent: "center",
-                }}
-              >
-                ⚡ Thêm hàng loạt
-              </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Full Sidebar Mode */
+            <>
+              <div className={`wf-panel-card ${addNodesExpanded ? "" : "collapsed"}`}>
+                <h3
+                  onClick={() => setAddNodesExpanded(!addNodesExpanded)}
+                  style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", margin: 0 }}
+                >
+                  <span>Thêm node</span>
+                  {addNodesExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </h3>
+                {addNodesExpanded && (
+                  <div className="wf-node-add-grid" style={{ marginTop: 10 }}>
+                    {(
+                      [
+                        ["prompt", "Prompt", "+"],
+                        ["reference", "Ảnh có sẵn", "🖼"],
+                        ["generate_plus", "Tạo ảnh +", "🎨✨"],
+                        ["video_reference", "Video có sẵn", "📹"],
+                        ["video_generate_plus", "Tạo video +", "🎬✨"],
+                        ["generate", "Tạo ảnh", "🎨"],
+                        ["video_generate", "Tạo video", "🎬"],
+                        ["frame_extract", "Tách frame", "🎞"],
+                      ] as const
 
-          <div className="wf-panel-card" style={{ flex: 1, minHeight: 0 }}>
-            <h3>Projects</h3>
-            <input
-              placeholder="Tìm project…"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              className="wf-input"
-              style={{ width: "100%", marginBottom: 8 }}
-            />
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, overflowY: "auto", paddingRight: 4 }}>
-              {projects.filter((p) =>
-                !projectFilter.trim()
-                  ? true
-                  : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
-              ).length === 0 && (
-                <span className="muted" style={{ fontSize: 11, textAlign: "center", display: "block", padding: 12 }}>
-                  Chưa có project — bấm 💾 Lưu
-                </span>
-              )}
-              {projects
-                .filter((p) =>
-                  !projectFilter.trim()
-                    ? true
-                    : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
-                )
-                .map((p) => (
-                  <div key={p.id} className={`wf-project-item ${projectId === p.id ? "active" : ""}`}>
+                    ).map(([t, label, icon]) => (
+                      <button key={t} type="button" className="wf-node-add-btn" onClick={() => addNode(t)}>
+                        <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
+                      </button>
+                    ))}
                     <button
                       type="button"
-                      className="wf-project-info-btn"
-                      onClick={() => void handleOpenProject(p.id)}
-                      title={p.description || p.name}
-                    >
-                      <span className="wf-project-title">{p.name}</span>
-                      <span className="wf-project-meta">
-                        {p.node_count ?? 0} node
-                        {p.updated_at
-                          ? ` · ${new Date(p.updated_at * 1000).toLocaleDateString()}`
-                          : ""}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="wf-project-del-btn"
-                      onClick={async () => {
-                        const ok = await dialog.confirm({
-                          title: "Xóa project?",
-                          message: `“${p.name}” sẽ bị xóa khỏi danh sách workflow.`,
-                          confirmLabel: "Xóa",
-                          cancelLabel: "Hủy",
-                          tone: "danger",
-                        });
-                        if (!ok) return;
-                        await deleteProject(p.id);
-                        if (projectId === p.id) {
-                          setProjectId(null);
-                          setName("Project mới");
-                          setNodes([]);
-                          setEdges([]);
-                          setDirty(true);
-                        }
-                        await refreshProjects();
+                      className="wf-node-add-btn"
+                      onClick={() => {
+                        setBulkBoxes([]);
+                        setShowBulkPopup(true);
+                      }}
+                      style={{
+                        gridColumn: "span 2",
+                        marginTop: 4,
+                        borderStyle: "dashed",
+                        borderColor: "rgba(129, 140, 248, 0.4)",
+                        color: "#a5b4fc",
+                        background: "rgba(129, 140, 248, 0.05)",
+                        justifyContent: "center",
                       }}
                     >
-                      ×
+                      ⚡ Thêm hàng loạt
                     </button>
                   </div>
-                ))}
-            </div>
-            <button
-              type="button"
-              className="wf-btn wf-btn-secondary"
-              style={{ marginTop: 10, width: "100%", justifyContent: "center" }}
-              disabled={!projectId}
-              onClick={() => void handleDuplicateProject()}
-            >
-              Nhân bản project
-            </button>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
-              Mô tả
-              <textarea
-                value={description}
-                onChange={(e) => {
-                  setDescription(e.target.value);
-                  setDirty(true);
-                }}
-                rows={2}
-                placeholder="Ghi chú mô tả project…"
-                className="wf-textarea"
-              />
-            </label>
-            <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mẫu graph</span>
-              <Link
-                to={NAV_ROUTES["workflow-templates"]}
-                className="wf-btn wf-btn-secondary"
-                style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 11 }}
-              >
-                🗃️ Quản lý mẫu graph
-              </Link>
-            </div>
-          </div>
+                )}
+              </div>
+
+              <div className={`wf-panel-card ${projectsExpanded ? "" : "collapsed"}`} style={{ flex: projectsExpanded ? 1 : "none", minHeight: 0 }}>
+                <h3
+                  onClick={() => setProjectsExpanded(!projectsExpanded)}
+                  style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", margin: 0 }}
+                >
+                  <span>Projects</span>
+                  {projectsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </h3>
+                {projectsExpanded && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0, marginTop: 10 }}>
+                    <input
+                      placeholder="Tìm project…"
+                      value={projectFilter}
+                      onChange={(e) => setProjectFilter(e.target.value)}
+                      className="wf-input"
+                      style={{ width: "100%" }}
+                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, overflowY: "auto", paddingRight: 4 }}>
+                      {projects.filter((p) =>
+                        !projectFilter.trim()
+                          ? true
+                          : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
+                      ).length === 0 && (
+                        <span className="muted" style={{ fontSize: 11, textAlign: "center", display: "block", padding: 12 }}>
+                          Chưa có project — bấm 💾 Lưu
+                        </span>
+                      )}
+                      {projects
+                        .filter((p) =>
+                          !projectFilter.trim()
+                            ? true
+                            : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
+                        )
+                        .map((p) => (
+                          <div key={p.id} className={`wf-project-item ${projectId === p.id ? "active" : ""}`}>
+                            <button
+                              type="button"
+                              className="wf-project-info-btn"
+                              onClick={() => void handleOpenProject(p.id)}
+                              title={p.description || p.name}
+                            >
+                              <span className="wf-project-title">{p.name}</span>
+                              <span className="wf-project-meta">
+                                {p.node_count ?? 0} node
+                                {p.updated_at
+                                  ? ` · ${new Date(p.updated_at * 1000).toLocaleDateString()}`
+                                  : ""}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="wf-project-del-btn"
+                              onClick={async () => {
+                                const ok = await dialog.confirm({
+                                  title: "Xóa project?",
+                                  message: `“${p.name}” sẽ bị xóa khỏi danh sách workflow.`,
+                                  confirmLabel: "Xóa",
+                                  cancelLabel: "Hủy",
+                                  tone: "danger",
+                                });
+                                if (!ok) return;
+                                await deleteProject(p.id);
+                                if (projectId === p.id) {
+                                  setProjectId(null);
+                                  setName("Project mới");
+                                  setNodes([]);
+                                  setEdges([]);
+                                  setDirty(true);
+                                }
+                                await refreshProjects();
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="wf-btn wf-btn-secondary"
+                      style={{ width: "100%", justifyContent: "center" }}
+                      disabled={!projectId}
+                      onClick={() => void handleDuplicateProject()}
+                    >
+                      Nhân bản project
+                    </button>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
+                      Mô tả
+                      <textarea
+                        value={description}
+                        onChange={(e) => {
+                          setDescription(e.target.value);
+                          setDirty(true);
+                        }}
+                        rows={2}
+                        placeholder="Ghi chú mô tả project…"
+                        className="wf-textarea"
+                      />
+                    </label>
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mẫu graph</span>
+                      <Link
+                        to={NAV_ROUTES["workflow-templates"]}
+                        className="wf-btn wf-btn-secondary"
+                        style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 11 }}
+                      >
+                        🗃️ Quản lý mẫu graph
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </aside>
 
-        <div className="workflow-canvas-wrap" ref={canvasWrapRef}>
+        <div className="workflow-canvas-wrap" ref={canvasWrapRef} style={{ position: "relative" }}>
+          {/* Floating Sidebar Toggle Buttons */}
+          <button
+            type="button"
+            className="wf-toggle-sidebar-btn left-toggle"
+            onClick={() => setLeftSidebarCollapsed(!leftSidebarCollapsed)}
+            title={leftSidebarCollapsed ? "Hiện bảng công cụ trái" : "Ẩn bảng công cụ trái"}
+          >
+            {leftSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          </button>
+          
+          <button
+            type="button"
+            className="wf-toggle-sidebar-btn right-toggle"
+            onClick={() => setRightSidebarCollapsed(!rightSidebarCollapsed)}
+            title={rightSidebarCollapsed ? "Hiện thư viện media phải" : "Ẩn thư viện media phải"}
+          >
+            {rightSidebarCollapsed ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+          </button>
+
+          {/* Floating Header Toggle Button */}
+          <button
+            type="button"
+            className="wf-toggle-header-btn"
+            onClick={() => setHeaderCollapsed(!headerCollapsed)}
+            title={headerCollapsed ? "Hiện thanh menu tổng" : "Ẩn thanh menu tổng"}
+          >
+            {headerCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+
           {canvasReady ? (
             <ReactFlow
               nodes={nodes}
@@ -4464,12 +4604,19 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           )}
         </div>
 
-        <aside className="workflow-media-aside">
-          <div className="panel-card workflow-media-panel">
-            <div className="workflow-media-head">
-              <strong style={{ fontSize: 13 }}>Media project</strong>
-              {projectId && (
-                <div style={{ display: "flex", gap: 4 }}>
+        <aside className={`workflow-media-aside ${rightSidebarCollapsed ? "collapsed" : ""}`}>
+          <div className={`panel-card workflow-media-panel ${mediaProjectExpanded ? "" : "collapsed"}`} style={{ flex: 1, minHeight: 0 }}>
+            <div
+              className="workflow-media-head"
+              onClick={() => setMediaProjectExpanded(!mediaProjectExpanded)}
+              style={{ cursor: "pointer", userSelect: "none" }}
+            >
+              <strong style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>Media project</span>
+                {mediaProjectExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </strong>
+              {mediaProjectExpanded && projectId && (
+                <div style={{ display: "flex", gap: 4 }} onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -4489,77 +4636,81 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 </div>
               )}
             </div>
-            {!projectId ? (
-              <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
-                Lưu project hoặc chạy workflow — output hiện tại đây (tab Ảnh / Video).
-              </p>
-            ) : (
-              <>
-                <p className="muted" style={{ fontSize: 10, margin: "6px 0 8px" }}>
-                  <code>projects/{projectId.slice(0, 8)}…</code>
-                  {mediaSidebarAssets.length > 0
-                    ? ` · ${mediaSidebarAssets.length} file · mới trên`
-                    : ""}
-                </p>
-                <div className="projects-tabs workflow-media-tabs" style={{ marginBottom: 8 }}>
-                  <button
-                    type="button"
-                    className={`projects-tab${mediaTab === "image" ? " active" : ""}`}
-                    onClick={() => setMediaTab("image")}
-                  >
-                    Ảnh{mediaCounts.images ? ` (${mediaCounts.images})` : ""}
-                  </button>
-                  <button
-                    type="button"
-                    className={`projects-tab${mediaTab === "video" ? " active" : ""}`}
-                    onClick={() => setMediaTab("video")}
-                  >
-                    Video{mediaCounts.videos ? ` (${mediaCounts.videos})` : ""}
-                  </button>
-                </div>
-                <div className="workflow-media-grid workflow-media-grid--fill">
-                  {mediaSidebarAssets.length === 0 && (
-                    <span className="muted" style={{ fontSize: 11, gridColumn: "1/-1" }}>
-                      {projectAssets.length === 0
-                        ? "Chưa có file — chạy workflow"
-                        : mediaTab === "video"
-                          ? "Chưa có video trong project"
-                          : "Chưa có ảnh trong project"}
-                    </span>
-                  )}
-                  {mediaSidebarAssets.map((a, i) => {
-                    const cleanUrl = normalizeFileUrl(a.url);
-                    const urlWithCb = a.mtime ? `${cleanUrl}?cb=${a.mtime}` : cleanUrl;
-                    const finalUrl = mediaUrl(urlWithCb);
-                    return (
+            {mediaProjectExpanded && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0, marginTop: 10 }}>
+                {!projectId ? (
+                  <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+                    Lưu project hoặc chạy workflow — output hiện tại đây (tab Ảnh / Video).
+                  </p>
+                ) : (
+                  <>
+                    <p className="muted" style={{ fontSize: 10, margin: "6px 0 8px" }}>
+                      <code>projects/{projectId.slice(0, 8)}…</code>
+                      {mediaSidebarAssets.length > 0
+                        ? ` · ${mediaSidebarAssets.length} file · mới trên`
+                        : ""}
+                    </p>
+                    <div className="projects-tabs workflow-media-tabs" style={{ marginBottom: 8 }}>
                       <button
-                        key={`${a.path || a.url || a.name}-${i}`}
                         type="button"
-                        className="workflow-media-thumb"
-                        onClick={() => setLightbox(urlWithCb)}
-                        title={`${a.name}${a.mtime ? ` · ${new Date(a.mtime * 1000).toLocaleString()}` : ""}`}
+                        className={`projects-tab${mediaTab === "image" ? " active" : ""}`}
+                        onClick={() => setMediaTab("image")}
                       >
-                        {a.kind === "video" ? (
-                          <video
-                            src={finalUrl}
-                            muted
-                            preload="metadata"
-                            className="workflow-media-thumb-media"
-                          />
-                        ) : (
-                          <img
-                            src={finalUrl}
-                            alt=""
-                            loading="lazy"
-                            className="workflow-media-thumb-media"
-                          />
-                        )}
-                        {a.kind === "video" && <span className="workflow-media-badge">VIDEO</span>}
+                        Ảnh{mediaCounts.images ? ` (${mediaCounts.images})` : ""}
                       </button>
-                    );
-                  })}
-                </div>
-              </>
+                      <button
+                        type="button"
+                        className={`projects-tab${mediaTab === "video" ? " active" : ""}`}
+                        onClick={() => setMediaTab("video")}
+                      >
+                        Video{mediaCounts.videos ? ` (${mediaCounts.videos})` : ""}
+                      </button>
+                    </div>
+                    <div className="workflow-media-grid workflow-media-grid--fill">
+                      {mediaSidebarAssets.length === 0 && (
+                        <span className="muted" style={{ fontSize: 11, gridColumn: "1/-1" }}>
+                          {projectAssets.length === 0
+                            ? "Chưa có file — chạy workflow"
+                            : mediaTab === "video"
+                              ? "Chưa có video trong project"
+                              : "Chưa có ảnh trong project"}
+                        </span>
+                      )}
+                      {mediaSidebarAssets.map((a, i) => {
+                        const cleanUrl = normalizeFileUrl(a.url);
+                        const urlWithCb = a.mtime ? `${cleanUrl}?cb=${a.mtime}` : cleanUrl;
+                        const finalUrl = mediaUrl(urlWithCb);
+                        return (
+                          <button
+                            key={`${a.path || a.url || a.name}-${i}`}
+                            type="button"
+                            className="workflow-media-thumb"
+                            onClick={() => setLightbox(urlWithCb)}
+                            title={`${a.name}${a.mtime ? ` · ${new Date(a.mtime * 1000).toLocaleString()}` : ""}`}
+                          >
+                            {a.kind === "video" ? (
+                              <video
+                                src={finalUrl}
+                                muted
+                                preload="metadata"
+                                className="workflow-media-thumb-media"
+                              />
+                            ) : (
+                              <img
+                                src={finalUrl}
+                                alt=""
+                                loading="lazy"
+                                className="workflow-media-thumb-media"
+                              />
+                            )}
+                            {a.kind === "video" && <span className="workflow-media-badge">VIDEO</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </aside>

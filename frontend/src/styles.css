@@ -138,6 +138,9 @@ textarea {
   flex-direction: column;
   padding: 20px 12px;
   gap: 8px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
+  position: relative;
+  z-index: 11;
 }
 
 .sidebar-brand {
@@ -5114,6 +5117,14 @@ textarea:focus {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, padding 0.3s ease;
+}
+
+.workflow-media-aside.collapsed {
+  width: 0px !important;
+  opacity: 0 !important;
+  padding: 0px !important;
+  pointer-events: none;
 }
 
 .workflow-media-panel {
@@ -6571,6 +6582,20 @@ textarea:focus {
   margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
   flex-wrap: wrap;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, padding 0.3s ease, margin-bottom 0.3s ease, border-width 0.3s ease;
+  max-height: 120px;
+  overflow: hidden;
+}
+
+.wf-header-bar.collapsed {
+  max-height: 0px !important;
+  padding-top: 0px !important;
+  padding-bottom: 0px !important;
+  margin-bottom: 0px !important;
+  opacity: 0 !important;
+  pointer-events: none;
+  border-top-width: 0px !important;
+  border-bottom-width: 0px !important;
 }
 
 .wf-header-left {
@@ -6772,6 +6797,18 @@ textarea:focus {
   width: 280px;
   flex-shrink: 0;
   min-height: 0;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, padding 0.3s ease;
+  overflow: hidden;
+}
+
+.wf-sidebar-panel.collapsed {
+  width: 52px !important;
+  opacity: 1 !important;
+  padding: 12px 4px !important;
+  gap: 16px !important;
+  background: linear-gradient(180deg, rgba(10, 15, 30, 0.6) 0%, rgba(5, 7, 12, 0.6) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  align-items: center;
 }
 
 .wf-panel-card {
@@ -11519,6 +11556,206 @@ textarea:focus {
 .spin-icon {
   display: inline-block;
   animation: spin 1.2s linear infinite;
+}
+
+/* Floating Sidebar Toggle Buttons */
+.wf-toggle-sidebar-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 60px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a5b4fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
+  padding: 0;
+}
+.wf-toggle-sidebar-btn:hover {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+.wf-toggle-sidebar-btn.left-toggle {
+  left: 0;
+  border-radius: 0 10px 10px 0;
+  border-left: none;
+}
+.wf-toggle-sidebar-btn.right-toggle {
+  right: 0;
+  border-radius: 10px 0 0 10px;
+  border-right: none;
+}
+
+/* Collapsible Box/Panel Cards inside Sidebars */
+.wf-panel-card {
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
+.wf-panel-card.collapsed {
+  max-height: 42px !important;
+  padding-bottom: 0px !important;
+}
+
+.panel-card.workflow-media-panel {
+  transition: max-height 0.3s ease, padding 0.3s ease;
+}
+.panel-card.workflow-media-panel.collapsed {
+  max-height: 42px !important;
+  padding-bottom: 0px !important;
+}
+
+/* Floating Header Toggle Button */
+.wf-toggle-header-btn {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 16px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: none;
+  color: #a5b4fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
+  border-radius: 0 0 10px 10px;
+  padding: 0;
+}
+.wf-toggle-header-btn:hover {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+  height: 20px;
+}
+
+/* Mini Sidebar Styles */
+.wf-mini-sidebar-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  gap: 16px;
+}
+
+.wf-mini-node-add-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+}
+
+.wf-mini-node-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.wf-mini-node-btn:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: var(--purple-bright);
+  transform: scale(1.08);
+}
+
+/* Global App Sidebar Collapse Styles */
+.sidebar-collapsed .sidebar {
+  width: 64px !important;
+  padding: 20px 8px !important;
+}
+
+.sidebar-collapsed .sidebar-brand div {
+  display: none !important;
+}
+
+.sidebar-collapsed .sidebar-brand {
+  padding: 4px 0 24px !important;
+  justify-content: center !important;
+}
+
+.sidebar-collapsed .sidebar-link span:not(.nav-icon) {
+  display: none !important;
+}
+
+.sidebar-collapsed .sidebar-link {
+  justify-content: center !important;
+  padding: 11px 0 !important;
+  gap: 0 !important;
+}
+
+.sidebar-collapsed .sidebar-soon {
+  display: none !important;
+}
+
+.sidebar-collapsed .sidebar-group-title {
+  display: none !important;
+}
+
+.sidebar-collapsed .sidebar-footer {
+  align-items: center !important;
+  padding: 10px 0 !important;
+}
+
+.sidebar-collapsed .sidebar-status {
+  font-size: 0 !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  justify-content: center !important;
+}
+
+.sidebar-collapsed .sidebar-ext-meta,
+.sidebar-collapsed .sidebar-badge {
+  display: none !important;
+}
+
+/* Floating Main Sidebar Toggle Handle Button */
+.sidebar-toggle-handle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  right: -13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #1e1b4b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a5b4fc;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+}
+
+.sidebar-toggle-handle:hover {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+  transform: translateY(-50%) scale(1.1);
 }
 
 
