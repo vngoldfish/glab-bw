@@ -468,7 +468,8 @@ async def _execute_node(
         has_any_ref = bool(start_refs or end_refs or connected_references)
 
         if not prompt:
-            if ntype == "video_generate_plus" and has_any_ref:
+            has_timeline = bool(data.get("cameraMovement") or data.get("timelineSegments"))
+            if ntype == "video_generate_plus" and (has_any_ref or has_timeline):
                 pass
             else:
                 node_title = data.get("title") or ("Tạo video +" if ntype == "video_generate_plus" else "Tạo video")

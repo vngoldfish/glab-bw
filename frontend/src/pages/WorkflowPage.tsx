@@ -942,6 +942,7 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
     if (hasStartActive) return "start_image";
     return "text_to_video";
   }, [fromEdge, d.start_image, resolvedStartImage, hasEndEdge, d.end_image, resolvedEndImage]);
+
   const hasRefEdge = edges.some(e => e.target === id && e.targetHandle === "reference");
   const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
 
@@ -1006,6 +1007,32 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
     });
     return chars;
   }, [nodes, edges, id, plus]);
+
+  const allActiveCharacters = useMemo(() => {
+    if (!plus) return [];
+    const list: Array<{ name: string; url: string }> = [];
+    const seenNames = new Set<string>();
+
+    // 1. Add connected characters
+    connectedCharacters.forEach(c => {
+      const name = c.name.trim();
+      if (name && !seenNames.has(name)) {
+        seenNames.add(name);
+        list.push(c);
+      }
+    });
+
+    // 2. Add local characterAssets
+    (d.characterAssets || []).forEach((c: any) => {
+      const name = String(c.name || "").trim();
+      if (name && !seenNames.has(name)) {
+        seenNames.add(name);
+        list.push({ name, url: String(c.url || "") });
+      }
+    });
+
+    return list;
+  }, [plus, connectedCharacters, d.characterAssets]);
 
   const modeLabel = hasEndEdge
     ? "Ảnh đầu + khung cuối (từ node frame)"
@@ -1128,7 +1155,13 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
         </div>
       )}
 
-      {fromEdge ? (
+      {plus ? (
+        fromEdge && (
+          <div className="node-edge-hint">
+            ✓ Ảnh đầu lấy từ node ảnh đã nối
+          </div>
+        )
+      ) : fromEdge ? (
         <div className="node-edge-hint">
           ✓ Ảnh đầu lấy từ node ảnh đã nối
         </div>
@@ -1153,36 +1186,21 @@ function VideoNode({ id, data, selected, plus = false }: NodeProps & { plus?: bo
         <div className="node-edge-hint" style={{ marginTop: 6 }}>
           ✓ Khung cuối lấy từ node Tách frame
         </div>
-      ) : plus ? (
-        <ImageAttachBar
-          nodeId={id}
-          field="end_image"
-          value={d.end_image}
-          onChange={(nid, patch) => {
-            d.onChange?.(nid, {
-              ...patch,
-              mode: patch.end_image ? "start_end_image" : d.start_image ? "start_image" : "text_to_video",
-            });
-          }}
-          onPick={d.onPickImage}
-          onPreview={d.onPreview}
-          label="Khung cuối (khi không nối ngoài)"
-        />
-      ) : (
+      ) : plus ? null : (
         <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
           Khung cuối: nối node <strong>Tách frame</strong> → chấm <code>end_image</code>
         </div>
       )}
 
-      {plus && d.characterAssets && d.characterAssets.length > 0 && (
+      {plus && allActiveCharacters.length > 0 && (
         <div className="nodrag nopan node-attach-bar" style={{ marginTop: 6 }}>
           <div className="node-attach-head">
-            <span>Nhân vật/Đồ vật tham chiếu ({d.characterAssets.length})</span>
+            <span>Nhân vật/Đồ vật tham chiếu ({allActiveCharacters.length})</span>
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-            {d.characterAssets.map((char) => (
+            {allActiveCharacters.map((char, index) => (
               <button
-                key={char.id}
+                key={index}
                 type="button"
                 className="node-attach-thumb"
                 onClick={() => char.url && d.onPreview?.(mediaUrl(char.url))}
