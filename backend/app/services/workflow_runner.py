@@ -12,7 +12,7 @@ import time
 import unicodedata
 from collections import defaultdict, deque
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from app.services.frame_extract import extract_frames
 from app.services.generation import handle_batch_item
@@ -87,19 +87,32 @@ def _incoming(edges: list[dict], target_id: str) -> list[dict]:
 async def _url_to_data_url(url: str) -> str:
     if url.startswith("data:"):
         return url
-    raw = url
+    raw = url.strip()
+    storage_path = None
     if "/api/files/" in raw:
-        raw = unquote(raw.split("/api/files/", 1)[1].split("?", 1)[0])
-        path = resolve_data_file(raw)
-        data = path.read_bytes()
-        mime = "image/png"
-        suf = path.suffix.lower()
-        if suf in {".jpg", ".jpeg"}:
-            mime = "image/jpeg"
-        elif suf == ".webp":
-            mime = "image/webp"
-        return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
-    raise ValueError(f"Cannot load media: {url[:100]}")
+        storage_path = unquote(raw.split("/api/files/", 1)[1].split("?", 1)[0])
+    elif raw.startswith("http://") or raw.startswith("https://"):
+        parsed = urlparse(raw)
+        if parsed.path.startswith("/api/files/"):
+            storage_path = unquote(parsed.path[len("/api/files/") :])
+    else:
+        storage_path = unquote(raw.split("?", 1)[0])
+
+    if not storage_path:
+        raise ValueError(f"Cannot parse storage path from url: {url[:100]}")
+
+    path = resolve_data_file(storage_path)
+    if not path.is_file():
+        raise ValueError(f"File not found at path: {path}")
+
+    data = path.read_bytes()
+    mime = "image/png"
+    suf = path.suffix.lower()
+    if suf in {".jpg", ".jpeg"}:
+        mime = "image/jpeg"
+    elif suf == ".webp":
+        mime = "image/webp"
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 def _find_incoming_modifiers(nid: str, workflow: dict[str, Any] | None) -> list[str]:
@@ -426,9 +439,14 @@ async def _execute_node(
                     src_node = nodes_map.get(src_id)
                     if src_node and src_node.get("type") in {"reference", "generate_plus"}:
                         src_data = src_node.get("data") or {}
-                        ref_name = src_data.get("refName")
-                        img_val = outputs.get(src_id, {}).get("image")
-                        img_url = img_val[0] if img_val else src_data.get("image")
+                        ref_name = str(src_data.get("refName") or "").lstrip("@").strip()
+                        img_val = outputs.get(src_id, {}).get("image") or outputs.get(src_id, {}).get("results")
+                        img_url = img_val[0] if img_val else (
+                            src_data.get("image")
+                            or src_data.get("file_url")
+                            or src_data.get("file_path")
+                            or (src_data.get("resultUrls") and src_data.get("resultUrls")[0])
+                        )
                         if ref_name and img_url:
                             connected_references.append({
                                 "name": ref_name,

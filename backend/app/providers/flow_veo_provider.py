@@ -255,7 +255,7 @@ class FlowVeoProvider(BaseProvider):
             rewrite_markers=rewrite,
             # Frame modes: ignore stray @foo in prompt; use picker payload order
             strict_unknown_mentions=not frame_mode and mode != "text_to_video",
-            prefer_payload_order=frame_mode,
+            prefer_payload_order=frame_mode and "@" not in prompt,
         )
 
         reference_items = []
