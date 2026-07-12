@@ -3525,7 +3525,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         <aside className="wf-sidebar-panel" style={{ height: "100%" }}>
           <div className="wf-panel-card">
             <h3>Thêm node</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div className="wf-node-add-grid">
               {(
                 [
                   ["prompt", "Prompt", "+"],
@@ -3549,11 +3549,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   setShowBulkPopup(true);
                 }}
                 style={{
-                  marginTop: 6,
+                  gridColumn: "span 2",
+                  marginTop: 4,
                   borderStyle: "dashed",
                   borderColor: "rgba(129, 140, 248, 0.4)",
                   color: "#a5b4fc",
                   background: "rgba(129, 140, 248, 0.05)",
+                  justifyContent: "center",
                 }}
               >
                 ⚡ Thêm hàng loạt
