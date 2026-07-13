@@ -106,38 +106,58 @@ def _sync_result(body: BatchSubmitRequest, results: list[dict]) -> dict:
 async def submit_batch(body: BatchSubmitRequest) -> dict:
     """Sync batch (UI path) — waits for all items."""
     _cleanup_batches()
-    concurrency = max(1, min(body.concurrency, 10))
+    from app.core.task_queue import task_queue, TaskStatus
+    from app.services.output_storage import resolve_task_output_dir
+    from app.core.config import settings
+
+    if body.concurrency:
+        task_queue.set_max_concurrent(body.concurrency)
+
+    # 1. Create all tasks inside task_queue to make them persistent and independent of connection cancels
+    tasks = []
+    for item in body.items:
+        t = task_queue.create_task(item.provider, item.prompt, item.params or {})
+        tasks.append(t)
+
+    # 2. Wait for all tasks to finish
+    try:
+        while any(t.status in {TaskStatus.PENDING, TaskStatus.RUNNING} for t in tasks):
+            await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        # Request disconnected/cancelled, but background tasks will continue running!
+        raise
+
+    # 3. Compile sync results
     results: list[dict] = []
-    semaphore = asyncio.Semaphore(concurrency)
-
-    async def run_item(index: int, item) -> None:
-        async with semaphore:
+    for i, t in enumerate(tasks):
+        if t.status == TaskStatus.COMPLETED:
+            folder = ""
             try:
-                output = await handle_batch_item(item.prompt, item.provider, item.params)
-                results.append(
-                    {
-                        "index": index,
-                        "prompt": item.prompt,
-                        "provider": item.provider,
-                        "status": "completed",
-                        "results": output["urls"],
-                        "saved_folder": output["folder"],
-                    }
-                )
-            except Exception as exc:
-                results.append(
-                    {
-                        "index": index,
-                        "prompt": item.prompt,
-                        "provider": item.provider,
-                        "status": "failed",
-                        "error": str(exc),
-                        "error_detail": getattr(exc, "error_detail", str(exc)),
-                    }
-                )
+                folder = resolve_task_output_dir(t).relative_to(settings.data_dir.resolve()).as_posix()
+            except Exception:
+                pass
+            results.append(
+                {
+                    "index": i,
+                    "prompt": t.prompt,
+                    "provider": t.task_type,
+                    "status": "completed",
+                    "results": t.results,
+                    "saved_folder": folder,
+                }
+            )
+        else:
+            results.append(
+                {
+                    "index": i,
+                    "prompt": t.prompt,
+                    "provider": t.task_type,
+                    "status": "failed",
+                    "error": t.error or "Task failed",
+                    "error_detail": t.error_detail or t.error or "Task failed",
+                }
+            )
 
-    await asyncio.gather(*(run_item(i, item) for i, item in enumerate(body.items)))
-    results.sort(key=lambda r: r["index"])
     return _sync_result(body, results)
 
 
