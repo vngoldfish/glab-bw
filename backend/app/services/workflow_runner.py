@@ -698,6 +698,11 @@ async def run_workflow(
         if len(run["logs"]) > 200:
             run["logs"] = run["logs"][-200:]
         logger.info("[wf %s] %s", rid, msg)
+        try:
+            from app.core.progress import emit_workflow_log
+            emit_workflow_log(run.get("run_id", ""), msg, data=run.get("progress"))
+        except Exception:
+            pass
 
     running_tasks: dict[str, asyncio.Task] = {}
     try:
@@ -753,6 +758,14 @@ async def run_workflow(
                 
                 completed_nodes.add(nid)
                 run["progress"]["done"] = int(run["progress"]["done"]) + 1
+                try:
+                    from app.core.progress import emit_task_progress
+                    p = run.get("progress", {})
+                    total = max(p.get("total", 1), 1)
+                    pct = int(p.get("done", 0) / total * 100)
+                    emit_task_progress(run["run_id"], f"Node {nid} hoàn thành", percent=pct, task_type="workflow")
+                except Exception:
+                    pass
 
         # Track active incomplete parent counts
         active_parent_count = {}
@@ -848,6 +861,14 @@ async def run_workflow(
                     result = task.result()
                     run["node_results"][finished_nid] = result
                     run["progress"]["done"] = int(run["progress"]["done"]) + 1
+                    try:
+                        from app.core.progress import emit_task_progress
+                        p = run.get("progress", {})
+                        total = max(p.get("total", 1), 1)
+                        pct = int(p.get("done", 0) / total * 100)
+                        emit_task_progress(run["run_id"], f"Node {finished_nid} hoàn thành", percent=pct, task_type="workflow")
+                    except Exception:
+                        pass
                     log(f"OK {finished_nid}")
 
                     completed_nodes.add(finished_nid)

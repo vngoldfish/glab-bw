@@ -2,6 +2,7 @@ import json
 import secrets
 import threading
 import time
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -46,6 +47,9 @@ class AccountStore:
             "openai:image": 0,
         }
         self._lock = threading.RLock()
+        self._dirty = False
+        self._last_save = 0.0
+        self._SAVE_DEBOUNCE = 1.0
         self._load()
 
     def _load(self) -> None:
@@ -58,7 +62,7 @@ class AccountStore:
                 return
             for item in data.get("accounts", []):
                 # Ignore unknown keys for forward compat
-                known = {f.name for f in Account.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+                known = {f.name for f in dataclasses.fields(Account)}
                 filtered = {k: v for k, v in item.items() if k in known}
                 try:
                     account = Account(**filtered)
@@ -66,9 +70,13 @@ class AccountStore:
                     continue
                 self._accounts[account.id] = account
 
-    def _save(self) -> None:
+    def _save(self, force: bool = False) -> None:
         """Atomic write (temp + replace) so crash mid-write cannot corrupt accounts.json."""
         with self._lock:
+            now = time.monotonic()
+            if not force and (now - self._last_save) < self._SAVE_DEBOUNCE:
+                self._dirty = True
+                return
             settings.ensure_dirs()
             payload = {
                 "accounts": [
@@ -95,6 +103,14 @@ class AccountStore:
             data = json.dumps(payload, indent=2, ensure_ascii=False)
             tmp.write_text(data, encoding="utf-8")
             tmp.replace(self.storage_path)
+            self._dirty = False
+            self._last_save = now
+
+    def flush(self) -> None:
+        """Force save if there are pending (debounced) changes."""
+        with self._lock:
+            if self._dirty:
+                self._save(force=True)
 
     def list_accounts(self, provider: ProviderType | None = None) -> list[Account]:
         with self._lock:
@@ -159,11 +175,6 @@ class AccountStore:
         kind = "video" if for_video else "image"
         return f"{provider}:{kind}"
 
-    def _clear_expired(self, account: Account, attr: str) -> None:
-        with self._lock:
-            value = getattr(account, attr, None)
-            if value and value <= time.time():
-                setattr(account, attr, None)
 
     def _modality_in_cooldown(self, account: Account, *, for_video: bool) -> bool:
         """Check cooldown for image OR video only (video quota must not block image)."""

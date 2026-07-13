@@ -48,8 +48,7 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
             return "Prompt bị Google chặn (nội dung không an toàn) — hãy sửa lại prompt"
         if (
             "recaptcha evaluation failed" in message.lower()
-            or "recaptcha" in message.lower()
-            and "fail" in message.lower()
+            or ("recaptcha" in message.lower() and "fail" in message.lower())
         ):
             return (
                 "reCAPTCHA bị Google từ chối (evaluation failed). "
@@ -1229,14 +1228,20 @@ class GoogleFlowClient:
 
     async def _extract_images(self, result: dict[str, Any]) -> list[bytes]:
         images: list[bytes] = []
-        for item in result.get("media", []):
+        download_tasks: list[tuple[int, str]] = []
+        for idx, item in enumerate(result.get("media", [])):
             encoded = self._find_encoded_image(item)
             if encoded:
                 images.append(base64.b64decode(encoded))
                 continue
             url = self._find_image_url(item)
             if url:
-                images.append(await self._async_download(url))
+                download_tasks.append((idx, url))
+        if download_tasks:
+            downloaded = await asyncio.gather(
+                *(self._async_download(url) for _, url in download_tasks)
+            )
+            images.extend(downloaded)
         if not images:
             raise ProviderError("Flow không trả về ảnh", error_code=0)
         return images

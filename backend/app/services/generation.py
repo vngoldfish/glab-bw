@@ -19,6 +19,21 @@ from app.services.upscale import upscale_service
 logger = logging.getLogger(__name__)
 
 
+def _validate_prompt(task: Task) -> None:
+    """Raise ProviderError if prompt is empty."""
+    if not task.prompt.strip():
+        raise ProviderError("Missing required field: prompt", error_code=0)
+
+
+def _track(provider_name: str, kind: str, **kwargs) -> None:
+    """Track model usage; swallow import/runtime errors."""
+    try:
+        from app.services.credit_store import track_run
+        track_run(provider_name, kind=kind, **kwargs)
+    except Exception:
+        logger.exception("Failed to track %s %s run", provider_name, kind)
+
+
 def _save_outputs(
     data_list: list[bytes],
     task: Task,
@@ -27,13 +42,13 @@ def _save_outputs(
 ) -> list[str]:
     output_dir = resolve_task_output_dir(task)
     urls: list[str] = []
+    from app.services.output_storage import copy_to_central_dir
     for index, data in enumerate(data_list, start=1):
         filename = f"{prefix}_{index:03d}.{ext}"
         saved = upscale_service.save_bytes(data, filename, output_dir)
         urls.append(file_url_from_path(saved))
         
         # Copy to central directory
-        from app.services.output_storage import copy_to_central_dir
         file_type = "video" if ext == "mp4" else "anh"
         copy_to_central_dir(saved, "workflow", file_type)
         
@@ -171,14 +186,24 @@ async def _run_flow_with_rotation(
 
 
 async def handle_image_task(task: Task) -> list[str]:
-    if not task.prompt.strip():
-        raise ProviderError("Missing required field: prompt", error_code=0)
+    _validate_prompt(task)
 
     params = task.payload
     custom_prefix = params.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"image_{task.task_id}"
 
     try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=10, task_type=task.task_type)
+    except Exception:
+        pass
+
+    try:
+        try:
+            from app.core.progress import emit_task_progress
+            emit_task_progress(task.task_id, "Đang gửi prompt tạo ảnh...", percent=30, task_type=task.task_type)
+        except Exception:
+            pass
         images = await _run_flow_with_rotation(
             for_video=False,
             prompt=task.prompt,
@@ -188,13 +213,15 @@ async def handle_image_task(task: Task) -> list[str]:
         openai = get_openai_provider()
         if openai:
             images = await openai.generate_image(task.prompt, params)
-            try:
-                from app.services.credit_store import track_run
-                track_run("openai", kind="image")
-            except Exception:
-                logger.exception("Failed to track fallback openai image run")
+            _track("openai", "image")
             return _save_outputs(images, task, file_prefix)
         raise
+
+    try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+    except Exception:
+        pass
 
     upscale_targets = params.get("upscale", [])
     if upscale_targets:
@@ -206,22 +233,38 @@ async def handle_image_task(task: Task) -> list[str]:
 
 
 async def handle_video_task(task: Task) -> list[str]:
-    if not task.prompt.strip():
-        raise ProviderError("Missing required field: prompt", error_code=0)
+    _validate_prompt(task)
 
+    try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=5, task_type=task.task_type)
+    except Exception:
+        pass
+
+    try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang gửi prompt tạo video...", percent=15, task_type=task.task_type)
+    except Exception:
+        pass
     videos = await _run_flow_with_rotation(
         for_video=True,
         prompt=task.prompt,
         params=task.payload,
     )
+
+    try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang lưu video...", percent=85, task_type=task.task_type)
+    except Exception:
+        pass
+
     custom_prefix = task.payload.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"video_{task.task_id}"
     return _save_outputs(videos, task, file_prefix, ext="mp4")
 
 
 async def handle_grok_task(task: Task) -> list[str]:
-    if not task.prompt.strip():
-        raise ProviderError("Missing required field: prompt", error_code=0)
+    _validate_prompt(task)
 
     mode = str(task.payload.get("mode") or "t2v").lower()
     # t2i / i2i = image; everything else treated as video (t2v, i2v, …)
@@ -234,25 +277,33 @@ async def handle_grok_task(task: Task) -> list[str]:
             error_code=0,
         )
 
+    try:
+        from app.core.progress import emit_task_progress
+        emit_task_progress(task.task_id, "Đang kết nối Grok...", percent=20, task_type=task.task_type)
+    except Exception:
+        pass
+
     custom_prefix = task.payload.get("custom_prefix")
     try:
         if not for_video:
             images = await provider.generate_image(task.prompt, task.payload)
-            try:
-                from app.services.credit_store import track_run
-                track_run("grok", kind="image")
-            except Exception:
-                logger.exception("Failed to track grok image run")
+            _track("grok", "image")
             session_health.mark_grok_ok()
+            try:
+                from app.core.progress import emit_task_progress
+                emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+            except Exception:
+                pass
             file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
             return _save_outputs(images, task, file_prefix)
         videos = await provider.generate_video(task.prompt, task.payload)
-        try:
-            from app.services.credit_store import track_run
-            track_run("grok", kind="video")
-        except Exception:
-            logger.exception("Failed to track grok video run")
+        _track("grok", "video")
         session_health.mark_grok_ok()
+        try:
+            from app.core.progress import emit_task_progress
+            emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+        except Exception:
+            pass
         file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
         return _save_outputs(videos, task, file_prefix, ext="mp4")
     except ProviderError as exc:
@@ -262,8 +313,7 @@ async def handle_grok_task(task: Task) -> list[str]:
 
 
 async def handle_meta_task(task: Task) -> list[str]:
-    if not task.prompt.strip():
-        raise ProviderError("Missing required field: prompt", error_code=0)
+    _validate_prompt(task)
 
     mode = task.payload.get("mode", "t2i")
     for_video = mode in {"t2v", "i2v"}
@@ -278,37 +328,24 @@ async def handle_meta_task(task: Task) -> list[str]:
     custom_prefix = task.payload.get("custom_prefix")
     if for_video:
         outputs = await provider.generate_video(task.prompt, {**task.payload, "count": count})
-        try:
-            from app.services.credit_store import track_run
-            track_run("meta", kind="video")
-        except Exception:
-            logger.exception("Failed to track meta video run")
+        _track("meta", "video")
         file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
         return _save_outputs(outputs, task, file_prefix, ext="mp4")
     outputs = await provider.generate_image(task.prompt, {**task.payload, "count": count})
-    try:
-        from app.services.credit_store import track_run
-        track_run("meta", kind="image")
-    except Exception:
-        logger.exception("Failed to track meta image run")
+    _track("meta", "image")
     file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
     return _save_outputs(outputs, task, file_prefix)
 
 
 async def handle_openai_task(task: Task) -> list[str]:
-    if not task.prompt.strip():
-        raise ProviderError("Missing required field: prompt", error_code=0)
+    _validate_prompt(task)
 
     provider = get_openai_provider()
     if provider is None:
         raise ProviderError("No active OpenAI account available", error_code=0)
 
     images = await provider.generate_image(task.prompt, task.payload)
-    try:
-        from app.services.credit_store import track_run
-        track_run("openai", kind="image")
-    except Exception:
-        logger.exception("Failed to track openai image run")
+    _track("openai", "image")
     custom_prefix = task.payload.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"openai_{task.task_id}"
     return _save_outputs(images, task, file_prefix)

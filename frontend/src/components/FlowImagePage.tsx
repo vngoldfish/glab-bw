@@ -853,9 +853,9 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     }
   }
 
-  const selectedCount = rows.filter((r) => r.selected).length;
-  const completedCount = rows.filter((r) => r.status === "completed").length;
-  const runningCount = rows.filter((r) => r.status === "running" || r.status === "queued").length;
+  const selectedCount = useMemo(() => rows.filter((r) => r.selected).length, [rows]);
+  const completedCount = useMemo(() => rows.filter((r) => r.status === "completed").length, [rows]);
+  const runningCount = useMemo(() => rows.filter((r) => r.status === "running" || r.status === "queued").length, [rows]);
   return (
     <div className="flow-page">
       <header className="flow-page-top">

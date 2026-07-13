@@ -16,6 +16,8 @@ from app.services.output_storage import resolve_data_file
 
 router = APIRouter(prefix="/media", tags=["media"])
 
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500 MB
+
 
 class ExtractFramesBody(BaseModel):
     """Extract from a file already under data/ (relative path or /api/files/...)."""
@@ -62,7 +64,11 @@ async def extract_frames_upload(
     file: UploadFile = File(...),
     positions: str = Form(default="start,middle,end"),
 ) -> dict:
+    if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail={"error": f"File too large (max {MAX_UPLOAD_SIZE // (1024*1024)}MB)"})
     data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail={"error": f"File too large (max {MAX_UPLOAD_SIZE // (1024*1024)}MB)"})
     if not data:
         raise HTTPException(status_code=400, detail={"error": "Empty file"})
     tmp_dir = settings.data_dir / "temp" / "uploads"
@@ -131,7 +137,7 @@ async def delete_media_file(
         data_dir_resolved = settings.data_dir.resolve()
         
         # Đảm bảo không nhảy ra ngoài data dir
-        if not str(resolved_path).startswith(str(data_dir_resolved)):
+        if not resolved_path.is_relative_to(data_dir_resolved):
             raise HTTPException(status_code=403, detail={"error": "Access denied"})
 
         # Chỉ cho phép xóa trong các thư mục output được phép

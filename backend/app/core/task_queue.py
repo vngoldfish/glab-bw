@@ -40,6 +40,7 @@ TaskHandler = Callable[[Task], Awaitable[list[str]]]
 class TaskQueue:
     def __init__(self, max_concurrent: int = 5, timeout_seconds: int = 600) -> None:
         self.max_concurrent = max_concurrent
+        self._max_concurrent = max_concurrent
         self.timeout_seconds = timeout_seconds
         self._tasks: dict[str, Task] = {}
         self._handlers: dict[str, TaskHandler] = {}
@@ -47,6 +48,10 @@ class TaskQueue:
         self._started_at = time.time()
         self._store = TaskStore(settings.data_dir / "tasks.db")
         self._hydrated = False
+        self._task_refs: set[asyncio.Task] = set()
+        self._pending_count = 0
+        self._running_count = 0
+        self._MAX_COMPLETED = 500
 
     @property
     def uptime(self) -> int:
@@ -125,14 +130,18 @@ class TaskQueue:
     def set_max_concurrent(self, value: int) -> None:
         value = max(1, min(int(value), 20))
         self.max_concurrent = value
+        self._max_concurrent = value
         self._semaphore = asyncio.Semaphore(value)
 
     def create_task(self, task_type: str, prompt: str, payload: dict[str, Any]) -> Task:
-        task_id = secrets.token_hex(4)
+        task_id = secrets.token_hex(8)
         task = Task(task_id=task_id, task_type=task_type, prompt=prompt, payload=payload)
         self._tasks[task_id] = task
         self._persist(task)
-        asyncio.create_task(self._process(task))
+        self._pending_count += 1
+        bg = asyncio.create_task(self._process(task))
+        self._task_refs.add(bg)
+        bg.add_done_callback(self._task_refs.discard)
         return task
 
     def get_task(self, task_id: str) -> Task | None:
@@ -143,42 +152,86 @@ class TaskQueue:
         return tasks[:limit]
 
     def pending_count(self) -> int:
-        return sum(1 for t in self._tasks.values() if t.status == TaskStatus.PENDING)
+        return self._pending_count
 
     def running_count(self) -> int:
-        return sum(1 for t in self._tasks.values() if t.status == TaskStatus.RUNNING)
+        return self._running_count
+
+    def _evict_old_tasks(self) -> None:
+        """Remove oldest completed/failed tasks when count exceeds _MAX_COMPLETED."""
+        terminal = [
+            t for t in self._tasks.values()
+            if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+        ]
+        if len(terminal) <= self._MAX_COMPLETED:
+            return
+        terminal.sort(key=lambda t: t.created_at)
+        excess = len(terminal) - self._MAX_COMPLETED
+        for t in terminal[:excess]:
+            self._tasks.pop(t.task_id, None)
 
     async def _process(self, task: Task) -> None:
         handler = self._handlers.get(task.task_type)
         if handler is None:
+            self._pending_count -= 1
             task.status = TaskStatus.FAILED
             task.error_code = 0
             task.error = f"No handler for task type: {task.task_type}"
             task.error_detail = task.error
             task.completed_at = time.time()
             self._persist(task)
+            try:
+                from app.core.progress import emit_task_status
+                emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+            except Exception:
+                pass
+            self._evict_old_tasks()
             return
 
         async with self._semaphore:
+            self._pending_count -= 1
+            self._running_count += 1
             task.status = TaskStatus.RUNNING
             self._persist(task)
+            try:
+                from app.core.progress import emit_task_status
+                emit_task_status(task.task_id, task.task_type, "running", message=f"Bắt đầu: {task.prompt[:80]}")
+            except Exception:
+                pass
             try:
                 results = await asyncio.wait_for(handler(task), timeout=self.timeout_seconds)
                 task.results = results
                 task.status = TaskStatus.COMPLETED
+                try:
+                    from app.core.progress import emit_task_status
+                    emit_task_status(task.task_id, task.task_type, "completed", message=f"Hoàn thành ({len(task.results)} kết quả)")
+                except Exception:
+                    pass
             except asyncio.TimeoutError:
                 task.status = TaskStatus.FAILED
                 task.error_code = 0
                 task.error = "Timeout: no result generated"
                 task.error_detail = task.error
+                try:
+                    from app.core.progress import emit_task_status
+                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+                except Exception:
+                    pass
             except Exception as exc:
                 task.status = TaskStatus.FAILED
                 task.error_code = getattr(exc, "error_code", 0) or 0
                 task.error = getattr(exc, "error", str(exc))
                 task.error_detail = getattr(exc, "error_detail", str(exc))
+                try:
+                    from app.core.progress import emit_task_status
+                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+                except Exception:
+                    pass
             finally:
+                self._running_count -= 1
                 task.completed_at = time.time()
                 self._persist(task)
+                self._evict_old_tasks()
                 logger.info(
                     "Task %s type=%s status=%s",
                     task.task_id,

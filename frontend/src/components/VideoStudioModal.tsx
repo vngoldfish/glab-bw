@@ -293,6 +293,34 @@ export interface VideoStudioSettings {
   runStatus?: string;
 }
 
+/* ───── STATIC STYLES (extracted outside component to avoid re-creation) ───── */
+const STYLES = {
+  overlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", padding: "12px 16px", zIndex: 99999, backdropFilter: "blur(8px)", animation: "fadeIn 0.2s ease" } as const,
+  modalBody: { flex: 1, display: "flex", flexDirection: "column", background: "linear-gradient(150deg, #070913 0%, #0d1222 60%, #080a14 100%)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", boxShadow: "0 0 65px rgba(245,158,11,0.05), 0 15px 45px rgba(0,0,0,0.6)" } as const,
+  header: { padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)" } as const,
+  headerLeft: { display: "flex", alignItems: "center", gap: 10 } as const,
+  headerIcon: { width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #f59e0b, #ef4444)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 } as const,
+  headerTitle: { margin: 0, fontSize: 13, color: "#fff", fontWeight: 800, letterSpacing: 0.5 } as const,
+  headerSubtitle: { margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" } as const,
+  headerRight: { display: "flex", alignItems: "center", gap: 10 } as const,
+  closeBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#94a3b8", padding: "6px 12px", cursor: "pointer", fontSize: 12 } as const,
+  bodyFlex: { flex: 1, display: "flex", overflow: "hidden" } as const,
+  leftPanel: { width: "40%", minWidth: 320, padding: 12, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.12)" } as const,
+  viewport: { flex: 1, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" } as const,
+  refSection: { height: 180, flex: "none", display: "flex", flexDirection: "column", marginTop: 12, overflow: "hidden" } as const,
+  tabRow: { display: "flex", borderBottom: "1px solid rgba(255,255,255,0.05)", marginBottom: 8 } as const,
+  tabContent: { flex: 1, overflowY: "auto" } as const,
+  rightPanel: { flex: 1, padding: "10px 16px", overflowY: "auto", display: "flex", flexDirection: "column" } as const,
+  footer: { padding: "8px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 12 } as const,
+  footerPromptLabel: { fontSize: 7, color: "rgba(255,255,255,0.3)", marginBottom: 2, fontFamily: "monospace", textTransform: "uppercase" } as const,
+  footerPromptText: { fontSize: 8, color: "#f59e0b", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const,
+  footerBtnGroup: { display: "flex", gap: 6, flexShrink: 0 } as const,
+  cancelBtn: { padding: "8px 16px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#94a3b8", cursor: "pointer", fontSize: 10 } as const,
+  applyBtn: { padding: "8px 20px", background: "linear-gradient(135deg, #f59e0b, #ea580c)", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700, boxShadow: "0 2px 10px rgba(245,158,11,0.2)" } as const,
+  selectInput: { width: "100%", background: "#0b0f19", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "3px 6px", fontSize: 9 } as const,
+  labelSmall: { display: "block", fontSize: 8, color: "rgba(255,255,255,0.4)", marginBottom: 2 } as const,
+} as const;
+
 interface Props {
   initial: VideoStudioSettings;
   onConfirm: (s: VideoStudioSettings, triggerRun?: boolean) => void;
@@ -584,41 +612,36 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
 
   return createPortal(
     <div onClick={onClose} className="nodrag nowheel"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", padding: "12px 16px", zIndex: 99999, backdropFilter: "blur(8px)", animation: "fadeIn 0.2s ease" }}
+      style={STYLES.overlay}
     >
       <div onClick={e => e.stopPropagation()}
-        style={{
-          flex: 1, display: "flex", flexDirection: "column",
-          background: "linear-gradient(150deg, #070913 0%, #0d1222 60%, #080a14 100%)",
-          borderRadius: 12, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden",
-          boxShadow: "0 0 65px rgba(245,158,11,0.05), 0 15px 45px rgba(0,0,0,0.6)",
-        }}
+        style={STYLES.modalBody}
       >
         {/* Header */}
-        <div style={{ padding: "10px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #f59e0b, #ef4444)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🎬</div>
+        <div style={STYLES.header}>
+          <div style={STYLES.headerLeft}>
+            <div style={STYLES.headerIcon}>🎬</div>
             <div>
-              <h2 style={{ margin: 0, fontSize: 13, color: "#fff", fontWeight: 800, letterSpacing: 0.5 }}>STUDIO CHUYÊN NGHIỆP VIDEO +</h2>
-              <p style={{ margin: 0, fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Thiết kế video đa phân cảnh, kiểm soát góc quay, hành động và nhân vật nhất quán</p>
+              <h2 style={STYLES.headerTitle}>STUDIO CHUYÊN NGHIỆP VIDEO +</h2>
+              <p style={STYLES.headerSubtitle}>Thiết kế video đa phân cảnh, kiểm soát góc quay, hành động và nhân vật nhất quán</p>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={STYLES.headerRight}>
             <span style={{ fontSize: 8, background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "3px 8px", borderRadius: 12, border: "1px solid rgba(245,158,11,0.15)", fontWeight: 700 }}>
               {activeSegments.length} phân cảnh · {duration}s
             </span>
-            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#94a3b8", padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>✕</button>
+            <button onClick={onClose} style={STYLES.closeBtn}>✕</button>
           </div>
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div style={STYLES.bodyFlex}>
           
           {/* Left Panel: Preview + Reference Assets Library */}
-          <div style={{ width: "40%", minWidth: 320, padding: 12, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)", background: "rgba(0,0,0,0.12)" }}>
+          <div style={STYLES.leftPanel}>
             
             {/* Viewport */}
-            <div style={{ flex: 1, background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={STYLES.viewport}>
               <VideoViewport 
                 movement={selectedSeg?.movement || ""} 
                 angle={selectedSeg?.angle || ""} 
@@ -626,10 +649,10 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
             </div>
 
             {/* Reference Assets Library Section */}
-            <div style={{ height: 180, flex: "none", display: "flex", flexDirection: "column", marginTop: 12, overflow: "hidden" }}>
+            <div style={STYLES.refSection}>
               
               {/* Tabs */}
-              <div style={{ display: "flex", borderBottom: "1px solid rgba(255,255,255,0.05)", marginBottom: 8 }}>
+              <div style={STYLES.tabRow}>
                 <button
                   type="button"
                   onClick={() => setLeftTab("media")}
@@ -657,7 +680,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
               </div>
 
               {/* Tab Contents */}
-              <div style={{ flex: 1, overflowY: "auto" }}>
+              <div style={STYLES.tabContent}>
                 {leftTab === "media" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     <div>
@@ -836,7 +859,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
           </div>
 
           {/* Right Panel: Segment Controls & Prompt Pacing */}
-          <div style={{ flex: 1, padding: "10px 16px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <div style={STYLES.rightPanel}>
             
             {/* Visual Timeline Bar */}
             <div style={{ marginBottom: 12, padding: 8, background: "rgba(0,0,0,0.15)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>
@@ -1019,22 +1042,22 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
             <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
               <div style={{ display: "flex", gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: 8, color: "rgba(255,255,255,0.4)", marginBottom: 2 }}>TỐC ĐỘ TOÀN VIDEO</label>
+                  <label style={STYLES.labelSmall}>TỐC ĐỘ TOÀN VIDEO</label>
                   <select
                     value={speedId}
                     onChange={e => setSpeedId(e.target.value)}
-                    style={{ width: "100%", background: "#0b0f19", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "3px 6px", fontSize: 9 }}
+                    style={STYLES.selectInput}
                   >
                     <option value="">-- Mặc định --</option>
                     {SPEED_PRESETS.map(s => <option key={s.id} value={s.en}>{s.icon} {s.label}</option>)}
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: 8, color: "rgba(255,255,255,0.4)", marginBottom: 2 }}>PHONG CÁCH TOÀN VIDEO</label>
+                  <label style={STYLES.labelSmall}>PHONG CÁCH TOÀN VIDEO</label>
                   <select
                     value={styleId}
                     onChange={e => setStyleId(e.target.value)}
-                    style={{ width: "100%", background: "#0b0f19", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "3px 6px", fontSize: 9 }}
+                    style={STYLES.selectInput}
                   >
                     <option value="">-- Mặc định --</option>
                     {VIDEO_STYLES.map(s => <option key={s.id} value={s.en}>{s.icon} {s.label}</option>)}
@@ -1048,16 +1071,16 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
         </div>
 
         {/* Footer */}
-        <div style={{ padding: "8px 20px", borderTop: "1px solid rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={STYLES.footer}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 7, color: "rgba(255,255,255,0.3)", marginBottom: 2, fontFamily: "monospace", textTransform: "uppercase" }}>📝 Prompt mốc thời gian AI:</div>
-            <div style={{ fontSize: 8, color: "#f59e0b", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={compiledPrompt}>
+            <div style={STYLES.footerPromptLabel}>📝 Prompt mốc thời gian AI:</div>
+            <div style={STYLES.footerPromptText} title={compiledPrompt}>
               {compiledPrompt}
             </div>
           </div>
           
-          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            <button onClick={onClose} style={{ padding: "8px 16px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#94a3b8", cursor: "pointer", fontSize: 10 }}>Hủy</button>
+          <div style={STYLES.footerBtnGroup}>
+            <button onClick={onClose} style={STYLES.cancelBtn}>Hủy</button>
             
             {/* Run / Rerun Trigger inside Modal */}
             {initial.runStatus === "running" || initial.runStatus === "pending" ? (
@@ -1081,7 +1104,7 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
             )}
 
             <button onClick={() => handleSave(false)}
-              style={{ padding: "8px 20px", background: "linear-gradient(135deg, #f59e0b, #ea580c)", border: "none", borderRadius: 6, color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700, boxShadow: "0 2px 10px rgba(245,158,11,0.2)" }}
+              style={STYLES.applyBtn}
             >
               ✓ Áp Dụng Studio
             </button>

@@ -6,6 +6,7 @@ fallback for mismatched codecs/resolutions.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import shutil
@@ -20,6 +21,28 @@ from app.core.config import settings
 from app.services.output_storage import file_url_from_path, resolve_data_file
 
 logger = logging.getLogger(__name__)
+
+_ffmpeg_semaphore = asyncio.Semaphore(2)
+
+
+async def _run_ffmpeg_async(cmd: list[str], *, timeout: int = 600) -> None:
+    """Run ffmpeg as an async subprocess with concurrency limiting and timeout."""
+    async with _ffmpeg_semaphore:
+        logger.info("ffmpeg async: %s", " ".join(cmd[:8]) + "…")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"ffmpeg timeout sau {timeout}s")
+        if proc.returncode != 0:
+            err = ((stderr or stdout or b"").decode("utf-8", errors="replace"))[-800:]
+            raise RuntimeError(f"ffmpeg lỗi: {err}")
 
 
 def _ffmpeg() -> str:
@@ -77,6 +100,8 @@ def resolve_audio_path(source: str) -> Path:
 
 def _find_font() -> str | None:
     candidates = [
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/Library/Fonts/Arial.ttf",

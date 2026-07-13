@@ -1,0 +1,37 @@
+- [x] Fix project selector stuck bug in WorkflowPage.tsx by auto-closing if routeProjectId is defined.
+- [x] Remove Projects panel from the left sidebar of the canvas.
+- [x] Remove Mẫu graph button block from the left sidebar of the canvas.
+- [x] Add the Mẫu workflow (Templates) button to the project selector overlay.
+- [x] Fix main sidebar toggle button covered by lowering zIndex to 10.
+- [x] Enforce project selection by removing the "Bỏ qua" button.
+- [x] Resolve route redirect hijack bug when returning to /workflow.
+- [x] Implement backend run persistence: save results on run completion to project file.
+- [x] Add active run GET route on backend.
+- [x] Reconnect polling on frontend if an active run exists on project load.
+- [x] Prompt user on unsaved changes when exiting a project to /workflow.
+- [x] Optimize node add panel grid to single column and reduce width to 170px.
+- [x] Add lightbox popup to view/play generated images/videos directly on FlowImagePage and FlowVideoPage instead of opening new tabs.
+- [x] Add "Xem tất cả" (View All) tab inside VideoEditorPage media picker to view all generated videos and images from all sources (Flow Ảnh, Flow Video, Workflow Projects) combined and sorted by date.
+- [x] Add model run counting & credit usage tracking for Google Flow models:
+  - Gemini Omni Flash (12 credits/run)
+  - Veo 3.1 Lite / Relaxed (5 credits/run)
+  - Veo 3.1 Fast (10 credits/run)
+  - Veo 3.1 Quality (100 credits/run)
+- [x] Add model run counting for free models (0 credits) including:
+  - Free image models (Nano Banana series)
+  - Free video models (Grok, Meta, etc.)
+- [x] Track credit usage and run counts separately for each logged-in account (cookie).
+- [x] Add credit usage statistics global card to Dashboard page.
+- [x] Display individual account run count and credit usage directly under each account card on Dashboard.
+- [x] Render the detailed Credit Usage Statistics breakdown grid (per model) directly on the Dashboard page.
+- [x] Expose active and recent workflow run stats on Dashboard.
+- [x] Render a real-time progress bar, status, and error log for running, completed, and failed workflow runs on the Dashboard, including direct navigation links to the workflow project.
+- [x] Expose active and recent standalone Flow Image / Flow Video task progress on Dashboard.
+- [x] Render status badges, prompt contents, model used, error logs, and navigation links to the respective Flow creation page directly on the Dashboard.
+- [x] Route standalone batch submissions (`/api/batch/submit`) through the persistent background `task_queue` rather than executing synchronously inside HTTP handlers. This ensures task execution is safe from browser reloads/disconnects.
+- [x] Expose API route `GET /api/batch/tasks/recent` to query active background tasks from `task_queue`.
+- [x] Implement recovery `useEffect` hooks in `FlowVideoPage.tsx` and `FlowImagePage.tsx` that poll `/api/batch/tasks/recent` on mount. It automatically reconnects to any active rows (stored in localStorage) to resume monitoring and update them to `"completed"` or `"failed"` once completed in the background.
+- [x] Create backend credit store and API endpoint to retrieve stats.
+- [x] Create settings page UI block inside system tab to display total credit usage stats and per-model breakdown, including free image and video models.
+- [x] Verify changes (Vite build succeeded, Pytest test suite succeeded).
+- [x] Push all changes to Git (Cleaned Git index, ignored local video/image outputs).

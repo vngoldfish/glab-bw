@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 import secrets
 import unicodedata
 from datetime import datetime, timezone
@@ -58,24 +60,32 @@ def is_valid_ref_name(name: str) -> bool:
     return bool(_NAME_PATTERN.match(name))
 
 
+_manifest_lock = threading.Lock()
+
+
 def _load_manifest() -> list[dict[str, Any]]:
-    path = manifest_path()
-    if not path.is_file():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-    items = data.get("references", data if isinstance(data, list) else [])
-    return items if isinstance(items, list) else []
+    with _manifest_lock:
+        path = manifest_path()
+        if not path.is_file():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+        items = data.get("references", data if isinstance(data, list) else [])
+        return items if isinstance(items, list) else []
 
 
 def _save_manifest(items: list[dict[str, Any]]) -> None:
-    ensure_reference_dirs()
-    manifest_path().write_text(
-        json.dumps({"references": items, "updated_at": _now()}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    with _manifest_lock:
+        ensure_reference_dirs()
+        dest = manifest_path()
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"references": items, "updated_at": _now()}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(str(tmp), str(dest))
 
 
 def _now() -> str:

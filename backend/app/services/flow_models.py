@@ -1,8 +1,9 @@
+import os
 from typing import Any
 
 FLOW_API_BASE = "https://aisandbox-pa.googleapis.com/v1"
 FLOW_LABS_BASE = "https://labs.google/fx/api"
-FLOW_API_KEY = "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY"
+FLOW_API_KEY = os.getenv("FLOW_API_KEY", "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY")
 RECAPTCHA_SITE_KEY = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
 
 IMAGE_MODELS = {

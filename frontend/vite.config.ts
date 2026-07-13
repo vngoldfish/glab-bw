@@ -12,7 +12,9 @@ export default defineConfig({
           // React core riêng
           "vendor-react": ["react", "react-dom", "react-router-dom"],
           // React Flow tách riêng (~300KB)
-          "vendor-flow": ["@xyflow/react"],
+          "vendor-xyflow": ["@xyflow/react"],
+          // Lucide icons tách riêng (~150KB)
+          "vendor-lucide": ["lucide-react"],
           // Các trang lớn nhất tách riêng
           "page-workflow": ["./src/pages/WorkflowPage"],
           "page-video-editor": ["./src/pages/VideoEditorPage"],

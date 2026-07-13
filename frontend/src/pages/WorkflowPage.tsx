@@ -668,27 +668,14 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     return localStorage.getItem("wf_header_collapsed") === "true";
   });
 
+  // Consolidated localStorage persistence for all UI preferences
   useEffect(() => {
     localStorage.setItem("wf_left_sidebar_collapsed", String(leftSidebarCollapsed));
-  }, [leftSidebarCollapsed]);
-
-  useEffect(() => {
     localStorage.setItem("wf_right_sidebar_collapsed", String(rightSidebarCollapsed));
-  }, [rightSidebarCollapsed]);
-
-  useEffect(() => {
     localStorage.setItem("wf_add_nodes_expanded", String(addNodesExpanded));
-  }, [addNodesExpanded]);
-
-
-
-  useEffect(() => {
     localStorage.setItem("wf_media_project_expanded", String(mediaProjectExpanded));
-  }, [mediaProjectExpanded]);
-
-  useEffect(() => {
     localStorage.setItem("wf_header_collapsed", String(headerCollapsed));
-  }, [headerCollapsed]);
+  }, [leftSidebarCollapsed, rightSidebarCollapsed, addNodesExpanded, mediaProjectExpanded, headerCollapsed]);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const rf = useRef<ReactFlowInstance | null>(null);
   // Freeze prop identity for the lifetime of this mount
@@ -852,6 +839,16 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   const rerunRef = useRef<(id: string) => void>(() => undefined);
   const pickImageRef = useRef<(id: string, field: ImageField) => void>(() => undefined);
+
+  // Stable refs for handler dependencies — updated on every render but the
+  // wrapper functions in stableHandlers are created only ONCE, preventing
+  // cascading re-renders when handler deps (openPreview, onError, etc.) change.
+  const openPreviewRef = useRef(openPreview);
+  openPreviewRef.current = openPreview;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const getWorkflowContextRef = useRef<(nodeId: string) => WorkflowAiNodeContext[]>(() => []);
+  // getWorkflowContextRef.current is assigned after getWorkflowContext is defined below
   const edgesRef = useRef<Edge[]>([]);
 
   useEffect(() => {
@@ -987,6 +984,27 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     return out;
   }, []);
 
+  // Keep getWorkflowContextRef in sync (defined above, assigned here after
+  // getWorkflowContext is created)
+  getWorkflowContextRef.current = getWorkflowContext;
+
+  // Stable handler wrappers — created ONCE via useRef so every node always
+  // receives the same function identity.  Each wrapper delegates to a ref so
+  // it always calls the latest implementation without needing to be recreated.
+  const stableHandlers = useRef({
+    onChange: (id: string, patch: Partial<WNodeData>) => {
+      // patchNodeRef is assigned right below
+      patchNodeRef.current(id, patch);
+    },
+    onPreview: (url: string) => openPreviewRef.current(url),
+    onError: (msg: string) => onErrorRef.current(msg),
+    getWorkflowContext: (nodeId: string) => getWorkflowContextRef.current(nodeId),
+    onRerun: (nid: string) => rerunRef.current(nid),
+    onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+  });
+
+  const patchNodeRef = useRef<(id: string, patch: Partial<WNodeData>) => void>(() => undefined);
+
   const patchNode = useCallback(
     (id: string, patch: Partial<WNodeData>) => {
       setNodes((nds) =>
@@ -997,12 +1015,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 data: {
                   ...n.data,
                   ...patch,
-                  onChange: patchNode,
-                  onPreview: openPreview,
-                  onError,
-                  getWorkflowContext,
-                  onRerun: (nid: string) => rerunRef.current(nid),
-                  onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+                  ...stableHandlers.current,
                 },
               }
             : n,
@@ -1010,8 +1023,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       );
       setDirty(true);
     },
-    [getWorkflowContext, onError, openPreview, setNodes],
+    [setNodes],
   );
+
+  // Keep patchNodeRef in sync so stableHandlers.onChange always delegates to latest patchNode
+  patchNodeRef.current = patchNode;
 
   const attachHandlers = useCallback(
     (list: Node[]) =>
@@ -1019,15 +1035,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         ...n,
         data: {
           ...(n.data as object),
-          onChange: patchNode,
-          onPreview: openPreview,
-          onError,
-          getWorkflowContext,
-          onRerun: (nid: string) => rerunRef.current(nid),
-          onPickImage: (nid: string, field: ImageField) => pickImageRef.current(nid, field),
+          ...stableHandlers.current,
         },
       })),
-    [getWorkflowContext, onError, openPreview, patchNode],
+    [],
   );
 
   pickImageRef.current = (id: string, field: ImageField) => {

@@ -64,6 +64,47 @@ class MetaClient:
             }
         }
 
+    async def _poll_until_done(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        batch_id: str,
+        *,
+        content_key: str = "imageUrl",
+        timeout: int = 300,
+        interval: float = 2.5,
+        media_label: str = "ảnh",
+    ) -> list[bytes]:
+        """Shared poll loop for image and video generation."""
+        max_attempts = int(timeout / interval)
+        for attempt in range(max_attempts):
+            await asyncio.sleep(interval)
+            status_res = await client.get(f"{self.host}/api/generation-batches/{batch_id}", headers=headers)
+            if status_res.status_code != 200:
+                continue
+
+            status_data = status_res.json()
+            batch = status_data.get("batch", {})
+            is_complete = batch.get("isComplete", False)
+            has_error = batch.get("hasError", False)
+
+            if is_complete:
+                content = batch.get("content", [])
+                outputs: list[bytes] = []
+                for item in content:
+                    url = item.get(content_key) or item.get("imageUrl")
+                    if url:
+                        dl_res = await client.get(url, headers=headers)
+                        if dl_res.status_code == 200:
+                            outputs.append(dl_res.content)
+                if outputs:
+                    return outputs
+                raise ProviderError(f"Vibes AI hoàn thành nhưng không tải được {media_label} kết quả", error_code=500)
+            elif has_error:
+                raise ProviderError(f"Vibes AI báo lỗi: {batch.get('error') or 'Generation failed'}", error_code=500)
+
+        raise ProviderError(f"Quá thời gian chờ tạo {media_label} từ Vibes AI", error_code=408)
+
     async def _ensure_project_id(self, client: httpx.AsyncClient, headers: dict) -> str:
         """Get the first available project or create a new one."""
         res = await client.get(f"{self.host}/api/projects?limit=5", headers=headers)
@@ -152,34 +193,13 @@ class MetaClient:
                     )
                 
                 # 2) Poll for completion
-                max_attempts = 90
-                for attempt in range(max_attempts):
-                    await asyncio.sleep(2.5)
-                    status_res = await client.get(f"{self.host}/api/generation-batches/{batch_id}", headers=headers)
-                    if status_res.status_code != 200:
-                        continue
-                    
-                    status_data = status_res.json()
-                    batch = status_data.get("batch", {})
-                    is_complete = batch.get("isComplete", False)
-                    has_error = batch.get("hasError", False)
-                    
-                    if is_complete:
-                        content = batch.get("content", [])
-                        outputs: list[bytes] = []
-                        for item in content:
-                            url = item.get("imageUrl")
-                            if url:
-                                dl_res = await client.get(url, headers=headers)
-                                if dl_res.status_code == 200:
-                                    outputs.append(dl_res.content)
-                        if outputs:
-                            return outputs
-                        raise ProviderError("Vibes AI hoàn thành nhưng không tải được ảnh kết quả", error_code=500)
-                    elif has_error:
-                        raise ProviderError(f"Vibes AI báo lỗi: {batch.get('error') or 'Generation failed'}", error_code=500)
-                
-                raise ProviderError("Quá thời gian chờ tạo ảnh từ Vibes AI", error_code=408)
+                return await self._poll_until_done(
+                    client, headers, batch_id,
+                    content_key="imageUrl",
+                    timeout=225,
+                    interval=2.5,
+                    media_label="ảnh",
+                )
             except Exception as e:
                 if isinstance(e, ProviderError):
                     raise
@@ -244,34 +264,13 @@ class MetaClient:
                     )
                 
                 # 2) Poll for completion
-                max_attempts = 150
-                for attempt in range(max_attempts):
-                    await asyncio.sleep(3.0)
-                    status_res = await client.get(f"{self.host}/api/generation-batches/{batch_id}", headers=headers)
-                    if status_res.status_code != 200:
-                        continue
-                    
-                    status_data = status_res.json()
-                    batch = status_data.get("batch", {})
-                    is_complete = batch.get("isComplete", False)
-                    has_error = batch.get("hasError", False)
-                    
-                    if is_complete:
-                        content = batch.get("content", [])
-                        outputs: list[bytes] = []
-                        for item in content:
-                            url = item.get("videoUrl") or item.get("imageUrl")
-                            if url:
-                                dl_res = await client.get(url, headers=headers)
-                                if dl_res.status_code == 200:
-                                    outputs.append(dl_res.content)
-                        if outputs:
-                            return outputs
-                        raise ProviderError("Vibes AI hoàn thành nhưng không tải được video kết quả", error_code=500)
-                    elif has_error:
-                        raise ProviderError(f"Vibes AI báo lỗi: {batch.get('error') or 'Generation failed'}", error_code=500)
-                
-                raise ProviderError("Quá thời gian chờ tạo video từ Vibes AI", error_code=408)
+                return await self._poll_until_done(
+                    client, headers, batch_id,
+                    content_key="videoUrl",
+                    timeout=450,
+                    interval=3.0,
+                    media_label="video",
+                )
             except Exception as e:
                 if isinstance(e, ProviderError):
                     raise

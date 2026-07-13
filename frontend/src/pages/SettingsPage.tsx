@@ -42,7 +42,8 @@ import {
   ChevronDown,
   ChevronUp,
   Key,
-  Database
+  Database,
+  History
 } from "lucide-react";
 
 const AI_PROVIDERS = [
@@ -180,7 +181,7 @@ function formatCooldown(sec?: number): string {
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
   const dialog = useUiDialog();
-  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system">("accounts");
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog">("accounts");
   const [showGuide, setShowGuide] = useState(false);
 
   // Ports Configuration State
@@ -593,6 +594,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           >
             <Cpu size={16} />
             <span>Hệ thống & Tiện ích</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "changelog" ? "active" : ""}`}
+            onClick={() => setActiveTab("changelog")}
+          >
+            <History size={16} />
+            <span>Lịch sử nâng cấp</span>
           </button>
         </aside>
 
@@ -1607,6 +1616,99 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                 </span>
               )}
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* TAB 5: CHANGELOG */}
+      {activeTab === "changelog" && (
+        <div className="settings-tab-content">
+          <section className="panel-card">
+            <h3 style={{ margin: "0 0 16px", fontSize: "17px", display: "flex", alignItems: "center", gap: 8 }}>
+              <History size={20} style={{ color: "var(--purple-bright)" }} />
+              Lịch sử nâng cấp & Tối ưu hóa
+            </h3>
+            <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+              Ghi chép các thay đổi quan trọng, tối ưu hiệu năng và tính năng mới được thêm vào ứng dụng.
+            </p>
+
+            {/* v2.1 */}
+            <div className="changelog-entry">
+              <div className="changelog-header">
+                <span className="changelog-version">v2.1.0</span>
+                <span className="changelog-date">13/07/2026</span>
+                <span className="changelog-tag tag-feature">Tính năng mới</span>
+              </div>
+              <h4 className="changelog-title">🔴 Real-time Progress Tracker (SSE)</h4>
+              <ul className="changelog-list">
+                <li><strong>Backend — Event Bus:</strong> Hệ thống <code>ProgressBus</code> fan-out events tới tất cả SSE clients. Rate-limit 300ms/task, log batching 500ms.</li>
+                <li><strong>Backend — SSE Endpoint:</strong> <code>GET /api/events/stream</code> với heartbeat 30s, graceful disconnect.</li>
+                <li><strong>Frontend — useEventStream Hook:</strong> Auto-reconnect (exponential backoff 1s→16s), circular buffer 200 dòng log.</li>
+                <li><strong>Frontend — ProgressTracker Panel:</strong> Floating panel góc dưới-phải, progress bar cho từng task, live log stream color-coded.</li>
+                <li><strong>Task Queue Integration:</strong> 5 emit points cho status changes (running/completed/failed).</li>
+                <li><strong>Generation Integration:</strong> 9 progress emit points (Đang chọn tài khoản → Đang gửi prompt → Đang lưu kết quả).</li>
+                <li><strong>Workflow Integration:</strong> Pipe logs + node progress vào event bus.</li>
+              </ul>
+              <div className="changelog-files">Files: progress.py, events.py, useEventStream.ts, ProgressTracker.tsx, ProgressTracker.css, main.py, task_queue.py, generation.py, workflow_runner.py, App.tsx</div>
+            </div>
+
+            {/* v2.0 */}
+            <div className="changelog-entry">
+              <div className="changelog-header">
+                <span className="changelog-version">v2.0.0</span>
+                <span className="changelog-date">13/07/2026</span>
+                <span className="changelog-tag tag-perf">Tối ưu hiệu năng</span>
+              </div>
+              <h4 className="changelog-title">⚡ Tối ưu hóa toàn diện (24 files)</h4>
+
+              <h5 className="changelog-subtitle">🔴 Phase 1 — Critical Backend</h5>
+              <ul className="changelog-list">
+                <li><strong>task_queue.py:</strong> Fix memory leak (eviction policy max 500), O(1) counters, task ref storage, token_hex(8).</li>
+                <li><strong>task_store.py:</strong> Persistent SQLite + WAL mode + busy_timeout + indexes (status, created_at).</li>
+                <li><strong>video_assemble.py:</strong> Async FFmpeg (<code>asyncio.create_subprocess_exec</code>), Semaphore(2), Windows font paths.</li>
+                <li><strong>frame_extract.py:</strong> Async FFmpeg với semaphore(2).</li>
+                <li><strong>account_store.py:</strong> Debounced saves (1 write/sec), xóa dead code <code>_clear_expired</code>.</li>
+                <li><strong>session_health.py:</strong> Bounded stale set với timestamps, auto-cleanup &gt; 1h.</li>
+                <li><strong>flow_session.py:</strong> Lock dict cleanup khi &gt; 100 entries.</li>
+              </ul>
+
+              <h5 className="changelog-subtitle">🔴 Phase 2 — Critical Frontend</h5>
+              <ul className="changelog-list">
+                <li><strong>WorkflowPage.tsx:</strong> Stable handler refs (chặn cascading re-renders toàn bộ graph nodes), consolidate 5 localStorage effects → 1.</li>
+                <li><strong>FlowVideoPage.tsx + FlowImagePage.tsx:</strong> Memoize selectedCount/completedCount/runningCount.</li>
+                <li><strong>VideoStudioModal.tsx:</strong> Extract 23 static inline styles → module-level constants.</li>
+                <li><strong>vite.config.ts:</strong> Manual chunk splitting (react, xyflow, lucide).</li>
+              </ul>
+
+              <h5 className="changelog-subtitle">🟠 Phase 3 — Async &amp; I/O</h5>
+              <ul className="changelog-list">
+                <li><strong>grok_web_client.py + prompt_ai.py:</strong> Shared httpx.AsyncClient (thay vì tạo mới mỗi request).</li>
+                <li><strong>flow_client.py:</strong> Parallel image downloads (<code>asyncio.gather</code>), fix operator precedence bug.</li>
+              </ul>
+
+              <h5 className="changelog-subtitle">🟡 Phase 4 — DRY Refactor</h5>
+              <ul className="changelog-list">
+                <li><strong>generation.py:</strong> Extract <code>_validate_prompt</code> (5 chỗ) + <code>_track</code> helper (7 chỗ).</li>
+                <li><strong>meta_client.py:</strong> Extract <code>_poll_until_done</code> (2 poll loops → 1 method).</li>
+                <li><strong>utils/open_folder.py:</strong> Cross-platform folder opener (mới).</li>
+              </ul>
+
+              <h5 className="changelog-subtitle">🔒 Phase 5 — Security &amp; Stability</h5>
+              <ul className="changelog-list">
+                <li><strong>main.py:</strong> Path traversal fix, <code>time.sleep</code> → <code>await asyncio.sleep</code>.</li>
+                <li><strong>media.py:</strong> Upload size limit 500MB, path traversal fix.</li>
+                <li><strong>reference_storage.py:</strong> Thread locking + atomic writes.</li>
+                <li><strong>flow_models.py:</strong> API key từ <code>os.getenv</code>.</li>
+                <li><strong>batch.py:</strong> Route ordering fix, cleanup in submit.</li>
+              </ul>
+
+              <h5 className="changelog-subtitle">🟢 Phase 6 — API Parallel</h5>
+              <ul className="changelog-list">
+                <li><strong>ai.py:</strong> <code>rewrite_many</code> sequential → <code>asyncio.gather</code> với Semaphore(5).</li>
+              </ul>
+              <div className="changelog-files">24 files modified | Python py_compile ✅ | TypeScript tsc ✅ | 0 errors</div>
+            </div>
+
           </section>
         </div>
       )}

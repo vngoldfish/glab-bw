@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import shutil
@@ -54,6 +55,29 @@ def video_duration_sec(video_path: Path) -> float | None:
 
 def _run_ffmpeg(cmd: list[str], *, timeout: int = 120) -> None:
     subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+
+
+_ffmpeg_semaphore = asyncio.Semaphore(2)
+
+
+async def _run_ffmpeg_async(cmd: list[str], *, timeout: int = 120) -> None:
+    """Run ffmpeg as an async subprocess with concurrency limiting and timeout."""
+    async with _ffmpeg_semaphore:
+        logger.info("ffmpeg async: %s", " ".join(cmd[:8]) + "…")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"ffmpeg timeout sau {timeout}s")
+        if proc.returncode != 0:
+            err = ((stderr or stdout or b"").decode("utf-8", errors="replace"))[-800:]
+            raise RuntimeError(f"ffmpeg lỗi: {err}")
 
 
 def _extract_start(ffmpeg: str, video_path: Path, dest: Path) -> bool:

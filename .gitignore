@@ -84,3 +84,6 @@ data/G-Labs BW/projects/
 data/G-Labs BW/webhook_uploads/
 data/video_edit_projects/
 scratch/
+data/credit_usage.json
+data/tasks.db-shm
+data/tasks.db-wal

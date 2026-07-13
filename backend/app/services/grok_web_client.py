@@ -237,15 +237,27 @@ class GrokWebClient:
         # Cookie optional when extension runs fetch in browser (uses tab session).
         # Still require sso for pure-direct mode; extension path checks bridge instead.
         self._has_sso = bool(self.cookies.get("sso") and self.cookies.get("sso") != "browser")
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=120.0, follow_redirects=True)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def validate_session(self) -> dict[str, Any]:
         """Lightweight check that cookies still work."""
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            res = await client.get(
-                GROK_ORIGIN,
-                headers=_headers(),
-                cookies=self.cookies,
-            )
+        client = await self._get_client()
+        res = await client.get(
+            GROK_ORIGIN,
+            headers=_headers(),
+            cookies=self.cookies,
+            timeout=30.0,
+        )
         ok = res.status_code < 400 and "sso" in self.cookies
         # 200 alone is weak; try a tiny chat later if needed
         return {"ok": ok, "status_code": res.status_code}
@@ -300,43 +312,44 @@ class GrokWebClient:
                 error_code=400,
             )
         events: list[dict[str, Any]] = []
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST",
-                NEW_CHAT_URL,
-                headers=_headers(),
-                cookies=self.cookies,
-                json=payload,
-            ) as res:
-                raw_err = b""
-                if res.status_code >= 400:
-                    raw_err = await res.aread()
-                    body = raw_err[:500].decode("utf-8", errors="replace")
-                    if res.status_code in {401, 403} or "anti-bot" in body.lower():
-                        raise ProviderError(
-                            "Grok anti-bot chặn request từ app (403). "
-                            "Cookie sso vẫn OK nhưng Cloudflare/anti-bot không cho Python gọi API. "
-                            "Cách xử lý: (1) mở tab grok.com + Auth Helper (extension hỗ trợ Grok), "
-                            "(2) hoặc thêm xAI API key tại console.x.ai làm fallback. "
-                            f"Chi tiết: {body[:160]}",
-                            error_code=res.status_code,
-                        )
+        client = await self._get_client()
+        async with client.stream(
+            "POST",
+            NEW_CHAT_URL,
+            headers=_headers(),
+            cookies=self.cookies,
+            json=payload,
+            timeout=180.0,
+        ) as res:
+            raw_err = b""
+            if res.status_code >= 400:
+                raw_err = await res.aread()
+                body = raw_err[:500].decode("utf-8", errors="replace")
+                if res.status_code in {401, 403} or "anti-bot" in body.lower():
                     raise ProviderError(
-                        f"Grok web HTTP {res.status_code}: {body[:300]}",
+                        "Grok anti-bot chặn request từ app (403). "
+                        "Cookie sso vẫn OK nhưng Cloudflare/anti-bot không cho Python gọi API. "
+                        "Cách xử lý: (1) mở tab grok.com + Auth Helper (extension hỗ trợ Grok), "
+                        "(2) hoặc thêm xAI API key tại console.x.ai làm fallback. "
+                        f"Chi tiết: {body[:160]}",
                         error_code=res.status_code,
                     )
-                async for line in res.aiter_lines():
-                    line = (line or "").strip()
-                    if not line:
-                        continue
-                    if line.startswith("data:"):
-                        line = line[5:].strip()
-                    if line in {"[DONE]", "DONE"}:
-                        break
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
+                raise ProviderError(
+                    f"Grok web HTTP {res.status_code}: {body[:300]}",
+                    error_code=res.status_code,
+                )
+            async for line in res.aiter_lines():
+                line = (line or "").strip()
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                if line in {"[DONE]", "DONE"}:
+                    break
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
         return events
 
     async def _wait_task(self, task_id: str, timeout: float = 200.0) -> dict[str, Any]:
@@ -780,15 +793,16 @@ class GrokWebClient:
             else "*/*",
             "Referer": f"{GROK_ORIGIN}/imagine",
         }
-        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-            # Prefer browser cookies when we have them (auth-walled CDN)
-            res = await client.get(
-                url,
-                headers=headers,
-                cookies=self.cookies if self._has_sso else None,
-            )
-            res.raise_for_status()
-            data = res.content
+        client = await self._get_client()
+        # Prefer browser cookies when we have them (auth-walled CDN)
+        res = await client.get(
+            url,
+            headers=headers,
+            cookies=self.cookies if self._has_sso else None,
+            timeout=120.0,
+        )
+        res.raise_for_status()
+        data = res.content
         if expect == "image" and not _looks_like_image_bytes(data):
             ctype = (res.headers.get("content-type") or "").lower()
             raise ProviderError(

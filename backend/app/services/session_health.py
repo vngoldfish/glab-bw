@@ -14,32 +14,44 @@ class SessionHealth:
     last_grok_error: str | None = None
     last_flow_error_at: float | None = None
     last_grok_error_at: float | None = None
-    # account ids recently marked stale
-    stale_account_ids: set[str] = field(default_factory=set)
+    # account ids recently marked stale → monotonic timestamp
+    stale_account_ids: dict[str, float] = field(default_factory=dict)
 
-    def mark_flow_ok(self) -> None:
+    def mark_flow_ok(self, account_id: str | None = None) -> None:
         self.flow_session_ok = True
         self.last_flow_error = None
+        if account_id:
+            self.stale_account_ids.pop(account_id, None)
 
     def mark_flow_stale(self, message: str, account_id: str | None = None) -> None:
         self.flow_session_ok = False
         self.last_flow_error = (message or "Flow session stale")[:300]
         self.last_flow_error_at = time.time()
         if account_id:
-            self.stale_account_ids.add(account_id)
+            self.stale_account_ids[account_id] = time.monotonic()
 
-    def mark_grok_ok(self) -> None:
+    def mark_grok_ok(self, account_id: str | None = None) -> None:
         self.grok_session_ok = True
         self.last_grok_error = None
+        if account_id:
+            self.stale_account_ids.pop(account_id, None)
 
     def mark_grok_stale(self, message: str, account_id: str | None = None) -> None:
         self.grok_session_ok = False
         self.last_grok_error = (message or "Grok session stale")[:300]
         self.last_grok_error_at = time.time()
         if account_id:
-            self.stale_account_ids.add(account_id)
+            self.stale_account_ids[account_id] = time.monotonic()
+
+    def _cleanup_stale(self) -> None:
+        """Remove stale account entries older than 1 hour."""
+        cutoff = time.monotonic() - 3600
+        expired = [aid for aid, ts in self.stale_account_ids.items() if ts < cutoff]
+        for aid in expired:
+            del self.stale_account_ids[aid]
 
     def payload(self) -> dict:
+        self._cleanup_stale()
         return {
             "flow_session_ok": self.flow_session_ok,
             "grok_session_ok": self.grok_session_ok,

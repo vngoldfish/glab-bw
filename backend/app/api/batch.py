@@ -164,6 +164,7 @@ async def submit_batch(body: BatchSubmitRequest) -> dict:
 @router.post("/submit-async", status_code=202)
 async def submit_batch_async(body: BatchSubmitRequest) -> dict:
     """Async batch for n8n / large jobs — poll GET /api/batch/{batch_id}."""
+    _cleanup_batches()
     if not body.items:
         raise HTTPException(status_code=400, detail={"error": "No items"})
     concurrency = max(1, min(body.concurrency, 10))
@@ -190,6 +191,25 @@ async def submit_batch_async(body: BatchSubmitRequest) -> dict:
     }
 
 
+@router.get("/tasks/recent")
+async def get_recent_tasks() -> list[dict]:
+    """Lấy danh sách các tác vụ gần đây từ hàng đợi task_queue."""
+    tasks = task_queue.list_tasks(limit=100)
+    formatted = []
+    for t in tasks:
+        formatted.append({
+            "task_id": t.task_id,
+            "task_type": t.task_type,
+            "prompt": t.prompt,
+            "status": t.status.value,
+            "created_at": t.created_at,
+            "completed_at": t.completed_at,
+            "results": t.results,
+            "error": t.error,
+        })
+    return formatted
+
+
 @router.get("/{batch_id}")
 async def get_batch(batch_id: str) -> dict:
     job = _batches.get(batch_id)
@@ -210,22 +230,3 @@ async def get_batch(batch_id: str) -> dict:
             "running": task_queue.running_count(),
         },
     }
-
-
-@router.get("/tasks/recent")
-async def get_recent_tasks() -> list[dict]:
-    """Lấy danh sách các tác vụ gần đây từ hàng đợi task_queue."""
-    tasks = task_queue.list_tasks(limit=100)
-    formatted = []
-    for t in tasks:
-        formatted.append({
-            "task_id": t.task_id,
-            "task_type": t.task_type,
-            "prompt": t.prompt,
-            "status": t.status.value,
-            "created_at": t.created_at,
-            "completed_at": t.completed_at,
-            "results": t.results,
-            "error": t.error,
-        })
-    return formatted

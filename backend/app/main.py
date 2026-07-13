@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 import socket
@@ -6,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,7 @@ from app.api import (
     auth_bridge,
     batch,
     dashboard,
+    events,
     maintenance,
     media,
     pipeline,
@@ -136,11 +138,18 @@ async def lifespan(_app: FastAPI):
         for _ in range(20):
             if not _port_free(AUTH_BRIDGE_PORT):
                 break
-            time.sleep(0.05)
+            await asyncio.sleep(0.05)
         logger.info(
             "Auth Bridge embedded on http://127.0.0.1:%s (same process as API)",
             AUTH_BRIDGE_PORT,
         )
+
+    # Attach SSE log handler for real-time progress streaming
+    from app.core.progress import SSELogHandler
+    import logging as _logging
+    _sse_handler = SSELogHandler(min_level=_logging.INFO)
+    _sse_handler.setFormatter(_logging.Formatter("%(asctime)s | %(levelname)-7s | %(name)s | %(message)s", datefmt="%H:%M:%S"))
+    _logging.getLogger().addHandler(_sse_handler)
 
     # Log CORS config khi khởi động để dễ debug
     _cors = settings.cors_origins
@@ -166,6 +175,11 @@ async def lifespan(_app: FastAPI):
             await google_flow_client.close()
         except Exception:
             logger.exception("Error closing Google Flow client")
+        try:
+            from app.services.account_store import account_store
+            account_store.flush()
+        except Exception:
+            pass
         logger.info("G-Labs BW shutting down")
 
 
@@ -191,6 +205,7 @@ app.include_router(dashboard.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(video_editor.router, prefix="/api")
+app.include_router(events.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
 
@@ -256,10 +271,10 @@ if _HAS_STATIC:
     async def spa_fallback(full_path: str) -> FileResponse:
         # Do not swallow API / docs / sync
         if full_path.startswith(("api/", "docs", "openapi", "redoc", "sync/")):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=404, detail="Not found")
         candidate = FRONTEND_DIST / full_path
+        if not candidate.resolve().is_relative_to(FRONTEND_DIST.resolve()):
+            raise HTTPException(status_code=404)
         if candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(FRONTEND_DIST / "index.html")

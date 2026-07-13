@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 from app.providers.base import ProviderError
 from app.services.account_store import Account, account_store
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_expires(value: str | None) -> float | None:
@@ -36,9 +39,19 @@ class FlowSessionManager:
             lock = self._locks[account.id]
 
         async with lock:
+            # Evict stale locks to prevent unbounded growth
+            if len(self._locks) > 100:
+                async with self._locks_lock:
+                    stale = [k for k, v in self._locks.items() if not v.locked()]
+                    for k in stale:
+                        del self._locks[k]
+
             # Re-get the account credentials inside the lock to make sure we don't use stale ones
             # from a concurrent refresh that just finished!
-            fresh_account = account_store.get(account.id) or account
+            resolved = account_store.get(account.id)
+            if resolved is None:
+                logger.warning("Account %s was deleted mid-operation, using stale copy", account.id)
+            fresh_account = resolved or account
             creds = dict(fresh_account.credentials)
 
             session_token = creds.get("session_token", "").strip()

@@ -13,6 +13,16 @@ from app.services.ai_settings_store import get_credentials
 
 logger = logging.getLogger(__name__)
 
+_shared_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient()
+    return _shared_client
+
+
 _MENTION_RE = re.compile(r"@([a-zA-Z][a-zA-Z0-9_]*)")
 
 
@@ -284,8 +294,8 @@ async def test_connection(
     logger.info("AI test request url=%s model=%s", url, mdl)
     t0 = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            res = await client.post(url, headers=headers, json=payload)
+        client = _get_client()
+        res = await client.post(url, headers=headers, json=payload, timeout=45.0)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             "Timeout — API không phản hồi trong 45s. Kiểm tra Base URL / mạng.",
@@ -517,8 +527,8 @@ async def rewrite_prompt(
     # Connect fails fast; read capped so UI is not stuck forever when provider hangs
     timeout = httpx.Timeout(connect=12.0, read=55.0, write=20.0, pool=10.0)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            res = await client.post(url, headers=headers, json=payload)
+        client = _get_client()
+        res = await client.post(url, headers=headers, json=payload, timeout=timeout)
     except httpx.TimeoutException as exc:
         raise ProviderError(
             "API AI không phản hồi (timeout ~55s). Provider (api1.bawui.com / model) "
@@ -568,8 +578,8 @@ async def rewrite_prompt(
             "Slightly improved version (same meaning):"
         )
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                res2 = await client.post(url, headers=headers, json=payload)
+            client = _get_client()
+            res2 = await client.post(url, headers=headers, json=payload, timeout=90.0)
             if res2.status_code < 400:
                 data2 = res2.json()
                 text2 = _clean_output(_extract_message_text(data2))

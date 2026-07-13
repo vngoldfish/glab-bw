@@ -122,23 +122,31 @@ async def rewrite_one(body: RewriteRequest) -> dict:
 
 @router.post("/rewrite-prompts")
 async def rewrite_many(body: RewriteBatchRequest) -> dict:
-    results: list[dict] = []
-    for index, prompt in enumerate(body.prompts):
+    import asyncio
+
+    sem = asyncio.Semaphore(5)
+
+    async def _rewrite_one(index: int, prompt: str) -> dict:
         item: dict = {"index": index, "original": prompt}
         if not str(prompt or "").strip():
             item["status"] = "skipped"
             item["prompt"] = prompt
-            results.append(item)
-            continue
-        try:
-            improved = await rewrite_prompt(prompt, kind=body.kind, locale=body.locale)
-            item["status"] = "ok"
-            item["prompt"] = improved
-        except ProviderError as exc:
-            item["status"] = "failed"
-            item["prompt"] = prompt
-            item["error"] = str(exc)
-        results.append(item)
-    ok = sum(1 for r in results if r.get("status") == "ok")
-    failed = sum(1 for r in results if r.get("status") == "failed")
-    return {"total": len(results), "ok": ok, "failed": failed, "results": results}
+            return item
+        async with sem:
+            try:
+                improved = await rewrite_prompt(prompt, kind=body.kind, locale=body.locale)
+                item["status"] = "ok"
+                item["prompt"] = improved
+            except ProviderError as exc:
+                item["status"] = "failed"
+                item["prompt"] = prompt
+                item["error"] = str(exc)
+        return item
+
+    results = await asyncio.gather(
+        *(_rewrite_one(i, p) for i, p in enumerate(body.prompts))
+    )
+    results_list = list(results)
+    ok = sum(1 for r in results_list if r.get("status") == "ok")
+    failed = sum(1 for r in results_list if r.get("status") == "failed")
+    return {"total": len(results_list), "ok": ok, "failed": failed, "results": results_list}

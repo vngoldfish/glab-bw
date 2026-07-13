@@ -11,6 +11,7 @@ import {
 } from "./api";
 import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
+import ProgressTracker from "./components/ProgressTracker";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
 import WorkflowPage from "./pages/WorkflowPage";
@@ -448,6 +449,7 @@ export default function App() {
             </Suspense>
           </div>
         </main>
+        <ProgressTracker />
       </div>
     </ReferenceLibraryProvider>
   );

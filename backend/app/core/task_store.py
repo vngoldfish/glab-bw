@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -13,39 +14,55 @@ class TaskStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: sqlite3.Connection | None = None
+        self._conn_lock = threading.Lock()
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=30)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _get_conn(self) -> sqlite3.Connection:
+        """Double-checked locking: create persistent connection once."""
+        if self._conn is not None:
+            return self._conn
+        with self._conn_lock:
+            if self._conn is not None:
+                return self._conn
+            conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=30,
+                check_same_thread=False,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._conn = conn
+            return self._conn
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS tasks (
-                    task_id TEXT PRIMARY KEY,
-                    task_type TEXT NOT NULL,
-                    prompt TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at REAL NOT NULL,
-                    completed_at REAL,
-                    results TEXT,
-                    error_code INTEGER DEFAULT 0,
-                    error TEXT DEFAULT '',
-                    error_detail TEXT DEFAULT ''
-                )
-                """
+        conn = self._get_conn()
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id TEXT PRIMARY KEY,
+                task_type TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                completed_at REAL,
+                results TEXT,
+                error_code INTEGER DEFAULT 0,
+                error TEXT DEFAULT '',
+                error_detail TEXT DEFAULT ''
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC)"
-            )
-            conn.commit()
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC)"
+        )
+        conn.commit()
 
     def upsert(
         self,
@@ -62,47 +79,47 @@ class TaskStore:
         error: str = "",
         error_detail: str = "",
     ) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO tasks (
-                    task_id, task_type, prompt, payload, status,
-                    created_at, completed_at, results, error_code, error, error_detail
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(task_id) DO UPDATE SET
-                    status=excluded.status,
-                    completed_at=excluded.completed_at,
-                    results=excluded.results,
-                    error_code=excluded.error_code,
-                    error=excluded.error,
-                    error_detail=excluded.error_detail
-                """,
-                (
-                    task_id,
-                    task_type,
-                    prompt,
-                    json.dumps(payload, ensure_ascii=False),
-                    status,
-                    created_at,
-                    completed_at,
-                    json.dumps(results or [], ensure_ascii=False),
-                    error_code,
-                    error or "",
-                    error_detail or "",
-                ),
-            )
-            conn.commit()
+        conn = self._get_conn()
+        conn.execute(
+            """
+            INSERT INTO tasks (
+                task_id, task_type, prompt, payload, status,
+                created_at, completed_at, results, error_code, error, error_detail
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                status=excluded.status,
+                completed_at=excluded.completed_at,
+                results=excluded.results,
+                error_code=excluded.error_code,
+                error=excluded.error,
+                error_detail=excluded.error_detail
+            """,
+            (
+                task_id,
+                task_type,
+                prompt,
+                json.dumps(payload, ensure_ascii=False),
+                status,
+                created_at,
+                completed_at,
+                json.dumps(results or [], ensure_ascii=False),
+                error_code,
+                error or "",
+                error_detail or "",
+            ),
+        )
+        conn.commit()
 
     def load_recent(self, limit: int = 200) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM tasks
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+        conn = self._get_conn()
+        rows = conn.execute(
+            """
+            SELECT * FROM tasks
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
             out.append(
@@ -125,18 +142,25 @@ class TaskStore:
     def mark_interrupted_running(self) -> int:
         """On startup: running tasks were killed — mark failed so UI is truthful."""
         now = time.time()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE tasks
-                SET status='failed',
-                    completed_at=?,
-                    error_code=0,
-                    error='Backend restarted while task was running',
-                    error_detail='Interrupted by process restart'
-                WHERE status='running'
-                """,
-                (now,),
-            )
-            conn.commit()
-            return cur.rowcount
+        conn = self._get_conn()
+        cur = conn.execute(
+            """
+            UPDATE tasks
+            SET status='failed',
+                completed_at=?,
+                error_code=0,
+                error='Backend restarted while task was running',
+                error_detail='Interrupted by process restart'
+            WHERE status='running'
+            """,
+            (now,),
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def close(self) -> None:
+        """Close the persistent connection (for shutdown)."""
+        with self._conn_lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
