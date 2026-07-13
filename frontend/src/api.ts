@@ -1272,7 +1272,7 @@ export interface EditProjectDoc {
   output_folder?: string;
 }
 
-export type MediaInsertSource = "workflow" | "flow_video" | "flow_image";
+export type MediaInsertSource = "workflow" | "flow_video" | "flow_image" | "all";
 
 export async function listEditProjects(): Promise<EditProjectMeta[]> {
   const res = await apiFetch("/api/video-editor/edit-projects");

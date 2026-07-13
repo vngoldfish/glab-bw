@@ -61,6 +61,7 @@ const LS_SRC = "glab-bw-insert-source";
 const LS_WF = "glab-bw-insert-workflow";
 
 const SOURCE_TABS: Array<{ id: MediaInsertSource; label: string; hint: string }> = [
+  { id: "all", label: "Xem tất cả", hint: "Tất cả ảnh & video từ mọi nguồn" },
   { id: "workflow", label: "Project Workflow", hint: "Video gen trong workflow" },
   { id: "flow_video", label: "Flow Video", hint: "video_output" },
   { id: "flow_image", label: "Flow Ảnh", hint: "image_output (xem; ghép cần video)" },
@@ -99,7 +100,7 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
 
   // Insert picker sources
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [insertSource, setInsertSource] = useState<MediaInsertSource>("flow_video");
+  const [insertSource, setInsertSource] = useState<MediaInsertSource>("all");
   const [wfProjects, setWfProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [wfProjectId, setWfProjectId] = useState("");
   const [bin, setBin] = useState<ProjectAsset[]>([]);
@@ -145,8 +146,8 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = bin;
-    // Stitcher only adds videos — hide images in list unless flow_image (show all for browse)
-    if (insertSource !== "flow_image") {
+    // Stitcher only adds videos — hide images in list unless flow_image or all (show all for browse)
+    if (insertSource !== "flow_image" && insertSource !== "all") {
       list = list.filter((a) => a.kind === "video" || /\.(mp4|webm|mov|mkv)$/i.test(a.name || ""));
     }
     if (!needle) return list;
@@ -329,8 +330,11 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
       } else if (insertSource === "flow_video") {
         const data = await browseInsertMedia({ source: "flow_video", kind: "video" });
         setBin(data.assets || []);
-      } else {
+      } else if (insertSource === "flow_image") {
         const data = await browseInsertMedia({ source: "flow_image", kind: "image" });
+        setBin(data.assets || []);
+      } else if (insertSource === "all") {
+        const data = await browseInsertMedia({ source: "all", kind: "all" });
         setBin(data.assets || []);
       }
     } catch (e) {
@@ -752,11 +756,13 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
   ];
 
   const sourceHint =
-    insertSource === "workflow"
-      ? "Chọn project Workflow bên dưới → tick video gen sẵn"
-      : insertSource === "flow_video"
-        ? "Video trong G-Labs BW/video_output (+ grok)"
-        : "Ảnh Flow — chỉ xem; ghép cần chuyển tab video";
+    insertSource === "all"
+      ? "Tất cả ảnh & video từ mọi nguồn (Workflow, Video, Ảnh)"
+      : insertSource === "workflow"
+        ? "Chọn project Workflow bên dưới → tick video gen sẵn"
+        : insertSource === "flow_video"
+          ? "Video trong G-Labs BW/video_output (+ grok)"
+          : "Ảnh Flow — chỉ xem; ghép cần video";
 
   /* ── Màn danh sách quản lý project (mặc định) ── */
   if (view === "list") {
@@ -1363,6 +1369,11 @@ export default function VideoEditorPage({ onError }: VideoEditorPageProps) {
                   {insertSource === "flow_image" && (
                     <>
                       Chưa có ảnh. <Link to={NAV_ROUTES["flow-image"]}>Mở Flow Ảnh</Link>.
+                    </>
+                  )}
+                  {insertSource === "all" && (
+                    <>
+                      Chưa có video hay ảnh nào được tạo.
                     </>
                   )}
                 </p>

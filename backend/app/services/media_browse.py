@@ -137,4 +137,40 @@ def list_source(
         return list_flow_video(limit=limit)
     if src in {"flow_image", "image", "flow-image", "flow_anh"}:
         return list_flow_image(limit=limit)
+    if src == "all":
+        from app.services import project_store as wf_store
+        from app.services.project_outputs import list_assets
+
+        projects = wf_store.list_projects(with_assets=False)
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for folder in FLOW_VIDEO_FOLDERS:
+            for it in _scan_dir(settings.data_dir / folder, kind=None, limit=limit):
+                p = str(it["path"])
+                if p not in seen:
+                    seen.add(p)
+                    out.append({**it, "source": "flow_video"})
+
+        for folder in FLOW_IMAGE_FOLDERS:
+            for it in _scan_dir(settings.data_dir / folder, kind=None, limit=limit):
+                p = str(it["path"])
+                if p not in seen:
+                    seen.add(p)
+                    out.append({**it, "source": "flow_image"})
+
+        for proj in projects[:10]:
+            pid = str(proj["id"])
+            try:
+                assets = list_assets(pid, kind=None, limit=limit)
+                for it in assets:
+                    p = str(it["path"])
+                    if p not in seen:
+                        seen.add(p)
+                        out.append({**it, "source": "workflow", "workflow_project_id": pid})
+            except Exception:
+                pass
+
+        out.sort(key=lambda x: float(x.get("mtime") or 0), reverse=True)
+        return out[:limit]
     raise ValueError(f"Nguồn không hợp lệ: {source}")
