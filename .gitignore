@@ -54,6 +54,7 @@ data/G-Labs BW/grok_output/**
 !data/G-Labs BW/grok_output/.gitkeep
 data/G-Labs BW/reference_images/**
 !data/G-Labs BW/reference_images/.gitkeep
+data/workflow/
 
 # IDE & OS
 .idea/
@@ -78,6 +79,7 @@ htmlcov/
 
 # Local run data & scratch files
 data/G-Labs BW/meta_output/
+data/G-Labs BW/media_output/
 data/G-Labs BW/projects/
 data/G-Labs BW/webhook_uploads/
 data/video_edit_projects/
