@@ -32,6 +32,7 @@ class Account:
     image_cooldown_until: float | None = None
     video_cooldown_until: float | None = None
     last_error: str | None = None
+    credits_remaining: int | None = None
 
 
 class AccountStore:
@@ -94,6 +95,7 @@ class AccountStore:
                         "image_cooldown_until": a.image_cooldown_until,
                         "video_cooldown_until": a.video_cooldown_until,
                         "last_error": a.last_error,
+                        "credits_remaining": a.credits_remaining,
                     }
                     for a in self._accounts.values()
                 ]

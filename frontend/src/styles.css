@@ -2634,7 +2634,7 @@ textarea {
   overflow: hidden;
 }
 .queue-table .col-status {
-  width: 120px;
+  width: 160px;
   vertical-align: middle;
   overflow: hidden;
 }
@@ -4805,15 +4805,14 @@ textarea:focus {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-/* Dashboard */
 .dashboard-page {
   overflow: auto;
   height: 100%;
-  padding-bottom: 24px;
+  padding: 0 24px 28px;
 }
 
 .dashboard-page .info-grid {
-  padding: 0 24px;
+  /* Aligns with container padding */
 }
 
 /* Code blocks */

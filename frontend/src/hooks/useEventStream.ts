@@ -29,6 +29,7 @@ export interface ActiveTask {
   status: string;
   prompt: string;
   startedAt: number;
+  data?: Record<string, any>;
 }
 
 export interface LogEntry {
@@ -132,7 +133,7 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
           // Don't duplicate
           if (prev.some((t) => t.task_id === task_id)) {
             return prev.map((t) =>
-              t.task_id === task_id ? { ...t, status, step: message } : t
+              t.task_id === task_id ? { ...t, status, step: message, data: event.data || t.data } : t
             );
           }
           return [
@@ -145,6 +146,7 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
               status,
               prompt: message,
               startedAt: event.timestamp,
+              data: event.data,
             },
           ];
         });
@@ -153,7 +155,7 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
         setActiveTasks((prev) =>
           prev.map((t) =>
             t.task_id === task_id
-              ? { ...t, status, step: message, percent: status === "completed" ? 100 : t.percent }
+              ? { ...t, status, step: message, percent: status === "completed" ? 100 : t.percent, data: event.data || t.data }
               : t
           )
         );
@@ -170,7 +172,7 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
       setActiveTasks((prev) =>
         prev.map((t) =>
           t.task_id === event.task_id
-            ? { ...t, step: event.step, percent: event.percent }
+            ? { ...t, step: event.step, percent: event.percent, data: event.data || t.data }
             : t
         )
       );

@@ -215,10 +215,16 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
                       {String(a.provider)} · {a.enabled ? "Hoạt động" : "Tắt"}
                       {a.in_cooldown ? " · Cooldown" : ""}
                     </p>
-                    <div style={{ fontSize: "11.5px", color: "var(--amber-bright)", marginTop: 4, display: "flex", gap: 8 }}>
+                    <div style={{ fontSize: "11.5px", color: "var(--amber-bright)", marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
                       <span>Lượt chạy: <strong>{Number(a.total_runs || 0)}</strong></span>
                       <span>•</span>
                       <span>Tiêu thụ: <strong>{Number(a.total_credits || 0)} credit</strong></span>
+                      {a.credits_remaining !== undefined && a.credits_remaining !== null && (
+                        <>
+                          <span>•</span>
+                          <span style={{ color: "var(--green)" }}>Còn lại: <strong>{Number(a.credits_remaining).toLocaleString()} credit</strong></span>
+                        </>
+                      )}
                     </div>
                     {a.last_error ? (
                       <p className="dash-error-text" title={String(a.last_error)}>

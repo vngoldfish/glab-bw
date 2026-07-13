@@ -95,6 +95,7 @@ def account_to_dict(account: Account) -> dict:
         "cooldown_left_sec": cooldown_left,
         "in_cooldown": cooldown_left > 0,
         "last_error": account.last_error,
+        "credits_remaining": account.credits_remaining,
         "auth_hint": (
             "cookie/session trong app"
             if account.provider == "flow"

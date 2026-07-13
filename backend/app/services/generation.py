@@ -191,17 +191,41 @@ async def handle_image_task(task: Task) -> list[str]:
     params = task.payload
     custom_prefix = params.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"image_{task.task_id}"
+    row_id = params.get("row_id")
+    event_data = {"row_id": row_id} if row_id else {}
 
     try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=10, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=10, task_type=task.task_type, data=event_data)
     except Exception:
         pass
+
+    # Simulated progress task for synchronous image generation
+    async def simulate_progress(tid: str, start: int, end: int, duration: float, msg: str, ttype: str):
+        try:
+            steps = 10
+            delay = duration / steps
+            step_pct = (end - start) / steps
+            curr = start
+            for _ in range(steps):
+                await asyncio.sleep(delay)
+                curr += step_pct
+                try:
+                    from app.core.progress import emit_task_progress
+                    emit_task_progress(tid, msg, percent=int(curr), task_type=ttype, data=event_data)
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
+
+    progress_sim = asyncio.create_task(
+        simulate_progress(task.task_id, 30, 80, 7.0, "Đang tạo ảnh...", task.task_type)
+    )
 
     try:
         try:
             from app.core.progress import emit_task_progress
-            emit_task_progress(task.task_id, "Đang gửi prompt tạo ảnh...", percent=30, task_type=task.task_type)
+            emit_task_progress(task.task_id, "Đang gửi prompt tạo ảnh...", percent=30, task_type=task.task_type, data=event_data)
         except Exception:
             pass
         images = await _run_flow_with_rotation(
@@ -210,16 +234,19 @@ async def handle_image_task(task: Task) -> list[str]:
             params=params,
         )
     except ProviderError:
+        progress_sim.cancel()
         openai = get_openai_provider()
         if openai:
             images = await openai.generate_image(task.prompt, params)
             _track("openai", "image")
             return _save_outputs(images, task, file_prefix)
         raise
+    finally:
+        progress_sim.cancel()
 
     try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type, data=event_data)
     except Exception:
         pass
 
@@ -234,27 +261,55 @@ async def handle_image_task(task: Task) -> list[str]:
 
 async def handle_video_task(task: Task) -> list[str]:
     _validate_prompt(task)
+    row_id = task.payload.get("row_id")
+    event_data = {"row_id": row_id} if row_id else {}
 
     try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=5, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang chọn tài khoản...", percent=5, task_type=task.task_type, data=event_data)
     except Exception:
         pass
 
     try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang gửi prompt tạo video...", percent=15, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang gửi prompt tạo video...", percent=15, task_type=task.task_type, data=event_data)
     except Exception:
         pass
-    videos = await _run_flow_with_rotation(
-        for_video=True,
-        prompt=task.prompt,
-        params=task.payload,
+
+    # Simulated progress task in case live polling returns no percentage
+    async def simulate_progress(tid: str, start: int, end: int, duration: float, msg: str, ttype: str):
+        try:
+            steps = 40
+            delay = duration / steps
+            step_pct = (end - start) / steps
+            curr = start
+            for _ in range(steps):
+                await asyncio.sleep(delay)
+                curr += step_pct
+                try:
+                    from app.core.progress import emit_task_progress
+                    emit_task_progress(tid, msg, percent=int(curr), task_type=ttype, data=event_data)
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
+
+    progress_sim = asyncio.create_task(
+        simulate_progress(task.task_id, 15, 80, 45.0, "Đang tạo video...", task.task_type)
     )
 
     try:
+        videos = await _run_flow_with_rotation(
+            for_video=True,
+            prompt=task.prompt,
+            params={**task.payload, "task_id": task.task_id},
+        )
+    finally:
+        progress_sim.cancel()
+
+    try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang lưu video...", percent=85, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang lưu video...", percent=85, task_type=task.task_type, data=event_data)
     except Exception:
         pass
 

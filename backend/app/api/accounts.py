@@ -15,6 +15,32 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 @router.get("")
 async def list_accounts(provider: str | None = None) -> dict:
     accounts = account_store.list_accounts(provider=provider)  # type: ignore[arg-type]
+    
+    # Refresh live credits for Flow accounts concurrently
+    from app.services.flow_client import google_flow_client
+    import asyncio
+    
+    async def refresh_single_account(acc):
+        if acc.provider == "flow" and acc.enabled:
+            token = acc.credentials.get("session_token")
+            proj_id = acc.credentials.get("project_id")
+            if token and proj_id:
+                credits = await google_flow_client.get_live_credits(token, proj_id)
+                if credits is not None:
+                    account_store.update(acc.id, credits_remaining=credits)
+
+    flow_accs = [a for a in accounts if a.provider == "flow" and a.enabled]
+    if flow_accs:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(refresh_single_account(a) for a in flow_accs), return_exceptions=True),
+                timeout=4.0
+            )
+        except asyncio.TimeoutError:
+            pass
+            
+    # Re-fetch accounts to include updated credits
+    accounts = account_store.list_accounts(provider=provider)  # type: ignore[arg-type]
     return {"accounts": [account_to_dict(a) for a in accounts]}
 
 

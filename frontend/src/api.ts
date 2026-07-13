@@ -18,6 +18,7 @@ export interface Account {
   last_error?: string | null;
   /** short hint: cookie in app vs browser tab */
   auth_hint?: string | null;
+  credits_remaining?: number | null;
 }
 
 export interface AppInfo {

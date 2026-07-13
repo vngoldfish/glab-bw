@@ -35,6 +35,32 @@ async def dashboard() -> dict:
             )
 
     accounts = account_store.list_accounts()
+    
+    # Refresh live credits for Flow accounts concurrently (short timeout)
+    from app.services.flow_client import google_flow_client
+    import asyncio
+    
+    async def refresh_single_account(acc):
+        if acc.provider == "flow" and acc.enabled:
+            token = acc.credentials.get("session_token")
+            proj_id = acc.credentials.get("project_id")
+            if token and proj_id:
+                credits = await google_flow_client.get_live_credits(token, proj_id)
+                if credits is not None:
+                    account_store.update(acc.id, credits_remaining=credits)
+
+    flow_accs = [a for a in accounts if a.provider == "flow" and a.enabled]
+    if flow_accs:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(refresh_single_account(a) for a in flow_accs), return_exceptions=True),
+                timeout=3.0
+            )
+        except asyncio.TimeoutError:
+            pass
+
+    # Re-fetch accounts to include updated credits
+    accounts = account_store.list_accounts()
     from app.services.credit_store import get_usage
     credits_data = get_usage()
     acc_credits = credits_data.get("accounts", {})
@@ -54,6 +80,7 @@ async def dashboard() -> dict:
                 "last_error": a.last_error,
                 "total_runs": ac_stats.get("total_runs", 0),
                 "total_credits": ac_stats.get("total_credits", 0),
+                "credits_remaining": a.credits_remaining,
             }
         )
 

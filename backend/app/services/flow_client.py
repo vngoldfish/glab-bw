@@ -7,7 +7,7 @@ import random
 import time
 import uuid
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import httpx
 
@@ -522,6 +522,7 @@ class GoogleFlowClient:
         session_token: str | None = None,
         account_id: str | None = None,
         account_label: str | None = None,
+        task_id: str | None = None,
     ) -> list[bytes]:
         """Submit video generation with careful model-key + payload strategy.
 
@@ -776,6 +777,7 @@ class GoogleFlowClient:
                 operations,
                 project_id=project_id,
                 session_token=session_token,
+                task_id=task_id,
             )
 
         media_name: str | None = None
@@ -997,6 +999,7 @@ class GoogleFlowClient:
         *,
         project_id: str | None = None,
         session_token: str | None = None,
+        task_id: str | None = None,
     ) -> str:
         media_refs = []
         for op in operations:
@@ -1052,6 +1055,40 @@ class GoogleFlowClient:
                     if isinstance(item.get("mediaMetadata"), dict)
                     else {}
                 )
+                
+                # Extract actual progress percentage from Google Flow response
+                pct = -1
+                def extract_percent(obj) -> int:
+                    if not isinstance(obj, dict):
+                        return -1
+                    for key in ("percentComplete", "progressPercent", "generationProgress", "progress", "percent"):
+                        val = obj.get(key)
+                        if val is not None:
+                            try:
+                                f_val = float(val)
+                                if 0.0 < f_val <= 1.0:
+                                    return int(f_val * 100)
+                                if 1.0 < f_val <= 100.0:
+                                    return int(f_val)
+                            except (ValueError, TypeError):
+                                pass
+                    return -1
+
+                pct = extract_percent(nested)
+                if pct == -1:
+                    pct = extract_percent(item)
+
+                if pct != -1 and task_id:
+                    task_pct = 15 + int(pct * 0.65)
+                    try:
+                        from app.core.progress import emit_task_progress
+                        from app.core.task_queue import task_queue
+                        task_obj = task_queue.get_task(task_id)
+                        row_id = task_obj.payload.get("row_id") if task_obj else None
+                        event_data = {"row_id": row_id} if row_id else {}
+                        emit_task_progress(task_id, f"Đang tạo video ({pct}%)...", percent=task_pct, task_type="video", data=event_data)
+                    except Exception:
+                        pass
                 status = str(
                     nested.get("mediaGenerationStatus")
                     or item.get("status")
@@ -1293,6 +1330,24 @@ class GoogleFlowClient:
         response = await self._client.get(url, timeout=120.0)
         response.raise_for_status()
         return response.content
+
+    async def get_live_credits(self, session_token: str, project_id: str) -> int | None:
+        try:
+            url = f"{FLOW_LABS_BASE}/trpc/flow.projectInitialData?input={quote(json.dumps({'json': {'projectId': project_id}}))}"
+            headers = {
+                "Cookie": f"__Secure-next-auth.session-token={session_token}",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            }
+            if self._client is None:
+                self._client = httpx.AsyncClient(timeout=self.timeout)
+            res = await self._client.get(url, headers=headers, timeout=15.0)
+            if res.status_code == 200:
+                data = res.json()
+                user_data = data.get("result", {}).get("data", {}).get("json", {}).get("userData", {})
+                return user_data.get("credits")
+        except Exception:
+            logger.exception("Failed to fetch live credits from Google Flow")
+        return None
 
 
 google_flow_client = GoogleFlowClient()

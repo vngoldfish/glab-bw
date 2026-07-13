@@ -11,18 +11,15 @@ import {
   fetchAiSettings,
   fetchDiskInfo,
   importAccountsBackup,
-  fetchLoginBrowserStatus,
   runProjectTests,
   saveAiApiSettings,
   savePromptSettings,
-  startLoginBrowser,
   testAiApi,
   updateAccount,
   fetchPortsConfig,
   savePortsConfig,
   fetchCreditsUsage,
   type CreditUsageConfig,
-  type LoginBrowserJob,
   type TestRunResult,
   type TestSuite,
 } from "../api";
@@ -192,6 +189,13 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [portsMsg, setPortsMsg] = useState("");
   const [portsOk, setPortsOk] = useState<boolean | null>(null);
 
+  // Edit Account State
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [editCookie, setEditCookie] = useState("");
+  const [editApiKey, setEditApiKey] = useState("");
+  const [editSessionToken, setEditSessionToken] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+
   const [creditsUsage, setCreditsUsage] = useState<CreditUsageConfig | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
 
@@ -226,9 +230,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [testSuite, setTestSuite] = useState<TestSuite>("all");
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<TestRunResult | null>(null);
-  const [loginJob, setLoginJob] = useState<LoginBrowserJob | null>(null);
-  const [loginBusy, setLoginBusy] = useState(false);
-  const [loginLabel, setLoginLabel] = useState("");
+
 
   const flowAccounts = accounts.filter((a) => a.provider === "flow");
   const flowReady = flowAccounts.filter((a) => a.enabled && a.has_credentials && !a.in_cooldown);
@@ -522,6 +524,57 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }
 
+  function handleStartEdit(account: Account) {
+    setEditingAccount(account);
+    setEditCookie("");
+    setEditApiKey("");
+    setEditSessionToken("");
+    onError("");
+  }
+
+  async function handleSaveEdit() {
+    if (!editingAccount) return;
+    setLoading(true);
+    onError("");
+    try {
+      let credentials: Record<string, string> = {};
+      if (editingAccount.provider === "openai") {
+        if (!editApiKey.trim()) throw new Error("Nhập API Key");
+        credentials = { api_key: editApiKey.trim() };
+      } else if (editingAccount.provider === "grok") {
+        if (editCookie.trim()) {
+          credentials = { cookie: editCookie.trim() };
+          if (editApiKey.trim()) credentials.api_key = editApiKey.trim();
+        } else if (editApiKey.trim()) {
+          credentials = { api_key: editApiKey.trim() };
+        } else {
+          throw new Error("Nhập Cookie hoặc API Key");
+        }
+      } else if (editingAccount.provider === "flow") {
+        if (!editSessionToken.trim()) throw new Error("Dán session token");
+        const parsed = parseFlowCookieInput(editSessionToken);
+        credentials = { session_token: parsed.session_token };
+      } else if (editingAccount.provider === "meta") {
+        if (!editCookie.trim()) throw new Error("Dán cookie vibes.ai");
+        const parsedCookie = parseMetaCookieInput(editCookie);
+        credentials = { cookie: parsedCookie };
+      } else {
+        if (!editCookie.trim()) throw new Error("Dán cookie");
+        credentials = { cookie: editCookie.trim() };
+      }
+
+      await updateAccount(editingAccount.id, {
+        credentials,
+      });
+      setEditingAccount(null);
+      await onRefresh();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleToggle(account: Account) {
     setLoading(true);
     onError("");
@@ -668,7 +721,130 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
 
           {/* Account Lists */}
           <section className="panel-card" style={{ marginTop: 16 }}>
-            <h2>Danh sách tài khoản ({accounts.length})</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>Danh sách tài khoản ({accounts.length})</h2>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+                onClick={() => setShowAddForm(!showAddForm)}
+              >
+                <UserPlus size={14} />
+                {showAddForm ? "Đóng form" : "Thêm tài khoản"}
+              </button>
+            </div>
+
+            {showAddForm && (
+              <div style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 10, padding: 18, marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <UserPlus size={16} style={{ color: "var(--purple-bright)" }} />
+                  <strong style={{ fontSize: "14px", color: "#fff" }}>Thêm tài khoản thủ công</strong>
+                </div>
+                <div className="form-grid" style={{ gap: "10px 14px", marginBottom: 14 }}>
+                  <label>
+                    Nền tảng
+                    <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as Provider)}>
+                      {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
+                        <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Tên hiển thị (Email)
+                    <input
+                      value={newLabel}
+                      onChange={(e) => setNewLabel(e.target.value)}
+                      placeholder="vd: email@gmail.com"
+                    />
+                  </label>
+                  {newProvider === "openai" ? (
+                    <label className="span-2">
+                      OpenAI API Key
+                      <input
+                        type="password"
+                        value={newApiKey}
+                        onChange={(e) => setNewApiKey(e.target.value)}
+                        placeholder="sk-..."
+                        autoComplete="new-password"
+                      />
+                    </label>
+                  ) : newProvider === "grok" ? (
+                    <>
+                      <label className="span-2">
+                        Cookie Grok.com
+                        <textarea
+                          rows={3}
+                          value={newCookie}
+                          onChange={(e) => setNewCookie(e.target.value)}
+                          placeholder="sso=...; sso-rw=..."
+                          style={{ fontFamily: "monospace", fontSize: "11px" }}
+                        />
+                      </label>
+                      <label className="span-2">
+                        xAI API Key (Tùy chọn fallback)
+                        <input
+                          type="password"
+                          value={newApiKey}
+                          onChange={(e) => setNewApiKey(e.target.value)}
+                          placeholder="xai-..."
+                          autoComplete="new-password"
+                        />
+                      </label>
+                    </>
+                  ) : newProvider === "flow" ? (
+                    <label className="span-2">
+                      Cookie Google Flow (session token)
+                      <textarea
+                        rows={3}
+                        value={newSessionToken}
+                        onChange={(e) => setNewSessionToken(e.target.value)}
+                        placeholder="Mã key __Secure-next-auth.session-token..."
+                        style={{ fontFamily: "monospace", fontSize: "11px" }}
+                      />
+                    </label>
+                  ) : newProvider === "meta" ? (
+                    <label className="span-2">
+                      Cookie Vibes.ai (chứa meta_session)
+                      <textarea
+                        rows={3}
+                        value={newCookie}
+                        onChange={(e) => setNewCookie(e.target.value)}
+                        placeholder="Dán Cookie vibes.ai vào đây (phải chứa meta_session=...)..."
+                        style={{ fontFamily: "monospace", fontSize: "11px" }}
+                      />
+                    </label>
+                  ) : (
+                    <label className="span-2">
+                      Session / Cookie
+                      <textarea
+                        rows={3}
+                        value={newCookie}
+                        onChange={(e) => setNewCookie(e.target.value)}
+                        placeholder="Dán Cookie..."
+                        style={{ fontFamily: "monospace", fontSize: "11px" }}
+                      />
+                    </label>
+                  )}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowAddForm(false)}>
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      await handleAddAccount();
+                      setShowAddForm(false);
+                    }}
+                    disabled={loading}
+                  >
+                    Thêm tài khoản
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="account-list" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
               {accounts.length === 0 && <p className="muted">Chưa có tài khoản nào được cấu hình.</p>}
               {accounts.map((account) => (
@@ -681,9 +857,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                       <span className={`status-dot ${account.enabled ? "online" : "offline"}`} />
                       <strong style={{ fontSize: "14px" }}>{account.label}</strong>
                     </div>
-                    <p style={{ margin: "2px 0", fontSize: "12px", color: "var(--text-secondary)" }}>
-                      {PROVIDER_LABELS[account.provider]}
-                      {account.email && account.email !== account.label ? ` · ${account.email}` : ""}
+                    <p style={{ margin: "2px 0", fontSize: "12px", color: "var(--text-secondary)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                      <span>{PROVIDER_LABELS[account.provider]}</span>
+                      {account.email && account.email !== account.label ? <span>· {account.email}</span> : ""}
+                      {account.credits_remaining !== undefined && account.credits_remaining !== null && (
+                        <span style={{ color: "var(--success)", fontWeight: 600, background: "rgba(16, 185, 129, 0.1)", padding: "1px 6px", borderRadius: "4px", fontSize: "11px" }}>
+                          Còn {Number(account.credits_remaining).toLocaleString()} credit
+                        </span>
+                      )}
                     </p>
                     <small style={{ color: "var(--muted)" }}>
                       {account.enabled ? "Đang bật" : "Đã tắt"} ·
@@ -722,6 +903,15 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                     )}
                     <button
                       type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ width: "100%", padding: "5px 12px" }}
+                      onClick={() => handleStartEdit(account)}
+                      disabled={loading}
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      type="button"
                       className="btn btn-ghost danger btn-sm"
                       style={{ width: "100%", padding: "5px 12px" }}
                       onClick={() => handleDeleteAccount(account.id)}
@@ -735,163 +925,6 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             </div>
           </section>
 
-          {/* Add Account & Auto Login Row */}
-          <div className="info-grid" style={{ marginTop: 16, gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))" }}>
-            {/* Auto Login Card */}
-            <section className="panel-card" style={{ height: "fit-content" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <Globe size={18} style={{ color: "var(--blue)" }} />
-                <h2 style={{ margin: 0 }}>Tự động đăng nhập Chrome</h2>
-              </div>
-              <p className="muted" style={{ marginTop: 0, fontSize: "13px", lineHeight: 1.5 }}>
-                Mở một cửa sổ Chrome tự động. Bạn chỉ cần đăng nhập Google Flow trên cửa sổ đó, 
-                hệ thống sẽ tự động lấy token và cấu hình tài khoản cho bạn.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <input
-                  placeholder="Đặt tên Gmail / Nhãn tài khoản..."
-                  value={loginLabel}
-                  onChange={(e) => setLoginLabel(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ display: "flex", alignItems: "center", justifyItems: "center", gap: 8, width: "100%" }}
-                  disabled={loginBusy}
-                  onClick={async () => {
-                    try {
-                      setLoginBusy(true);
-                      const job = await startLoginBrowser(loginLabel.trim());
-                      setLoginJob(job);
-                      const id = job.job_id;
-                      for (let i = 0; i < 200; i++) {
-                        await new Promise((r) => setTimeout(r, 2000));
-                        const st = await fetchLoginBrowserStatus(id);
-                        setLoginJob(st);
-                        if (["completed", "failed", "cancelled"].includes(st.status)) {
-                          if (st.status === "completed") {
-                            await onRefresh();
-                          } else if (st.error) {
-                            onError(st.error);
-                          }
-                          break;
-                        }
-                      }
-                    } catch (e) {
-                      onError(e instanceof Error ? e.message : String(e));
-                    } finally {
-                      setLoginBusy(false);
-                    }
-                  }}
-                >
-                  <Globe size={16} />
-                  {loginBusy ? "Đang chạy Chrome đăng nhập..." : "Mở Trình duyệt Đăng nhập"}
-                </button>
-              </div>
-              {loginJob && (
-                <div style={{ marginTop: 10, padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6, fontSize: "12px" }}>
-                  Trạng thái: <code>{loginJob.status}</code> — {loginJob.message}
-                </div>
-              )}
-            </section>
-
-            {/* Manual Form Card */}
-            <section className="panel-card">
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <UserPlus size={18} style={{ color: "var(--purple-bright)" }} />
-                <h2 style={{ margin: 0 }}>Thêm tài khoản thủ công</h2>
-              </div>
-              <div className="form-grid" style={{ gap: "10px 14px", marginBottom: 14 }}>
-                <label>
-                  Nền tảng
-                  <select value={newProvider} onChange={(e) => setNewProvider(e.target.value as Provider)}>
-                    {(Object.keys(PROVIDER_LABELS) as Provider[]).map((p) => (
-                      <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Tên hiển thị (Email)
-                  <input
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="vd: email@gmail.com"
-                  />
-                </label>
-                {newProvider === "openai" ? (
-                  <label className="span-2">
-                    OpenAI API Key
-                    <input
-                      type="password"
-                      value={newApiKey}
-                      onChange={(e) => setNewApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      autoComplete="new-password"
-                    />
-                  </label>
-                ) : newProvider === "grok" ? (
-                  <>
-                    <label className="span-2">
-                      Cookie Grok.com
-                      <textarea
-                        rows={3}
-                        value={newCookie}
-                        onChange={(e) => setNewCookie(e.target.value)}
-                        placeholder="sso=...; sso-rw=..."
-                        style={{ fontFamily: "monospace", fontSize: "11px" }}
-                      />
-                    </label>
-                    <label className="span-2">
-                      xAI API Key (Tùy chọn fallback)
-                      <input
-                        type="password"
-                        value={newApiKey}
-                        onChange={(e) => setNewApiKey(e.target.value)}
-                        placeholder="xai-..."
-                        autoComplete="new-password"
-                      />
-                    </label>
-                  </>
-                ) : newProvider === "flow" ? (
-                  <label className="span-2">
-                    Cookie Google Flow (session token)
-                    <textarea
-                      rows={3}
-                      value={newSessionToken}
-                      onChange={(e) => setNewSessionToken(e.target.value)}
-                      placeholder="Mã key __Secure-next-auth.session-token..."
-                      style={{ fontFamily: "monospace", fontSize: "11px" }}
-                    />
-                  </label>
-                ) : newProvider === "meta" ? (
-                  <label className="span-2">
-                    Cookie Vibes.ai (chứa meta_session)
-                    <textarea
-                      rows={3}
-                      value={newCookie}
-                      onChange={(e) => setNewCookie(e.target.value)}
-                      placeholder="Dán Cookie vibes.ai vào đây (phải chứa meta_session=...)..."
-                      style={{ fontFamily: "monospace", fontSize: "11px" }}
-                    />
-                  </label>
-                ) : (
-                  <label className="span-2">
-                    Session / Cookie
-                    <textarea
-                      rows={3}
-                      value={newCookie}
-                      onChange={(e) => setNewCookie(e.target.value)}
-                      placeholder="Dán Cookie..."
-                      style={{ fontFamily: "monospace", fontSize: "11px" }}
-                    />
-                  </label>
-                )}
-              </div>
-              <button type="button" className="btn btn-primary" style={{ width: "100%" }} onClick={handleAddAccount} disabled={loading}>
-                Thêm tài khoản
-              </button>
-            </section>
-          </div>
         </div>
       )}
 
@@ -1715,6 +1748,122 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
 
         </div>
       </div>
+
+      {editingAccount && (
+        <div className="ui-dialog-overlay" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="ui-dialog-panel panel-card" style={{ maxWidth: 500, width: "100%", margin: "auto", padding: 24 }}>
+            <h3 style={{ margin: "0 0 12px", color: "#fff" }}>Cập nhật Cookie / Credentials</h3>
+            <p className="muted" style={{ fontSize: "13px", marginTop: 0, marginBottom: 16 }}>
+              Tài khoản: <strong>{editingAccount.label}</strong> ({PROVIDER_LABELS[editingAccount.provider]})
+            </p>
+
+            {editingAccount.provider === "openai" && (
+              <div className="form-grid" style={{ marginBottom: 14 }}>
+                <label className="span-2">
+                  OpenAI API Key
+                  <input
+                    type="password"
+                    value={editApiKey}
+                    onChange={(e) => setEditApiKey(e.target.value)}
+                    placeholder="sk-proj-..."
+                  />
+                </label>
+              </div>
+            )}
+
+            {editingAccount.provider === "grok" && (
+              <div className="form-grid" style={{ marginBottom: 14 }}>
+                <label className="span-2">
+                  Cookie Grok (chứa sso + sso-rw)
+                  <textarea
+                    rows={4}
+                    value={editCookie}
+                    onChange={(e) => setEditCookie(e.target.value)}
+                    placeholder="Dán Cookie hoặc chuỗi JSON cookie grok.com..."
+                    style={{ fontFamily: "monospace", fontSize: "11px" }}
+                  />
+                </label>
+                <label className="span-2">
+                  API Key xAI (tùy chọn)
+                  <input
+                    type="password"
+                    value={editApiKey}
+                    onChange={(e) => setEditApiKey(e.target.value)}
+                    placeholder="xai-..."
+                  />
+                </label>
+              </div>
+            )}
+
+            {editingAccount.provider === "flow" && (
+              <div className="form-grid" style={{ marginBottom: 14 }}>
+                <label className="span-2">
+                  Session Token Flow (__Secure-next-auth.session-token)
+                  <textarea
+                    rows={4}
+                    value={editSessionToken}
+                    onChange={(e) => setEditSessionToken(e.target.value)}
+                    placeholder="Dán Session Token Google Labs Flow..."
+                    style={{ fontFamily: "monospace", fontSize: "11px" }}
+                  />
+                </label>
+              </div>
+            )}
+
+            {editingAccount.provider === "meta" && (
+              <div className="form-grid" style={{ marginBottom: 14 }}>
+                <label className="span-2">
+                  Cookie Vibes.ai (chứa meta_session)
+                  <textarea
+                    rows={4}
+                    value={editCookie}
+                    onChange={(e) => setEditCookie(e.target.value)}
+                    placeholder="Dán Cookie vibes.ai chứa meta_session=..."
+                    style={{ fontFamily: "monospace", fontSize: "11px" }}
+                  />
+                </label>
+              </div>
+            )}
+
+            {editingAccount.provider !== "openai" &&
+              editingAccount.provider !== "grok" &&
+              editingAccount.provider !== "flow" &&
+              editingAccount.provider !== "meta" && (
+                <div className="form-grid" style={{ marginBottom: 14 }}>
+                  <label className="span-2">
+                    Cookie / Token
+                    <textarea
+                      rows={4}
+                      value={editCookie}
+                      onChange={(e) => setEditCookie(e.target.value)}
+                      placeholder="Dán Cookie hoặc Session Token..."
+                      style={{ fontFamily: "monospace", fontSize: "11px" }}
+                    />
+                  </label>
+                </div>
+              )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setEditingAccount(null)}
+                disabled={loading}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveEdit}
+                disabled={loading}
+              >
+                {loading ? "Đang cập nhật..." : "Lưu thay đổi"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

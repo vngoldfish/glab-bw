@@ -30,6 +30,7 @@ import {
   validatePromptMentions,
 } from "../referenceUtils";
 import { useUiDialog } from "./UiDialog";
+import { useEventStream, type ActiveTask } from "../hooks/useEventStream";
 import {
   META_VIDEO_MODELS,
   GROK_VIDEO_MODELS,
@@ -185,7 +186,13 @@ async function confirmRerun(
   });
 }
 
-function statusLabel(status: RowStatus): string {
+function statusLabel(status: RowStatus, row?: QueueRow, activeTasks?: ActiveTask[]): string {
+  if (status === "running" && row && activeTasks) {
+    const active = activeTasks.find((t) => t.data?.row_id === row.id);
+    if (active && active.percent !== undefined && active.percent >= 0) {
+      return `Đang tạo (${active.percent}%)`;
+    }
+  }
   switch (status) {
     case "running":
       return "Đang tạo video...";
@@ -342,6 +349,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const dialog = useUiDialog();
   const navigate = useNavigate();
   const { library: referenceLibrary } = useReferenceLibrary();
+  const { activeTasks } = useEventStream();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
   const [config, setConfig] = useState<VideoConfig>(() => ({
     ...DEFAULT_CONFIG,
@@ -641,6 +649,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         const extraMode =
           resolved.mode === "text_to_video" || namedRefs.length === 0 ? "t2v" : "i2v";
         const params = {
+          row_id: row.id,
           model: config.model,
           aspect_ratio: config.aspectRatio,
           mode: (isGrok || isMeta) ? extraMode : resolved.mode,
@@ -1857,7 +1866,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                       <td className="col-status">
                         <div className="status-cell">
                           <span className={`status-badge status-badge--row status-${row.status}`}>
-                            {statusLabel(row.status)}
+                            {statusLabel(row.status, row, activeTasks)}
                           </span>
                           {row.error && (
                             <span className="result-error-tag" title={row.error}>

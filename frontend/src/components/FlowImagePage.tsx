@@ -30,6 +30,7 @@ import {
   validatePromptMentions,
 } from "../referenceUtils";
 import { useUiDialog } from "./UiDialog";
+import { useEventStream, type ActiveTask } from "../hooks/useEventStream";
 import {
   META_IMAGE_MODELS,
   ASPECT_RATIOS,
@@ -101,7 +102,13 @@ async function confirmRerun(
   });
 }
 
-function statusLabel(status: RowStatus): string {
+function statusLabel(status: RowStatus, row?: QueueRow, activeTasks?: ActiveTask[]): string {
+  if (status === "running" && row && activeTasks) {
+    const active = activeTasks.find((t) => t.data?.row_id === row.id);
+    if (active && active.percent !== undefined && active.percent >= 0) {
+      return `Đang tạo (${active.percent}%)`;
+    }
+  }
   switch (status) {
     case "running":
       return "Đang tạo...";
@@ -158,6 +165,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const dialog = useUiDialog();
   const navigate = useNavigate();
   const { library: referenceLibrary } = useReferenceLibrary();
+  const { activeTasks } = useEventStream();
   // Lazy init so each mount re-reads localStorage (not a one-time module cache)
   const [config, setConfig] = useState<ImageConfig>(() => ({
     ...DEFAULT_CONFIG,
@@ -458,6 +466,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         const isGrok = config.engine === "grok";
         const isMeta = config.engine === "meta";
         const params = {
+          row_id: row.id,
           model: config.model,
           aspect_ratio: config.aspectRatio,
           upscale: (isGrok || isMeta) ? [] : config.upscale,
@@ -570,6 +579,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
             const result = await runImageThenVideoPipeline({
               prompt: row.prompt.trim(),
               image_params: {
+                row_id: row.id,
                 model: config.model,
                 aspect_ratio: config.aspectRatio,
                 upscale: config.upscale,
@@ -1492,7 +1502,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                       <td className="col-status">
                         <div className="status-cell">
                           <span className={`status-badge status-badge--row status-${row.status}`}>
-                            {statusLabel(row.status)}
+                            {statusLabel(row.status, row, activeTasks)}
                           </span>
                           {row.error && (
                             <span className="result-error-tag" title={row.error}>

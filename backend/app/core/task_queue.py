@@ -180,9 +180,11 @@ class TaskQueue:
             task.error_detail = task.error
             task.completed_at = time.time()
             self._persist(task)
+            row_id = task.payload.get("row_id")
+            event_data = {"row_id": row_id} if row_id else {}
             try:
                 from app.core.progress import emit_task_status
-                emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+                emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định", data=event_data)
             except Exception:
                 pass
             self._evict_old_tasks()
@@ -193,9 +195,11 @@ class TaskQueue:
             self._running_count += 1
             task.status = TaskStatus.RUNNING
             self._persist(task)
+            row_id = task.payload.get("row_id")
+            event_data = {"row_id": row_id} if row_id else {}
             try:
                 from app.core.progress import emit_task_status
-                emit_task_status(task.task_id, task.task_type, "running", message=f"Bắt đầu: {task.prompt[:80]}")
+                emit_task_status(task.task_id, task.task_type, "running", message=f"Bắt đầu: {task.prompt[:80]}", data=event_data)
             except Exception:
                 pass
             try:
@@ -204,7 +208,7 @@ class TaskQueue:
                 task.status = TaskStatus.COMPLETED
                 try:
                     from app.core.progress import emit_task_status
-                    emit_task_status(task.task_id, task.task_type, "completed", message=f"Hoàn thành ({len(task.results)} kết quả)")
+                    emit_task_status(task.task_id, task.task_type, "completed", message=f"Hoàn thành ({len(task.results)} kết quả)", data=event_data)
                 except Exception:
                     pass
             except asyncio.TimeoutError:
@@ -214,7 +218,7 @@ class TaskQueue:
                 task.error_detail = task.error
                 try:
                     from app.core.progress import emit_task_status
-                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định", data=event_data)
                 except Exception:
                     pass
             except Exception as exc:
@@ -224,7 +228,7 @@ class TaskQueue:
                 task.error_detail = getattr(exc, "error_detail", str(exc))
                 try:
                     from app.core.progress import emit_task_status
-                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định")
+                    emit_task_status(task.task_id, task.task_type, "failed", message=task.error[:200] if task.error else "Lỗi không xác định", data=event_data)
                 except Exception:
                     pass
             finally:
