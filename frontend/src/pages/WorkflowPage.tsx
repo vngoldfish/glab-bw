@@ -44,7 +44,6 @@ import { Link, useSearchParams, useParams, useNavigate, useLocation } from "reac
 import {
   browseInsertMedia,
   deleteProject,
-  duplicateProject,
   fetchAllProjectAssets,
   fetchProject,
   fetchProjectAssets,
@@ -64,6 +63,7 @@ import {
   openProjectFolder,
   runWorkflowGraph,
   saveProject,
+  checkActiveWorkflowRun,
   type ProjectAsset,
   type ProjectMeta,
   type WorkflowAiNodeContext,
@@ -631,7 +631,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
-  const [showProjectSelector, setShowProjectSelector] = useState(false);
+  const [showProjectSelector, setShowProjectSelector] = useState(true);
   const [projectFilter, setProjectFilter] = useState("");
   const [running, setRunning] = useState(false);
   const runResultRef = useRef<WorkflowRunResult | null>(null);
@@ -661,9 +661,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [addNodesExpanded, setAddNodesExpanded] = useState(() => {
     return localStorage.getItem("wf_add_nodes_expanded") !== "false";
   });
-  const [projectsExpanded, setProjectsExpanded] = useState(() => {
-    return localStorage.getItem("wf_projects_expanded") !== "false";
-  });
   const [mediaProjectExpanded, setMediaProjectExpanded] = useState(() => {
     return localStorage.getItem("wf_media_project_expanded") !== "false";
   });
@@ -683,9 +680,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     localStorage.setItem("wf_add_nodes_expanded", String(addNodesExpanded));
   }, [addNodesExpanded]);
 
-  useEffect(() => {
-    localStorage.setItem("wf_projects_expanded", String(projectsExpanded));
-  }, [projectsExpanded]);
+
 
   useEffect(() => {
     localStorage.setItem("wf_media_project_expanded", String(mediaProjectExpanded));
@@ -749,7 +744,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       const decodedPath = decodeURIComponent(location.pathname);
       const expectedPath = `/workflow/${projectId}`;
       if (decodedPath !== expectedPath) {
-        if (!routeProjectId || routeProjectId === projectId) {
+        if (routeProjectId && routeProjectId === projectId) {
           navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
         }
       }
@@ -1916,6 +1911,37 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       } else {
         setDirty(false);
       }
+
+      // Check active run and resume polling if it is running in background
+      try {
+        const activeRun = await checkActiveWorkflowRun(id);
+        if (activeRun && activeRun.run_id && (activeRun.status === "running" || activeRun.status === "pending")) {
+          setRunning(true);
+          void (async () => {
+            try {
+              const final = await pollUntilDone(activeRun.run_id, id);
+              if (final.status === "completed") {
+                setProgressLabel("Hoàn thành");
+              } else if (final.status === "failed") {
+                setProgressLabel("Lỗi: " + (final.error || "Không rõ"));
+              }
+              try {
+                const media = await fetchProjectAssets(id);
+                setProjectAssets(
+                  [...(media.assets || [])].sort((a, b) => Number(b.mtime || 0) - Number(a.mtime || 0)).slice(0, 120),
+                );
+              } catch {}
+            } catch (err) {
+              console.error("Active run poll failed:", err);
+            } finally {
+              setRunning(false);
+            }
+          })();
+        }
+      } catch (err) {
+        console.error("Failed to check active run:", err);
+      }
+
       setShowProjectSelector(false);
       requestAnimationFrame(() => rf.current?.fitView({ padding: 0.2 }));
     } catch (e) {
@@ -1949,6 +1975,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   useEffect(() => {
     if (routeProjectId) {
+      setShowProjectSelector(false);
       if (projectId !== routeProjectId) {
         void handleOpenProject(routeProjectId);
       }
@@ -1967,29 +1994,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
   }, [routeProjectId, projectId, searchParams]);
 
-  async function handleDuplicateProject() {
-    if (!projectId) {
-      onError("Lưu project trước khi nhân bản");
-      return;
-    }
-    try {
-      await handleSaveProject(false);
-      const doc = await duplicateProject(projectId);
-      setProjectId(doc.id);
-      setName(doc.name);
-      setDescription(doc.description || "");
-      const loaded = loadProjectNodes(doc);
-      nodesRef.current = loaded;
-      setNodes(loaded);
-      setEdges((doc.edges as Edge[]) || []);
-      setDirty(false);
-      await refreshProjects();
-      setSaveHint("Đã nhân bản");
-      setTimeout(() => setSaveHint(""), 2000);
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-    }
-  }
+
 
   function applyRunToNodes(result: WorkflowRunResult, opts?: { keepMissing?: boolean }) {
     setNodes((nds) => {
@@ -2269,7 +2274,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   return (
-    <div className="workflow-page">
+    <div className="workflow-page" style={{ position: "relative" }}>
       <header className={`wf-header-bar ${headerCollapsed ? "collapsed" : ""}`}>
         <div className="wf-header-left">
           <div className="wf-title-section">
@@ -2279,7 +2284,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             {running && <span className="wf-status-badge running">Đang chạy…</span>}
           </div>
 
-          <div className="wf-project-name-wrapper">
+          <div className="wf-project-name-wrapper" style={{ display: "flex", alignItems: "center" }}>
             <Folder className="wf-project-icon" size={14} />
             <input
               value={name}
@@ -2290,6 +2295,30 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               className="wf-project-input"
               placeholder="Tên project"
             />
+            {projectId && (
+              <input
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setDirty(true);
+                }}
+                className="wf-project-input description-input"
+                placeholder="Mô tả project…"
+                style={{
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.4)",
+                  width: 200,
+                  marginLeft: 12,
+                  borderLeft: "1px solid rgba(255,255,255,0.15)",
+                  paddingLeft: 12,
+                  background: "transparent",
+                  borderTop: "none",
+                  borderRight: "none",
+                  borderBottom: "none",
+                  outline: "none",
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -2453,19 +2482,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   </button>
                 ))}
               </div>
-
-              {/* Projects indicator / quick open */}
-              <div className="wf-mini-sidebar-footer">
-                <button
-                  type="button"
-                  className="wf-mini-node-btn"
-                  onClick={() => setLeftSidebarCollapsed(false)}
-                  title="Mở Projects (Click để mở rộng sidebar)"
-                  style={{ color: "#a78bfa" }}
-                >
-                  <Folder size={16} />
-                </button>
-              </div>
             </div>
           ) : (
             /* Full Sidebar Mode */
@@ -2493,7 +2509,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                         setShowBulkPopup(true);
                       }}
                       style={{
-                        gridColumn: "span 2",
+                        gridColumn: "span 1",
                         marginTop: 4,
                         borderStyle: "dashed",
                         borderColor: "rgba(129, 140, 248, 0.4)",
@@ -2504,114 +2520,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     >
                       ⚡ Thêm hàng loạt
                     </button>
-                  </div>
-                )}
-              </div>
-
-              <div className={`wf-panel-card ${projectsExpanded ? "" : "collapsed"}`} style={{ flex: projectsExpanded ? 1 : "none", minHeight: 0 }}>
-                <h3
-                  onClick={() => setProjectsExpanded(!projectsExpanded)}
-                  style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", margin: 0 }}
-                >
-                  <span>Projects</span>
-                  {projectsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </h3>
-                {projectsExpanded && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0, marginTop: 10 }}>
-                    <input
-                      placeholder="Tìm project…"
-                      value={projectFilter}
-                      onChange={(e) => setProjectFilter(e.target.value)}
-                      className="wf-input"
-                      style={{ width: "100%" }}
-                    />
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                      {filteredProjects.length === 0 && (
-                        <span className="muted" style={{ fontSize: 11, textAlign: "center", display: "block", padding: 12 }}>
-                          Chưa có project — bấm 💾 Lưu
-                        </span>
-                      )}
-                      {filteredProjects
-                        .map((p) => (
-                          <div key={p.id} className={`wf-project-item ${projectId === p.id ? "active" : ""}`}>
-                            <button
-                              type="button"
-                              className="wf-project-info-btn"
-                              onClick={() => navigate(`/workflow/${p.id}`)}
-                              title={p.description || p.name}
-                            >
-                              <span className="wf-project-title">{p.name}</span>
-                              <span className="wf-project-meta">
-                                {p.node_count ?? 0} node
-                                {p.updated_at
-                                  ? ` · ${new Date(p.updated_at * 1000).toLocaleDateString()}`
-                                  : ""}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className="wf-project-del-btn"
-                              onClick={async () => {
-                                const ok = await dialog.confirm({
-                                  title: "Xóa project?",
-                                  message: `“${p.name}” sẽ bị xóa khỏi danh sách workflow.`,
-                                  confirmLabel: "Xóa",
-                                  cancelLabel: "Hủy",
-                                  tone: "danger",
-                                });
-                                if (!ok) return;
-                                try {
-                                  await deleteProject(p.id);
-                                  if (projectId === p.id) {
-                                    setProjectId(null);
-                                    setName("Project mới");
-                                    setNodes([]);
-                                    setEdges([]);
-                                    setDirty(true);
-                                  }
-                                  await refreshProjects();
-                                } catch (e) {
-                                  onError(e instanceof Error ? e.message : String(e));
-                                }
-                              }}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-                    <button
-                      type="button"
-                      className="wf-btn wf-btn-secondary"
-                      style={{ width: "100%", justifyContent: "center" }}
-                      disabled={!projectId}
-                      onClick={() => void handleDuplicateProject()}
-                    >
-                      Nhân bản project
-                    </button>
-                    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
-                      Mô tả
-                      <textarea
-                        value={description}
-                        onChange={(e) => {
-                          setDescription(e.target.value);
-                          setDirty(true);
-                        }}
-                        rows={2}
-                        placeholder="Ghi chú mô tả project…"
-                        className="wf-textarea"
-                      />
-                    </label>
-                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mẫu graph</span>
-                      <Link
-                        to={NAV_ROUTES["workflow-templates"]}
-                        className="wf-btn wf-btn-secondary"
-                        style={{ width: "100%", justifyContent: "center", gap: 6, fontSize: 11 }}
-                      >
-                        🗃️ Quản lý mẫu graph
-                      </Link>
-                    </div>
                   </div>
                 )}
               </div>
@@ -3330,11 +3238,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         </div>
       )}
     
-      {showProjectSelector && (
+      {showProjectSelector && !routeProjectId && (
         <div 
           className="ui-lightbox" 
           style={{
-            position: "fixed",
+            position: "absolute",
             top: 0,
             left: 0,
             right: 0,
@@ -3345,21 +3253,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 100000,
+            zIndex: 10,
             padding: 24,
             animation: "fadeIn 0.25s ease-out",
           }}
         >
-          <div style={{ position: "absolute", top: 24, right: 24 }}>
-            <button 
-              type="button" 
-              className="btn btn-ghost"
-              onClick={() => setShowProjectSelector(false)}
-              style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.5)" }}
-            >
-              ✕ Bỏ qua (Vào bảng vẽ trống)
-            </button>
-          </div>
 
           <div style={{ maxWidth: 840, width: "100%", display: "flex", flexDirection: "column", gap: 24 }}>
             <div style={{ textAlign: "center" }}>
@@ -3374,9 +3272,38 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               }}>
                 CHỌN DỰ ÁN WORKFLOW
               </h2>
-              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: 0 }}>
+              <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: "0 0 12px 0" }}>
                 Chọn một dự án đã có để tiếp tục làm việc, hoặc tạo dự án mới
               </p>
+              <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                <Link
+                  to={NAV_ROUTES["workflow-templates"]}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#a78bfa",
+                    background: "rgba(167, 139, 250, 0.08)",
+                    border: "1px solid rgba(167, 139, 250, 0.2)",
+                    borderRadius: 10,
+                    padding: "8px 16px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    textDecoration: "none",
+                    transition: "all 0.2s"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(167, 139, 250, 0.15)";
+                    e.currentTarget.style.borderColor = "rgba(167, 139, 250, 0.35)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(167, 139, 250, 0.08)";
+                    e.currentTarget.style.borderColor = "rgba(167, 139, 250, 0.2)";
+                  }}
+                >
+                  🗃️ Quản lý mẫu workflow (Templates)
+                </Link>
+              </div>
             </div>
 
             <div style={{ position: "relative" }}>

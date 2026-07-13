@@ -71,6 +71,13 @@ async def get_workflow_run(run_id: str) -> dict:
     return run
 
 
+@router.get("/active-run/{project_id}")
+async def get_active_run(project_id: str) -> dict:
+    from app.services.workflow_runner import get_active_run_for_project
+    run = await get_active_run_for_project(project_id)
+    return {"run": run}
+
+
 @router.post("/run")
 async def run_inline_workflow(body: WorkflowRunRequest) -> dict:
     """

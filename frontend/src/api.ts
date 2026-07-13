@@ -996,6 +996,13 @@ export async function fetchWorkflowRun(runId: string): Promise<WorkflowRunResult
   return readJson(res);
 }
 
+export async function checkActiveWorkflowRun(projectId: string): Promise<WorkflowRunResult | null> {
+  const res = await apiFetch(`/api/workflows/active-run/${projectId}`);
+  await ensureOk(res, "Không kiểm tra được tiến trình đang chạy");
+  const data = await readJson<{ run: WorkflowRunResult | null }>(res);
+  return data.run;
+}
+
 /* —— Workflow Projects —— */
 
 export interface ProjectMeta {

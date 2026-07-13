@@ -896,6 +896,8 @@ async def run_workflow(
                     t.cancel()
             await asyncio.gather(*running_tasks.values(), return_exceptions=True)
             running_tasks.clear()
+        if pid:
+            _save_project_results(str(pid), run)
         # Always enforce old run cleanups on run termination
         await _cleanup_runs()
 
@@ -962,3 +964,93 @@ def start_workflow_background(
             )
         )
     return run
+
+
+async def get_active_run_for_project(project_id: str) -> dict[str, Any] | None:
+    """Tìm run đang chạy/pending cho project_id trong memory _runs."""
+    async with _runs_lock:
+        for run in _runs.values():
+            if run.get("project_id") == project_id and run.get("status") in {"running", "pending"}:
+                return run
+    return None
+
+
+def _save_project_results(project_id: str, run: dict[str, Any]) -> None:
+    """Tự động merge kết quả từ run vào file cấu trúc dự án và lưu lại."""
+    from app.services import project_store
+    try:
+        project = project_store.get_project(project_id)
+        if not project:
+            return
+
+        nr = run.get("node_results") or {}
+        nodes = project.get("nodes") or []
+        updated = False
+
+        for node in nodes:
+            nid = str(node.get("id"))
+            if nid not in nr:
+                continue
+
+            raw = nr[nid]
+            if not isinstance(raw, dict):
+                continue
+
+            status = raw.get("status") or "idle"
+            error = raw.get("error")
+            reused = bool(raw.get("reused"))
+            folder = raw.get("folder")
+
+            # extract urls
+            seen = set()
+            urls = []
+            def push(u):
+                if not u or not isinstance(u, str):
+                    return
+                if u not in seen:
+                    seen.add(u)
+                    urls.append(u)
+
+            for u in raw.get("results") or []:
+                push(u)
+            for f in raw.get("frames") or []:
+                if isinstance(f, dict) and f.get("url"):
+                    push(f["url"])
+            if raw.get("image") and raw.get("image") != "(image)":
+                push(raw["image"])
+
+            # normalize frames
+            frames = []
+            for f in raw.get("frames") or []:
+                if isinstance(f, dict) and f.get("url"):
+                    frames.append({
+                        "position": str(f.get("position") or ""),
+                        "url": f["url"],
+                        "path": f.get("path")
+                    })
+
+            data = node.get("data") or {}
+            data["runStatus"] = status
+            if error:
+                data["runError"] = error
+            else:
+                data.pop("runError", None)
+            data["reused"] = reused
+            if folder:
+                data["folder"] = folder
+            if urls:
+                data["resultUrls"] = urls
+            if frames:
+                data["frames"] = frames
+            if node.get("type") == "reference" and urls:
+                data["image"] = urls[0]
+
+            node["data"] = data
+            updated = True
+
+        if updated:
+            project_store.save_project(project, project_id)
+            logger.info("Auto-saved workflow results to project %s", project_id)
+    except Exception as e:
+        logger.exception("Failed to auto-save project results: %s", e)
+

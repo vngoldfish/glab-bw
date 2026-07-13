@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { NAV_ROUTES } from "../routes";
 import type { NavPage } from "../types";
 import { useUiDialog } from "./UiDialog";
@@ -11,7 +11,6 @@ import {
   Workflow,
   Film,
   FolderKanban,
-  Library,
   BookOpen,
   Code2,
   Webhook,
@@ -51,7 +50,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "flow-video", label: "Flow Tạo Video", icon: Video },
       { id: "prompt-hub", label: "Prompt Hub", icon: Wand2 },
       { id: "workflow", label: "Workflow Editor", icon: Workflow },
-      { id: "workflow-templates", label: "Mẫu Workflow", icon: Library },
       { id: "video-editor", label: "Trình Dựng Video", icon: Film },
     ]
   },
@@ -84,6 +82,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const dialog = useUiDialog();
   const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
@@ -115,7 +114,8 @@ export default function Sidebar({
                 to={NAV_ROUTES[item.id]}
                 data-tooltip={item.label}
                 onClick={(e) => {
-                  if ((window as any).workflowDirty && item.id !== "workflow") {
+                  const isLeavingProject = item.id !== "workflow" || location.pathname !== NAV_ROUTES.workflow;
+                  if ((window as any).workflowDirty && isLeavingProject) {
                     e.preventDefault();
                     void (async () => {
                       const leave = await dialog.confirm({
