@@ -82,6 +82,24 @@ async def dashboard() -> dict:
             "progress": r.get("progress"),
         })
 
+    # Format recent standalone tasks (Flow Image, Flow Video)
+    sorted_tasks = sorted(tasks, key=lambda t: t.created_at or 0, reverse=True)
+    active_tasks = [t for t in sorted_tasks if t.status.value in {"running", "pending"}]
+    finished_tasks = [t for t in sorted_tasks if t.status.value not in {"running", "pending"}]
+    
+    formatted_tasks = []
+    for t in (active_tasks + finished_tasks)[:10]:
+        formatted_tasks.append({
+            "task_id": t.task_id,
+            "task_type": t.task_type,
+            "prompt": t.prompt,
+            "status": t.status.value,
+            "created_at": t.created_at,
+            "completed_at": t.completed_at,
+            "error": t.error,
+            "model": t.payload.get("model") or t.payload.get("model_video") or t.payload.get("model_image") or "default",
+        })
+
     return {
         "uptime": task_queue.uptime,
         "queue": {
@@ -105,6 +123,7 @@ async def dashboard() -> dict:
         },
         "credits": credits_data,
         "workflow_runs": formatted_runs,
+        "standalone_tasks": formatted_tasks,
         "extension": ext,
         "session": session_health.payload(),
         "generated_at": time.time(),

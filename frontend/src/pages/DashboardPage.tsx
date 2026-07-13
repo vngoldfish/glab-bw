@@ -51,6 +51,7 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
   const ext = (data?.extension || {}) as Record<string, unknown>;
   const credits = (data?.credits || {}) as any;
   const workflowRuns = (data?.workflow_runs || []) as Array<Record<string, any>>;
+  const standaloneTasks = (data?.standalone_tasks || []) as Array<Record<string, any>>;
   const recentFailed = (tasks.recent_failed || []) as Array<Record<string, unknown>>;
   const items = (accounts.items || []) as Array<Record<string, unknown>>;
 
@@ -319,6 +320,86 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
                   {r.status === "failed" && r.error && (
                     <div style={{ marginTop: 8, fontSize: "12px", color: "var(--red)", background: "rgba(239, 68, 68, 0.05)", padding: "6px 10px", borderRadius: 4, border: "1px solid rgba(239, 68, 68, 0.1)" }}>
                       ❌ Lỗi: {r.error}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="panel-card" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <Activity size={18} style={{ color: "var(--blue)" }} />
+          <h2 style={{ margin: 0 }}>Tiến độ Flow Ảnh / Flow Video (Thời gian thực)</h2>
+        </div>
+        {standaloneTasks.length === 0 ? (
+          <div className="empty-state" style={{ padding: "24px" }}>
+            <div className="empty-state-icon">⚡</div>
+            <h3 className="empty-state-title">Chưa tạo ảnh hay video nào</h3>
+            <p className="empty-state-desc">Hãy sử dụng Flow Ảnh hoặc Flow Video để tạo nội dung.</p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {standaloneTasks.map((t) => {
+              const isRunning = t.status === "running" || t.status === "pending";
+              const isVideo = t.task_type === "video";
+              const targetRoute = isVideo ? "/flow-video" : "/flow-image";
+              const labelText = isVideo ? "Flow Video" : "Flow Ảnh";
+
+              return (
+                <div
+                  key={t.task_id}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid rgba(255, 255, 255, 0.05)",
+                    borderRadius: 8,
+                    padding: "12px 16px"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span
+                        className={`pill ${
+                          t.status === "completed"
+                            ? "pill-green"
+                            : t.status === "failed"
+                              ? "pill-red"
+                              : t.status === "pending"
+                                ? "pill-yellow"
+                                : "pill-blue"
+                        }`}
+                        style={{ fontSize: "10px", padding: "2px 8px" }}
+                      >
+                        {t.status === "running" ? "ĐANG CHẠY" : t.status === "pending" ? "ĐANG CHỜ" : t.status === "completed" ? "HOÀN THÀNH" : "THẤT BẠI"}
+                      </span>
+                      <Link
+                        to={targetRoute}
+                        style={{ fontWeight: 600, color: "#fff", textDecoration: "none", fontSize: "14px" }}
+                        className="hover-underline"
+                      >
+                        🔮 {labelText} · {t.model}
+                      </Link>
+                    </div>
+                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                      Bắt đầu: {fmtTime(t.created_at)} {t.completed_at ? `· Xong: ${fmtTime(t.completed_at)}` : ""}
+                    </span>
+                  </div>
+
+                  <div style={{ marginTop: 8, fontSize: "13px", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    Prompt: <span style={{ color: "#fff" }}>{t.prompt}</span>
+                  </div>
+
+                  {isRunning && (
+                    <div style={{ marginTop: 10 }}>
+                      <div className="st-progress-bar-fill st-spin" style={{ height: 3, width: "30px", background: "var(--purple-bright)", borderRadius: 1.5 }}></div>
+                    </div>
+                  )}
+
+                  {t.status === "failed" && t.error && (
+                    <div style={{ marginTop: 8, fontSize: "12px", color: "var(--red)", background: "rgba(239, 68, 68, 0.05)", padding: "6px 10px", borderRadius: 4, border: "1px solid rgba(239, 68, 68, 0.1)" }}>
+                      ❌ Lỗi: {t.error}
                     </div>
                   )}
                 </div>
