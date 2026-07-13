@@ -371,9 +371,12 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
               characterAssets: s.characterAssets,
             });
 
+            // Consolidate all node/edge mutations into single calls to avoid racing setNodes
             const newNodesToAdd: Node[] = [];
             const newEdgesToAdd: Edge[] = [];
             const edgesToRemove: string[] = [];
+            const nodeUpdates = new Map<string, Partial<Record<string, unknown>>>();
+            const nodesToRemove: string[] = [];
 
             const videoNode = nodes.find(n => n.id === id);
             const basePos = videoNode ? videoNode.position : { x: 0, y: 0 };
@@ -382,14 +385,10 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             const startEdge = edges.find(e => e.target === id && e.targetHandle === "start_image");
             if (s.start_image) {
               if (startEdge) {
-                setNodes(nds => nds.map(n => n.id === startEdge.source ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    image: s.start_image,
-                    resultUrls: [s.start_image]
-                  }
-                } : n));
+                nodeUpdates.set(startEdge.source, {
+                  image: s.start_image,
+                  resultUrls: [s.start_image]
+                });
               } else {
                 const newRefId = `node_ref_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                 newNodesToAdd.push({
@@ -420,7 +419,7 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             } else {
               if (startEdge && startEdge.source.startsWith("node_ref_start_")) {
                 edgesToRemove.push(startEdge.id);
-                setNodes(nds => nds.filter(n => n.id !== startEdge.source));
+                nodesToRemove.push(startEdge.source);
               }
             }
 
@@ -428,14 +427,10 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             const endEdge = edges.find(e => e.target === id && e.targetHandle === "end_image");
             if (s.end_image) {
               if (endEdge) {
-                setNodes(nds => nds.map(n => n.id === endEdge.source ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    image: s.end_image,
-                    resultUrls: [s.end_image]
-                  }
-                } : n));
+                nodeUpdates.set(endEdge.source, {
+                  image: s.end_image,
+                  resultUrls: [s.end_image]
+                });
               } else {
                 const newRefId = `node_ref_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                 newNodesToAdd.push({
@@ -466,7 +461,7 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             } else {
               if (endEdge && endEdge.source.startsWith("node_ref_end_")) {
                 edgesToRemove.push(endEdge.id);
-                setNodes(nds => nds.filter(n => n.id !== endEdge.source));
+                nodesToRemove.push(endEdge.source);
               }
             }
 
@@ -481,7 +476,7 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
                 const isStillActive = newCharAssets.some(c => c.name.replace(/[^a-zA-Z0-9_]/g, "") === nodeName);
                 if (!isStillActive && edge.source.startsWith("node_ref_char_")) {
                   edgesToRemove.push(edge.id);
-                  setNodes(nds => nds.filter(n => n.id !== edge.source));
+                  nodesToRemove.push(edge.source);
                 }
               }
             });
@@ -523,21 +518,31 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
                 existingRefEdges.forEach(edge => {
                   const srcNode = nodes.find(n => n.id === edge.source);
                   if (srcNode && srcNode.data.refName === cleanName) {
-                    setNodes(nds => nds.map(n => n.id === srcNode.id ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        image: char.url,
-                        resultUrls: [char.url]
-                      }
-                    } : n));
+                    nodeUpdates.set(srcNode.id, {
+                      image: char.url,
+                      resultUrls: [char.url]
+                    });
                   }
                 });
               }
             });
 
-            if (newNodesToAdd.length > 0) {
-              setNodes(nds => [...nds, ...newNodesToAdd]);
+            // Apply ALL mutations in single setNodes/setEdges calls
+            const removeSet = new Set(nodesToRemove);
+            if (nodeUpdates.size > 0 || newNodesToAdd.length > 0 || removeSet.size > 0) {
+              setNodes(nds => {
+                let result = nds
+                  .filter(n => !removeSet.has(n.id))
+                  .map(n => {
+                    const update = nodeUpdates.get(n.id);
+                    if (!update) return n;
+                    return { ...n, data: { ...n.data, ...update } };
+                  });
+                if (newNodesToAdd.length > 0) {
+                  result = [...result, ...newNodesToAdd];
+                }
+                return result;
+              });
             }
             if (edgesToRemove.length > 0 || newEdgesToAdd.length > 0) {
               setEdges(eds => eds.filter(e => !edgesToRemove.includes(e.id)).concat(newEdgesToAdd));

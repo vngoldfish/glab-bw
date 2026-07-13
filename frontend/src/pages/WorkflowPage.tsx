@@ -116,6 +116,17 @@ function nid(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${_seq++}`;
 }
 
+const NODE_TYPE_LIST = [
+  ["prompt", "Prompt", "+"],
+  ["reference", "Ảnh có sẵn", "🖼"],
+  ["generate_plus", "Tạo ảnh +", "🎨✨"],
+  ["video_reference", "Video có sẵn", "📹"],
+  ["video_generate_plus", "Tạo video +", "🎬✨"],
+  ["generate", "Tạo ảnh", "🎨"],
+  ["video_generate", "Tạo video", "🎬"],
+  ["frame_extract", "Tách frame", "🎞"],
+] as const;
+
 function extractUrlsFromNodeResult(raw: unknown): string[] {
   if (!raw || typeof raw !== "object") return [];
   const r = raw as {
@@ -192,11 +203,6 @@ function mergeRunResultIntoNodes(
         runError: raw.error || undefined,
         reused: Boolean(raw.reused),
         folder: raw.folder ?? prev.folder,
-        resultUrls: urls.length
-          ? urls
-          : status === "running" || status === "pending" || status === "completed"
-            ? prev.resultUrls
-            : prev.resultUrls,
         ...(urls.length ? { resultUrls: urls } : {}),
         ...(frames.length ? { frames } : {}),
         ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
@@ -367,6 +373,9 @@ function layoutWorkflowNodes(
 ): Node[] {
   if (nodes.length === 0) return nodes;
 
+  // O(1) lookup map to avoid O(n²) nodes.find calls
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
   const COL_W = 420;
   const ORIGIN_X = 48;
   const ORIGIN_Y = 40;
@@ -458,7 +467,7 @@ function layoutWorkflowNodes(
       }
     } else {
       const processorEdges = allIncomingEdges.filter((e) => {
-        const srcNode = nodes.find((x) => x.id === e.source);
+        const srcNode = nodeMap.get(e.source);
         const t = srcNode?.type || "";
         return t === "generate" || t === "video_generate" || t === "frame_extract";
       });
@@ -504,7 +513,7 @@ function layoutWorkflowNodes(
 
   // Adjust rank by offset of root node type to support type-based columns
   const typeRank = (nId: string) => {
-    const node = nodes.find((x) => x.id === nId);
+    const node = nodeMap.get(nId);
     const t = String(node?.type || "");
     if (t === "reference") return 0;
     if (t === "generate") return 1;
@@ -548,8 +557,8 @@ function layoutWorkflowNodes(
     rowMap.set(nodeId, row);
     const neighbors = [...(primaryOutgoing.get(nodeId) || [])];
     neighbors.sort((a, b) => {
-      const na = nodes.find((x) => x.id === a)!;
-      const nb = nodes.find((x) => x.id === b)!;
+      const na = nodeMap.get(a)!;
+      const nb = nodeMap.get(b)!;
       return getSortKey(na) - getSortKey(nb);
     });
     neighbors.forEach((neigh, idx) => {
@@ -564,8 +573,8 @@ function layoutWorkflowNodes(
 
   const rootIds = [...ids].filter((id) => (incoming.get(id) || []).length === 0);
   rootIds.sort((a, b) => {
-    const na = nodes.find((x) => x.id === a)!;
-    const nb = nodes.find((x) => x.id === b)!;
+    const na = nodeMap.get(a)!;
+    const nb = nodeMap.get(b)!;
     return getSortKey(na) - getSortKey(nb);
   });
 
@@ -625,7 +634,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
   const [running, setRunning] = useState(false);
-  const [, setRunResult] = useState<WorkflowRunResult | null>(null);
+  const runResultRef = useRef<WorkflowRunResult | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
@@ -693,19 +702,54 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const nodesRef = useRef<Node[]>([]);
   const pollStop = useRef(false);
   const projectIdRef = useRef<string | null>(null);
+  const nameRef = useRef(name);
+  const dirtyRef = useRef(dirty);
+  const saveRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     projectIdRef.current = projectId;
   }, [projectId]);
 
   useEffect(() => {
-    console.log("DEBUG: URL sync running. projectId state:", projectId, "routeProjectId:", routeProjectId, "pathname:", location.pathname);
+    nameRef.current = name;
+  }, [name]);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  // Cleanup: stop polling when component unmounts
+  useEffect(() => {
+    return () => {
+      pollStop.current = true;
+    };
+  }, []);
+
+  // Ctrl+S / Cmd+S keyboard shortcut for save
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        saveRef.current();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // Memoize filtered project list so .filter() isn't rerun in JSX on every render
+  const filteredProjects = useMemo(() => {
+    const q = projectFilter.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((p) => p.name.toLowerCase().includes(q));
+  }, [projects, projectFilter]);
+
+  useEffect(() => {
     if (projectId) {
       const decodedPath = decodeURIComponent(location.pathname);
       const expectedPath = `/workflow/${projectId}`;
       if (decodedPath !== expectedPath) {
         if (!routeProjectId || routeProjectId === projectId) {
-          console.log("DEBUG: Navigating from", decodedPath, "to expectedPath:", expectedPath);
           navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
         }
       }
@@ -713,7 +757,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       if (!routeProjectId) {
         const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
         if (!hasTemplate && location.pathname !== "/workflow") {
-          console.log("DEBUG: Redirecting blank projectId to /workflow");
           navigate("/workflow", { replace: true });
         }
       }
@@ -1086,7 +1129,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     }
   }, []);
 
+  const initDone = useRef(false);
   useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
     void (async () => {
       try {
         await refreshProjects();
@@ -1133,7 +1179,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
         // If no template is loaded and no routeProjectId is specified, show project selector
         if (!tKey && !ctId && !routeProjectId && !searchParams.get("project")) {
-          console.log("DEBUG: No template/routeProjectId on init. Opening selector.");
           setShowProjectSelector(true);
           const sample = await fetchSampleWorkflow();
           setProjectId(null);
@@ -1149,7 +1194,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         onError(e instanceof Error ? e.message : String(e));
       }
     })();
-  }, [attachHandlers, onError, refreshProjects, searchParams, setSearchParams, setEdges, setNodes, routeProjectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // mark dirty when graph edits
   const onNodesChangeTracked: typeof onNodesChange = useCallback(
@@ -1692,7 +1738,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     const nds = list ?? nodesRef.current;
     const eds = edgeList ?? edgesRef.current;
     return {
-      name,
+      name: nameRef.current,
       nodes: nds.map(({ id, type, position, data }) => ({
         id,
         type,
@@ -1759,6 +1805,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       onError(e instanceof Error ? e.message : String(e));
     }
   }
+  // Keep saveRef in sync so the Ctrl+S handler always calls the latest version
+  saveRef.current = () => handleSaveProject(false);
 
   async function handleSaveAsTemplate() {
     const tName = prompt("Nhập tên cho Mẫu Workflow mới của bạn:", name);
@@ -1800,13 +1848,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     setDescription("");
     setNodes([]);
     setEdges([]);
-    setRunResult(null);
+    runResultRef.current = null;
     setProgressLabel("");
     setDirty(true);
   }
 
   async function handleOpenProject(id: string) {
-    if (dirty) {
+    if (dirtyRef.current) {
       const ok = await dialog.confirm({
         title: "Mở project khác?",
         message: "Có thay đổi chưa lưu. Tiếp tục sẽ mất thay đổi hiện tại.",
@@ -1815,8 +1863,8 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         tone: "danger",
       });
       if (!ok) {
-        if (projectId) {
-          navigate(`/workflow/${encodeURIComponent(projectId)}`, { replace: true });
+        if (projectIdRef.current) {
+          navigate(`/workflow/${encodeURIComponent(projectIdRef.current)}`, { replace: true });
         } else {
           navigate("/workflow", { replace: true });
         }
@@ -1842,7 +1890,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       nodesRef.current = loaded;
       setNodes(loaded);
       setEdges((doc.edges as Edge[]) || []);
-      setRunResult(null);
+      runResultRef.current = null;
       setProgressLabel("");
       const needsPersist = loaded.some((n) => {
         const d = n.data as WNodeData;
@@ -1881,9 +1929,9 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   const handleCreateNewProject = async () => {
-    const name = prompt("Nhập tên project mới:", `Project mới`);
-    if (name === null) return; // cancelled
-    const cleanName = name.trim() || `Project mới`;
+    const projectName = prompt("Nhập tên project mới:", `Project mới`);
+    if (projectName === null) return; // cancelled
+    const cleanName = projectName.trim() || `Project mới`;
     try {
       const doc = await saveProject({
         name: cleanName,
@@ -1900,16 +1948,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   };
 
   useEffect(() => {
-    console.log("DEBUG: routeProjectId observer. routeProjectId:", routeProjectId, "active projectId state:", projectId);
     if (routeProjectId) {
       if (projectId !== routeProjectId) {
-        console.log("DEBUG: routeProjectId does not match projectId state. Loading project:", routeProjectId);
         void handleOpenProject(routeProjectId);
       }
     } else {
       const hasTemplate = searchParams.get("template") || searchParams.get("customTemplate");
       if (!hasTemplate && projectId !== null) {
-        console.log("DEBUG: Route is blank but projectId is set. Resetting and showing selector.");
         setProjectId(null);
         setName("Project mới");
         setDescription("");
@@ -1949,9 +1994,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   function applyRunToNodes(result: WorkflowRunResult, opts?: { keepMissing?: boolean }) {
     setNodes((nds) => {
       const merged = mergeRunResultIntoNodes(nds, result, opts);
-      const withHandlers = attachHandlers(merged);
-      nodesRef.current = withHandlers;
-      return withHandlers;
+      return attachHandlers(merged);
     });
   }
 
@@ -1981,7 +2024,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       if (pollStop.current) break;
       const snap = await fetchWorkflowRun(runId);
       last = snap;
-      setRunResult(snap);
+      runResultRef.current = snap;
       if (projectIdRef.current === runPid) {
         applyRunToNodes(snap, { keepMissing: true });
         const done = snap.progress?.done ?? 0;
@@ -2085,10 +2128,10 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         prior_results: Object.keys(prior).length ? prior : undefined,
         project_id: pid,
       });
-      setRunResult(started);
+      runResultRef.current = started;
       applyRunToNodes(started, { keepMissing: true });
       const final = await pollUntilDone(started.run_id, pid);
-      setRunResult(final);
+      runResultRef.current = final;
       if (projectIdRef.current === pid) {
         // Sync ref immediately from final snapshot using the freshest state
         const currentNodes = nodesRef.current;
@@ -2208,7 +2251,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       nodesRef.current = next;
       return next;
     });
-    setRunResult(null);
+    runResultRef.current = null;
     setDirty(true);
   }
 
@@ -2398,18 +2441,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             <div className="wf-mini-sidebar-content">
               {/* Node Add Icons */}
               <div className="wf-mini-node-add-list">
-                {(
-                  [
-                    ["prompt", "Prompt", "+"],
-                    ["reference", "Ảnh có sẵn", "🖼"],
-                    ["generate_plus", "Tạo ảnh +", "🎨✨"],
-                    ["video_reference", "Video có sẵn", "📹"],
-                    ["video_generate_plus", "Tạo video +", "🎬✨"],
-                    ["generate", "Tạo ảnh", "🎨"],
-                    ["video_generate", "Tạo video", "🎬"],
-                    ["frame_extract", "Tách frame", "🎞"],
-                  ] as const
-                ).map(([t, label, icon]) => (
+                {NODE_TYPE_LIST.map(([t, label, icon]) => (
                   <button
                     key={t}
                     type="button"
@@ -2423,7 +2455,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               </div>
 
               {/* Projects indicator / quick open */}
-              <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 8, width: "100%", alignItems: "center" }}>
+              <div className="wf-mini-sidebar-footer">
                 <button
                   type="button"
                   className="wf-mini-node-btn"
@@ -2448,19 +2480,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                 </h3>
                 {addNodesExpanded && (
                   <div className="wf-node-add-grid" style={{ marginTop: 10 }}>
-                    {(
-                      [
-                        ["prompt", "Prompt", "+"],
-                        ["reference", "Ảnh có sẵn", "🖼"],
-                        ["generate_plus", "Tạo ảnh +", "🎨✨"],
-                        ["video_reference", "Video có sẵn", "📹"],
-                        ["video_generate_plus", "Tạo video +", "🎬✨"],
-                        ["generate", "Tạo ảnh", "🎨"],
-                        ["video_generate", "Tạo video", "🎬"],
-                        ["frame_extract", "Tách frame", "🎞"],
-                      ] as const
-
-                    ).map(([t, label, icon]) => (
+                    {NODE_TYPE_LIST.map(([t, label, icon]) => (
                       <button key={t} type="button" className="wf-node-add-btn" onClick={() => addNode(t)}>
                         <span style={{ fontSize: 12, width: 16, display: "inline-block", textAlign: "center" }}>{icon}</span> {label}
                       </button>
@@ -2506,21 +2526,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       style={{ width: "100%" }}
                     />
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, overflowY: "auto", paddingRight: 4 }}>
-                      {projects.filter((p) =>
-                        !projectFilter.trim()
-                          ? true
-                          : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
-                      ).length === 0 && (
+                      {filteredProjects.length === 0 && (
                         <span className="muted" style={{ fontSize: 11, textAlign: "center", display: "block", padding: 12 }}>
                           Chưa có project — bấm 💾 Lưu
                         </span>
                       )}
-                      {projects
-                        .filter((p) =>
-                          !projectFilter.trim()
-                            ? true
-                            : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()),
-                        )
+                      {filteredProjects
                         .map((p) => (
                           <div key={p.id} className={`wf-project-item ${projectId === p.id ? "active" : ""}`}>
                             <button
@@ -2549,15 +2560,19 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                                   tone: "danger",
                                 });
                                 if (!ok) return;
-                                await deleteProject(p.id);
-                                if (projectId === p.id) {
-                                  setProjectId(null);
-                                  setName("Project mới");
-                                  setNodes([]);
-                                  setEdges([]);
-                                  setDirty(true);
+                                try {
+                                  await deleteProject(p.id);
+                                  if (projectId === p.id) {
+                                    setProjectId(null);
+                                    setName("Project mới");
+                                    setNodes([]);
+                                    setEdges([]);
+                                    setDirty(true);
+                                  }
+                                  await refreshProjects();
+                                } catch (e) {
+                                  onError(e instanceof Error ? e.message : String(e));
                                 }
-                                await refreshProjects();
                               }}
                             >
                               ×
@@ -2863,7 +2878,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                     title={a.name}
                   >
                     {picker.field === "video" ? (
-                      <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <video src={normalizeFileUrl(a.url)} muted preload="metadata" className="wf-picker-media" />
                     ) : (
                       <img src={normalizeFileUrl(a.url)} alt={a.name} />
                     )}
@@ -2894,7 +2909,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       title={`${(a as ProjectAsset & { project_name?: string }).project_name || ""} · ${a.name}`}
                     >
                       {picker.field === "video" ? (
-                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" className="wf-picker-media" />
                       ) : (
                         <img src={normalizeFileUrl(a.url)} alt={a.name} />
                       )}
@@ -2926,7 +2941,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                       title={a.name}
                     >
                       {picker.field === "video" ? (
-                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <video src={normalizeFileUrl(a.url)} muted preload="metadata" className="wf-picker-media" />
                       ) : (
                         <img src={normalizeFileUrl(a.url)} alt={a.name} />
                       )}
@@ -2962,7 +2977,24 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
 
       {lightbox && (
-        <div role="dialog" className="ui-lightbox" onClick={() => setLightbox(null)}>
+        <div
+          role="dialog"
+          aria-label="Image preview"
+          className="ui-lightbox"
+          onClick={() => setLightbox(null)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setLightbox(null); }}
+          tabIndex={0}
+          autoFocus
+          ref={(el) => el?.focus()}
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            aria-label="Close"
+            className="wf-lightbox-close"
+          >
+            ×
+          </button>
           {isVideoUrl(lightbox) ? (
             <video
               src={mediaUrl(lightbox)}
@@ -3419,17 +3451,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               </div>
 
               {/* Existing Project Cards */}
-              {projects
-                .filter((p) =>
-                  !projectFilter.trim()
-                    ? true
-                    : p.name.toLowerCase().includes(projectFilter.trim().toLowerCase())
-                )
+              {filteredProjects
                 .map((p) => (
                   <div 
                     key={p.id}
                     onClick={() => {
-                      console.log("DEBUG: Card clicked for project ID:", p.id);
                       navigate(`/workflow/${p.id}`);
                     }}
                     style={{
@@ -3477,15 +3503,19 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                           tone: "danger",
                         });
                         if (!ok) return;
-                        await deleteProject(p.id);
-                        if (projectId === p.id) {
-                          setProjectId(null);
-                          setName("Project mới");
-                          setNodes([]);
-                          setEdges([]);
-                          setDirty(true);
+                        try {
+                          await deleteProject(p.id);
+                          if (projectId === p.id) {
+                            setProjectId(null);
+                            setName("Project mới");
+                            setNodes([]);
+                            setEdges([]);
+                            setDirty(true);
+                          }
+                          await refreshProjects();
+                        } catch (e) {
+                          onError(e instanceof Error ? e.message : String(e));
                         }
-                        await refreshProjects();
                       }}
                       style={{
                         position: "absolute",

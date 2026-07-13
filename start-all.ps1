@@ -4,6 +4,18 @@ $Root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvoca
 $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 
+$AUTH_BRIDGE_PORT = 18923
+$EnvFile = Join-Path $Root ".env"
+if (Test-Path $EnvFile) {
+    $envContent = Get-Content $EnvFile -Raw
+    if ($envContent -match "AUTH_BRIDGE_URL=[^\r\n]+") {
+        $url = $Matches[0].Split("=")[1].Trim()
+        if ($url -match ":(\d+)") {
+            $AUTH_BRIDGE_PORT = [int]$Matches[1]
+        }
+    }
+}
+
 function Stop-Port([int]$Port) {
     Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
         ForEach-Object {
@@ -39,10 +51,10 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "[1/4] Don dep port cu..."
-foreach ($p in 8765, 18923, 5173) { Stop-Port $p }
+foreach ($p in 8765, $AUTH_BRIDGE_PORT, 5173) { Stop-Port $p }
 Start-Sleep -Seconds 1
 
-Write-Host "[2/4] Backend :8765 + Auth :18923 ..."
+Write-Host "[2/4] Backend :8765 + Auth :$AUTH_BRIDGE_PORT ..."
 $backendCmd = "`$env:PYTHONPATH='$Backend'; Set-Location '$Backend'; Write-Host 'G-Labs BW BACKEND - giu cua so nay mo' -ForegroundColor Green; python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload"
 Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile",
@@ -97,7 +109,7 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  App:     http://127.0.0.1:5173" -ForegroundColor Green
 Write-Host "  Backend: http://127.0.0.1:8765" -ForegroundColor Green
-Write-Host "  Auth:    http://127.0.0.1:18923" -ForegroundColor Green
+Write-Host "  Auth:    http://127.0.0.1:$AUTH_BRIDGE_PORT" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Giu 2 cua so PowerShell (BACKEND + FRONTEND) mo."

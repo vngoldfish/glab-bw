@@ -395,16 +395,15 @@ def build_bulk_graph(
         from app.services.reference_image_loader import _decode_data_url
         for ref in references:
             ref_name_lower = ref.name.lower()
-            existing_refs = reference_storage._load_manifest()
-            existing_item = next((item for item in existing_refs if item.get("name", "").lower() == ref_name_lower), None)
+            all_refs = reference_storage.list_references().get("references", [])
+            existing_item = next((item for item in all_refs if item.get("name", "").lower() == ref_name_lower), None)
             
             if existing_item:
                 # Character already exists! Use the existing local image from library
-                ref_record = reference_storage._public_item(existing_item)
                 local_ref_map[ref_name_lower] = {
                     "name": existing_item["name"],
-                    "image": ref_record["image_url"],
-                    "file_path": ref_record["file_path"]
+                    "image": existing_item["image_url"],
+                    "file_path": existing_item["file_path"]
                 }
             else:
                 # Character does not exist! Save the base64 image to library

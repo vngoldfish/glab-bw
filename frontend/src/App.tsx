@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
   Account,
@@ -13,18 +13,20 @@ import FlowImagePage from "./components/FlowImagePage";
 import FlowVideoPage from "./components/FlowVideoPage";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
-import DocsPage from "./pages/DocsPage";
-import ApiDocsPage from "./pages/ApiDocsPage";
-import ExtensionPage from "./pages/ExtensionPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import ProjectMediaPage from "./pages/ProjectMediaPage";
-import PromptHubPage from "./pages/PromptHubPage";
-import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
-import SettingsPage from "./pages/SettingsPage";
-import VideoEditorPage from "./pages/VideoEditorPage";
-import WebhookPage from "./pages/WebhookPage";
 import WorkflowPage from "./pages/WorkflowPage";
-import WorkflowTemplatesPage from "./pages/WorkflowTemplatesPage";
+
+// Lazy-loaded pages — reduces initial bundle
+const DocsPage = lazy(() => import("./pages/DocsPage"));
+const ApiDocsPage = lazy(() => import("./pages/ApiDocsPage"));
+const ExtensionPage = lazy(() => import("./pages/ExtensionPage"));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const ProjectMediaPage = lazy(() => import("./pages/ProjectMediaPage"));
+const PromptHubPage = lazy(() => import("./pages/PromptHubPage"));
+const ReferenceLibraryPage = lazy(() => import("./pages/ReferenceLibraryPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const VideoEditorPage = lazy(() => import("./pages/VideoEditorPage"));
+const WebhookPage = lazy(() => import("./pages/WebhookPage"));
+const WorkflowTemplatesPage = lazy(() => import("./pages/WorkflowTemplatesPage"));
 import { ReferenceLibraryProvider } from "./referenceLibraryContext";
 import { DEFAULT_ROUTE, NAV_ROUTES } from "./routes";
 
@@ -57,6 +59,55 @@ function readinessChip(health: HealthStatus | null): {
     label: critical ? "Chưa sẵn sàng" : "Thiếu điều kiện",
     title: reasons,
   };
+}
+
+function Toast({
+  message,
+  onClose,
+  duration,
+  type,
+}: {
+  message: string;
+  onClose: () => void;
+  duration: number;
+  type: "warn" | "error";
+}) {
+  const [isClosing, setIsClosing] = useState(false);
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, 100 - (elapsed / duration) * 100);
+      setProgress(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        setIsClosing(true);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [duration]);
+
+  useEffect(() => {
+    if (isClosing) {
+      const timeout = setTimeout(() => {
+        onClose();
+      }, 350); // Matches CSS animation duration
+      return () => clearTimeout(timeout);
+    }
+  }, [isClosing, onClose]);
+
+  return (
+    <div className={`toast-${type} ${isClosing ? "toast-dismiss" : ""}`}>
+      <span>{message}</span>
+      <button type="button" onClick={() => setIsClosing(true)}>
+        ✕
+      </button>
+      <div className="toast-progress" style={{ width: `${progress}%` }} />
+    </div>
+  );
 }
 
 export default function App() {
@@ -166,6 +217,9 @@ export default function App() {
   return (
     <ReferenceLibraryProvider>
       <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        <a href="#main-content" className="skip-to-content">
+          Bỏ qua đến nội dung chính
+        </a>
         <Sidebar
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
@@ -173,7 +227,7 @@ export default function App() {
           flowTab={extension?.flow_tab ?? "…"}
           grokTab={extension?.grok_tab ?? "…"}
         />
-        <main className="main-area">
+        <main className="main-area" id="main-content">
           <div className="titlebar">
             <div className="titlebar-brand">
               <span>Bawui APP 1</span>
@@ -220,22 +274,24 @@ export default function App() {
               <span>:8765</span>
             </div>
           </div>
-          {sessionWarn && (
-            <div className="toast-warn">
-              <span>{sessionWarn}</span>
-              <button type="button" onClick={() => setSessionWarn("")}>
-                ✕
-              </button>
-            </div>
-          )}
-          {error && (
-            <div className="toast-error">
-              <span>{error}</span>
-              <button type="button" onClick={() => setError("")}>
-                ✕
-              </button>
-            </div>
-          )}
+          <div aria-live="polite" style={{ display: "flex", flexDirection: "column" }}>
+            {sessionWarn && (
+              <Toast
+                message={sessionWarn}
+                onClose={() => setSessionWarn("")}
+                duration={8000}
+                type="warn"
+              />
+            )}
+            {error && (
+              <Toast
+                message={error}
+                onClose={() => setError("")}
+                duration={12000}
+                type="error"
+              />
+            )}
+          </div>
           <div className="page-content">
             {/*
               Keep Flow pages mounted (hidden, not unmounted) so queue + in-flight
@@ -270,6 +326,7 @@ export default function App() {
                 onError={setError}
               />
             </div>
+            <Suspense fallback={<div className="page-panel" style={{ display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5 }}>Đang tải…</div>}>
             <Routes>
               <Route path="/" element={<Navigate to={DEFAULT_ROUTE} replace />} />
               <Route path={NAV_ROUTES["flow-image"]} element={null} />
@@ -388,6 +445,7 @@ export default function App() {
               />
               <Route path="*" element={<Navigate to={DEFAULT_ROUTE} replace />} />
             </Routes>
+            </Suspense>
           </div>
         </main>
       </div>

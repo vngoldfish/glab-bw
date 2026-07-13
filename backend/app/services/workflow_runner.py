@@ -21,29 +21,33 @@ from app.services.output_storage import file_url_from_path, resolve_data_file
 logger = logging.getLogger(__name__)
 
 _runs: dict[str, dict[str, Any]] = {}
+_runs_lock = asyncio.Lock()
 _RUNS_MAX = 300         # Tối đa số runs lưu trong memory
 _RUNS_TTL = 86_400      # Xóa runs cũ hơn 24 giờ
 
 
-def _cleanup_runs() -> None:
+async def _cleanup_runs() -> None:
     """Xóa runs cũ hơn TTL hoặc khi vượt giới hạn max."""
-    now = time.time()
-    # 1. Xóa theo TTL
-    expired = [
-        rid for rid, run in _runs.items()
-        if run.get("status") in {"completed", "failed"}
-        and now - (run.get("finished_at") or run.get("started_at") or now) > _RUNS_TTL
-    ]
-    for rid in expired:
-        del _runs[rid]
-    # 2. Nếu vẫn vượt giới hạn, xóa những run cũ nhất
-    if len(_runs) > _RUNS_MAX:
-        sorted_ids = sorted(
-            _runs.keys(),
-            key=lambda r: _runs[r].get("started_at") or 0,
-        )
-        for rid in sorted_ids[: len(_runs) - _RUNS_MAX]:
+    async with _runs_lock:
+        now = time.time()
+        # 1. Xóa theo TTL
+        expired = [
+            rid for rid, run in _runs.items()
+            if run.get("status") in {"completed", "failed"}
+            and now - (run.get("finished_at") or run.get("started_at") or now) > _RUNS_TTL
+        ]
+        for rid in expired:
             del _runs[rid]
+        # 2. Nếu vẫn vượt giới hạn, xóa những run cũ nhất (only completed/failed)
+        if len(_runs) > _RUNS_MAX:
+            trimmable = sorted(
+                (rid for rid, run in _runs.items()
+                 if run.get("status") in {"completed", "failed"}),
+                key=lambda r: _runs[r].get("started_at") or 0,
+            )
+            excess = len(_runs) - _RUNS_MAX
+            for rid in trimmable[:excess]:
+                del _runs[rid]
 
 
 def get_run(run_id: str) -> dict[str, Any] | None:
@@ -668,25 +672,26 @@ async def run_workflow(
     only_set = set(only_node_ids) if only_node_ids else None
     pid = project_id or workflow.get("project_id")
 
-    run: dict[str, Any] = _runs.get(rid) or {
-        "run_id": rid,
-        "workflow_id": workflow.get("id"),
-        "project_id": pid,
-        "status": "running",
-        "started_at": time.time(),
-        "finished_at": None,
-        "node_results": {},
-        "logs": [],
-        "error": None,
-        "progress": {"done": 0, "total": len(nodes), "current": None},
-    }
-    run["project_id"] = pid
-    run["status"] = "running"
-    run["error"] = None
-    run["finished_at"] = None
-    if prior:
-        run["node_results"] = {**prior, **run.get("node_results", {})}
-    _runs[rid] = run
+    async with _runs_lock:
+        run: dict[str, Any] = _runs.get(rid) or {
+            "run_id": rid,
+            "workflow_id": workflow.get("id"),
+            "project_id": pid,
+            "status": "running",
+            "started_at": time.time(),
+            "finished_at": None,
+            "node_results": {},
+            "logs": [],
+            "error": None,
+            "progress": {"done": 0, "total": len(nodes), "current": None},
+        }
+        run["project_id"] = pid
+        run["status"] = "running"
+        run["error"] = None
+        run["finished_at"] = None
+        if prior:
+            run["node_results"] = {**prior, **run.get("node_results", {})}
+        _runs[rid] = run
 
     def log(msg: str) -> None:
         run["logs"].append({"t": time.time(), "msg": msg})
@@ -892,7 +897,7 @@ async def run_workflow(
             await asyncio.gather(*running_tasks.values(), return_exceptions=True)
             running_tasks.clear()
         # Always enforce old run cleanups on run termination
-        _cleanup_runs()
+        await _cleanup_runs()
 
     return run
 

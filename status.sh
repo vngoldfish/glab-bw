@@ -17,10 +17,28 @@ check() {
   fi
 }
 
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Read AUTH_BRIDGE_PORT and API_PORT from .env dynamically, fallbacks to defaults
+AUTH_BRIDGE_PORT=18923
+API_PORT=8765
+if [[ -f "$ROOT/.env" ]]; then
+  LINE=$(grep -E "^AUTH_BRIDGE_URL=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$LINE" ]]; then
+    PORT_PART=$(echo "$LINE" | grep -oE ":[0-9]+" | tr -d ":" || true)
+    if [[ -n "$PORT_PART" ]]; then
+      AUTH_BRIDGE_PORT="$PORT_PART"
+    fi
+  fi
+  PORT_LINE=$(grep -E "^PORT=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$PORT_LINE" ]]; then
+    API_PORT="$PORT_LINE"
+  fi
+fi
+
 echo "G-Labs BW status"
 echo "----------------"
-check "Backend health" "http://127.0.0.1:8765/api/health"
-check "Auth bridge" "http://127.0.0.1:18923/"
+check "Backend health" "http://127.0.0.1:$API_PORT/api/health"
+check "Auth bridge" "http://127.0.0.1:$AUTH_BRIDGE_PORT/"
 if curl -fsS -m 2 -o /dev/null "http://127.0.0.1:5173/" 2>/dev/null; then
   echo "OK  Frontend      http://127.0.0.1:5173/"
 else
@@ -29,4 +47,4 @@ fi
 
 echo ""
 echo "Listeners:"
-lsof -nP -iTCP:8765,18923,5173 -sTCP:LISTEN 2>/dev/null || echo "  (none)"
+lsof -nP -iTCP:"$API_PORT","$AUTH_BRIDGE_PORT",5173 -sTCP:LISTEN 2>/dev/null || echo "  (none)"

@@ -19,8 +19,25 @@ kill_port() {
   fi
 }
 
+# Read AUTH_BRIDGE_PORT and API_PORT from .env dynamically, fallbacks to defaults
+AUTH_BRIDGE_PORT=18923
+API_PORT=8765
+if [[ -f "$ROOT/.env" ]]; then
+  LINE=$(grep -E "^AUTH_BRIDGE_URL=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$LINE" ]]; then
+    PORT_PART=$(echo "$LINE" | grep -oE ":[0-9]+" | tr -d ":" || true)
+    if [[ -n "$PORT_PART" ]]; then
+      AUTH_BRIDGE_PORT="$PORT_PART"
+    fi
+  fi
+  PORT_LINE=$(grep -E "^PORT=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$PORT_LINE" ]]; then
+    API_PORT="$PORT_LINE"
+  fi
+fi
+
 echo "Stopping G-Labs BW..."
-for p in 8765 18923 5173; do kill_port "$p"; done
+for p in "$API_PORT" "$AUTH_BRIDGE_PORT" 5173; do kill_port "$p"; done
 
 if [[ -d "$PID_DIR" ]]; then
   for f in "$PID_DIR"/*.pid; do

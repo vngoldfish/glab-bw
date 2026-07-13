@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { rewritePromptAi, type WorkflowAiNodeContext } from "../api";
 
 interface UseAiRewriteOptions {
@@ -37,6 +37,7 @@ export function useAiRewrite({
   onError,
 }: UseAiRewriteOptions): UseAiRewriteResult {
   const [aiBusy, setAiBusy] = useState(false);
+  const busyRef = useRef(false);
 
   const handleAiRewrite = useCallback(async () => {
     const source = (prompt || "").trim();
@@ -44,7 +45,8 @@ export function useAiRewrite({
       onError?.("Nhập ý/prompt trên node này trước khi dùng AI");
       return;
     }
-    if (aiBusy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setAiBusy(true);
     try {
       const workflow_context = getWorkflowContext?.(nodeId) ?? [];
@@ -77,12 +79,13 @@ export function useAiRewrite({
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
     } finally {
+      busyRef.current = false;
       setAiBusy(false);
     }
-  }, [prompt, aiBusy, nodeId, kind, getWorkflowContext, onChange, targetField, onError]);
+  }, [prompt, nodeId, kind, getWorkflowContext, onChange, targetField, onError]);
 
   // Live context hint for toolbar
-  const ctxHint = (() => {
+  const ctxHint = useMemo(() => {
     try {
       const ctx = getWorkflowContext?.(nodeId) ?? [];
       const up = ctx.filter((c) => c.role === "upstream").length;
@@ -92,7 +95,7 @@ export function useAiRewrite({
     } catch {
       return null;
     }
-  })();
+  }, [getWorkflowContext, nodeId]);
 
   return { aiBusy, handleAiRewrite, ctxHint };
 }

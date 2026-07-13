@@ -60,8 +60,13 @@ task_queue.timeout_seconds = settings.task_timeout_seconds
 register_task_handlers(task_queue)
 task_queue.hydrate_from_disk()
 
-# Chrome Auth Helper always polls this port
-AUTH_BRIDGE_PORT = 18923
+# Chrome Auth Helper always polls this port (dynamically parsed from settings.auth_bridge_url)
+from urllib.parse import urlparse
+try:
+    _parsed_bridge = urlparse(settings.auth_bridge_url)
+    AUTH_BRIDGE_PORT = _parsed_bridge.port or 18923
+except Exception:
+    AUTH_BRIDGE_PORT = 18923
 
 
 def _port_free(port: int) -> bool:

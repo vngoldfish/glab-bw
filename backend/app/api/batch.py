@@ -13,6 +13,31 @@ router = APIRouter(prefix="/batch", tags=["batch"])
 
 # In-memory async batch jobs (also fine for n8n poll); survives until process restart
 _batches: dict[str, dict[str, Any]] = {}
+_BATCHES_MAX = 200
+_BATCHES_TTL = 86_400  # 24 hours
+
+
+def _cleanup_batches() -> None:
+    """Remove old completed/failed batches to prevent memory leak."""
+    now = time.time()
+    # 1. Remove batches older than TTL that have completed/failed
+    expired = [
+        bid for bid, batch in _batches.items()
+        if batch.get("status") in {"completed", "failed"}
+        and now - (batch.get("finished_at") or batch.get("created_at") or now) > _BATCHES_TTL
+    ]
+    for bid in expired:
+        del _batches[bid]
+    # 2. If still over max, trim oldest completed/failed batches
+    if len(_batches) > _BATCHES_MAX:
+        trimmable = sorted(
+            (bid for bid, batch in _batches.items()
+             if batch.get("status") in {"completed", "failed"}),
+            key=lambda b: _batches[b].get("created_at") or 0,
+        )
+        excess = len(_batches) - _BATCHES_MAX
+        for bid in trimmable[:excess]:
+            del _batches[bid]
 
 
 async def _run_batch_items(
@@ -80,6 +105,7 @@ def _sync_result(body: BatchSubmitRequest, results: list[dict]) -> dict:
 @router.post("/submit")
 async def submit_batch(body: BatchSubmitRequest) -> dict:
     """Sync batch (UI path) — waits for all items."""
+    _cleanup_batches()
     concurrency = max(1, min(body.concurrency, 10))
     results: list[dict] = []
     semaphore = asyncio.Semaphore(concurrency)

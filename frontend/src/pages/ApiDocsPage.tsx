@@ -7,6 +7,10 @@ export default function ApiDocsPage() {
   const [activeTab, setActiveTab] = useState<"endpoints" | "demos" | "n8n-postman">("endpoints");
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
+  const apiOrigin = typeof window !== "undefined"
+    ? (window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8765` : window.location.origin)
+    : "http://localhost:8765";
+
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopiedText(label);
@@ -127,7 +131,6 @@ export default function ApiDocsPage() {
         ]
       };
     } else {
-      // life: Cuộc đời tôi hoạt hình đầy tâm trạng (9 cảnh nối tiếp dài 1 phút)
       projectName = `Cuộc Đời Tôi - Phim 1 Phút (${action === "create" ? "Thô" : "Chạy"})`;
       payload = {
         project_name: projectName,
@@ -183,7 +186,7 @@ export default function ApiDocsPage() {
 
     try {
       const endpoint = action === "create" ? "/api/workflows/create-bulk" : "/api/workflows/run-bulk";
-      const res = await fetch(endpoint, {
+      const res = await fetch(apiOrigin + endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -204,7 +207,7 @@ export default function ApiDocsPage() {
   };
 
   const codeComplexCurl = `# Dựng dự án thô (Không tự động chạy)
-curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "Demo Phức Tạp 001-009",
@@ -236,7 +239,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
   }'`;
 
   const codeContinuousCurl = `# Gọi API tạo dự án nối tiếp xuyên suốt chỉ từ 001
-curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "Demo Xuyên Suốt 001",
@@ -264,7 +267,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
   }'`;
 
   const codeImagesCurl = `# Gọi API sinh 10 ảnh chân dung nhân vật tham chiếu
-curl -X POST http://localhost:8765/api/workflows/run-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/run-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "10 Chân Dung Chuyên Nghiệp",
@@ -284,7 +287,7 @@ curl -X POST http://localhost:8765/api/workflows/run-bulk \\
   }'`;
 
   const codeLifeCurl = `# 🎬 Gọi API tạo dự án "Cuộc Đời Tôi" 1 phút (9 cảnh hoạt hình đầy tâm trạng)
-curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "Cuoc Doi Toi - Phim 1 Phut",
@@ -316,7 +319,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8765/api/workflows/create-bulk",
+        "url": "${apiOrigin}/api/workflows/create-bulk",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -586,7 +589,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
               </p>
               <ol className="docs-steps" style={{ fontSize: "13px" }}>
                 <li>Mở Postman, bấm vào nút **New ➔ HTTP Request**.</li>
-                <li>Chọn phương thức **`POST`** và nhập URL: <code>http://127.0.0.1:8765/api/workflows/create-bulk</code></li>
+                <li>Chọn phương thức **`POST`** và nhập URL: <code>{apiOrigin}/api/workflows/create-bulk</code></li>
                 <li>Chuyển sang tab **Headers**, thêm header:
                   * Key: <code>Content-Type</code> · Value: <code>application/json</code>
                 </li>
@@ -606,7 +609,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
               <h3 style={{ marginTop: 12 }}>Cách cấu hình node HTTP Request trong n8n:</h3>
               <ul className="docs-bullets" style={{ fontSize: "13px" }}>
                 <li><strong>Method</strong>: chọn <code>POST</code></li>
-                <li><strong>URL</strong>: nhập <code>http://localhost:8765/api/workflows/create-bulk</code> (hoặc địa chỉ IP server của bạn)</li>
+                <li><strong>URL</strong>: nhập <code>{apiOrigin}/api/workflows/create-bulk</code> (hoặc địa chỉ IP server của bạn)</li>
                 <li><strong>Send Headers</strong>: Bật lên (True)
                   * Add Parameter: Name=<code>Content-Type</code>, Value=<code>application/json</code>
                 </li>

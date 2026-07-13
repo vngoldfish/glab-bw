@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import threading
 import time
@@ -12,6 +13,15 @@ from typing import Any
 from app.core.config import settings
 
 _LOCK = threading.Lock()
+
+_SAFE_ID = re.compile(r'^[a-zA-Z0-9_\-]+$')
+
+
+def _validate_id(identifier: str) -> str:
+    """Validate and return the identifier, raising ValueError if unsafe."""
+    if not identifier or not _SAFE_ID.match(identifier):
+        raise ValueError(f"Invalid ID: {identifier!r}")
+    return identifier
 
 
 def _dir() -> Path:
@@ -52,6 +62,7 @@ def list_workflows() -> list[dict[str, Any]]:
 
 
 def get_workflow(workflow_id: str) -> dict[str, Any] | None:
+    _validate_id(workflow_id)
     path = _dir() / f"{workflow_id}.json"
     if not path.is_file():
         return None
@@ -63,6 +74,8 @@ def get_workflow(workflow_id: str) -> dict[str, Any] | None:
 
 def save_workflow(payload: dict[str, Any], workflow_id: str | None = None) -> dict[str, Any]:
     """Create or update workflow. payload: name, nodes, edges, viewport?"""
+    if workflow_id is not None:
+        _validate_id(workflow_id)
     now = time.time()
     with _LOCK:
         wid = workflow_id or secrets.token_hex(6)
@@ -100,6 +113,7 @@ def save_workflow(payload: dict[str, Any], workflow_id: str | None = None) -> di
 
 
 def delete_workflow(workflow_id: str) -> bool:
+    _validate_id(workflow_id)
     with _LOCK:
         path = _dir() / f"{workflow_id}.json"
         if path.is_file():

@@ -40,8 +40,8 @@ VIDEO_MODELS_T2V = {
         "9:16": "veo_3_1_t2v_portrait",
     },
     "veo_31_lite_relaxed": {
-        "16:9": "veo_3_1_t2v_fast_ultra_relaxed",
-        "9:16": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
+        "16:9": "veo_3_1_t2v_lite_low_priority",
+        "9:16": "veo_3_1_t2v_lite_low_priority",
     },
     # Gemini Omni Flash — keys are duration-based (abra_t2v_{Ns}), not aspect-based
     "omni_flash": {

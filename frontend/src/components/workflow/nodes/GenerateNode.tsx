@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useEdges, type NodeProps } from "@xyflow/react";
 import {
   WNodeData,
   Shell,
@@ -17,7 +17,8 @@ import ConfigBadges from "../ConfigBadges";
 export default function GenerateNode({ id, data, selected, plus = false }: NodeProps & { plus?: boolean }) {
   const d = data as WNodeData;
   const [showModal, setShowModal] = useState(false);
-  const hasPromptEdge = Boolean(d.hasPromptInput);
+  const edges = useEdges();
+  const hasPromptEdge = edges.some(e => e.target === id && e.targetHandle === "prompt");
 
   const { aiBusy, handleAiRewrite, ctxHint } = useAiRewrite({
     nodeId: id,
@@ -116,7 +117,7 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
         onPreview={d.onPreview}
         label="Ảnh ref (có sẵn)"
       />
-      {d.image && (
+      {(d.image || (d.resultUrls && d.resultUrls.length > 0)) && (
         <RefNameInput
           refName={d.refName}
           onChange={(name: string) => d.onChange?.(id, { refName: name })}

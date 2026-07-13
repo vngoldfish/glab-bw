@@ -45,6 +45,43 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
   const recentFailed = (tasks.recent_failed || []) as Array<Record<string, unknown>>;
   const items = (accounts.items || []) as Array<Record<string, unknown>>;
 
+  if (loading && !data) {
+    return (
+      <div className="dashboard-page">
+        <header className="page-header">
+          <div className="page-title-group">
+            <h1>Dashboard</h1>
+            <span className="pill pill-purple">TỔNG QUAN</span>
+          </div>
+        </header>
+
+        <div className="info-grid">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="info-card skeleton" style={{ minHeight: 110 }}>
+              <div className="skeleton-text medium" style={{ height: 16, marginTop: 8 }} />
+              <div className="skeleton-text short" style={{ height: 32, marginTop: 12 }} />
+              <div className="skeleton-text medium" style={{ height: 14, marginTop: 12 }} />
+            </div>
+          ))}
+        </div>
+
+        <section className="panel-card" style={{ marginTop: 16 }}>
+          <h2>Tài khoản</h2>
+          <div className="dash-account-grid">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="dash-account-card skeleton" style={{ height: 74 }} />
+            ))}
+          </div>
+        </section>
+
+        <section className="panel-card" style={{ marginTop: 16 }}>
+          <h2>Lỗi gần đây</h2>
+          <div className="skeleton skeleton-text medium" style={{ height: 42, width: "100%" }} />
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-page">
       <header className="page-header">
@@ -135,29 +172,31 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
       <section className="panel-card" style={{ marginTop: 16 }}>
         <h2>Tài khoản</h2>
         {items.length === 0 ? (
-          <p className="muted">Chưa có account — Settings hoặc Login browser.</p>
+          <div className="empty-state">
+            <div className="empty-state-icon">👤</div>
+            <h3 className="empty-state-title">Chưa có tài khoản nào</h3>
+            <p className="empty-state-desc">Hãy liên kết tài khoản Google Labs bằng cách mở popup extension và đăng nhập.</p>
+          </div>
         ) : (
-          <div className="account-list" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+          <div className="dash-account-grid">
             {items.map((a) => {
-              const classes = ["account-card"];
-              if (!a.enabled) classes.push("account-card--off");
-              if (a.in_cooldown) classes.push("account-card--cooldown");
               return (
-                <article key={String(a.id)} className={classes.join(" ")}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span className={`status-dot ${a.enabled ? "online" : "offline"}`} style={{ width: 8, height: 8 }} />
-                    <div>
-                      <strong style={{ display: "block", fontSize: "14px", fontWeight: "700" }}>{String(a.label)}</strong>
-                      <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--muted)" }}>
-                        {String(a.provider)} · {a.enabled ? "Hoạt động" : "Tắt"}
-                        {a.in_cooldown ? " · Cooldown" : ""}
+                <article
+                  key={String(a.id)}
+                  className={`dash-account-card ${!a.enabled ? "account-card--off" : ""} ${a.in_cooldown ? "account-card--cooldown" : ""}`}
+                >
+                  <span className={`dash-status-dot ${a.enabled ? (a.in_cooldown ? "cooldown" : "active") : "error"}`} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <strong className="dash-status-label" style={{ display: "block" }}>{String(a.label)}</strong>
+                    <p className="dash-provider" style={{ margin: "2px 0 0" }}>
+                      {String(a.provider)} · {a.enabled ? "Hoạt động" : "Tắt"}
+                      {a.in_cooldown ? " · Cooldown" : ""}
+                    </p>
+                    {a.last_error ? (
+                      <p className="dash-error-text" title={String(a.last_error)}>
+                        {String(a.last_error)}
                       </p>
-                      {a.last_error ? (
-                        <p className="account-error" style={{ color: "var(--red)", marginTop: 6, fontSize: "11px", lineHeight: "1.3" }}>
-                          {String(a.last_error).slice(0, 120)}
-                        </p>
-                      ) : null}
-                    </div>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -169,17 +208,23 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
       <section className="panel-card" style={{ marginTop: 16 }}>
         <h2>Lỗi gần đây</h2>
         {recentFailed.length === 0 ? (
-          <p className="muted">Không có task failed gần đây.</p>
+          <div className="empty-state" style={{ padding: "24px" }}>
+            <div className="empty-state-icon">✨</div>
+            <h3 className="empty-state-title">Hoạt động ổn định</h3>
+            <p className="empty-state-desc">Không ghi nhận lỗi tác vụ nào trong thời gian gần đây.</p>
+          </div>
         ) : (
-          <ul className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+          <ul className="dash-log-list">
             {recentFailed.map((f) => (
-              <li key={String(f.task_id)} style={{ marginBottom: 6 }}>
-                <code style={{ background: "rgba(255,255,255,0.04)", padding: "2px 6px", borderRadius: 4, marginRight: 8 }}>
-                  {String(f.task_id)}
-                </code> 
-                <span className="pill pill-red" style={{ fontSize: 9, padding: "2px 6px", marginRight: 8 }}>{String(f.type)}</span>
-                <span style={{ color: "var(--text-secondary)" }}>{String(f.prompt)}</span> —{" "}
-                <span style={{ color: "var(--red-bright, #f87171)", fontSize: "13px" }}>{String(f.error || "")}</span>
+              <li key={String(f.task_id)} className="dash-log-item">
+                <span className="dash-log-time">
+                  {String(f.task_id).slice(-8)}
+                </span>
+                <span className="pill pill-red" style={{ fontSize: 9, padding: "2px 6px" }}>{String(f.type)}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {String(f.prompt)}
+                </span>
+                <span className="dash-error-text" style={{ maxWidth: "250px" }}>{String(f.error || "")}</span>
               </li>
             ))}
           </ul>

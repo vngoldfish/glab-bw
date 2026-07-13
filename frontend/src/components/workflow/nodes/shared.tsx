@@ -53,6 +53,7 @@ export const NODE_COLORS: Record<string, string> = {
   generate: "#22c55e",
   video_generate: "#f59e0b",
   frame_extract: "#ec4899",
+  video_reference: "#e879f9",
 };
 
 export const STATUS_META: Record<RunStatus, { label: string; color: string; bg: string }> = {
@@ -282,10 +283,10 @@ export function MediaPreview({
     <div className="node-media-preview-container nodrag">
       {label && <div className="node-media-label">{label}</div>}
       <div className="node-media-grid">
-        {display.map((url, i) =>
+        {display.map((url) =>
           isVideoUrl(url) ? (
             <div
-              key={i}
+              key={url}
               className="node-media-item video"
               onClick={() => onPreview?.(url)}
               title="Xem video"
@@ -295,7 +296,7 @@ export function MediaPreview({
             </div>
           ) : (
             <div
-              key={i}
+              key={url}
               className="node-media-item"
               onClick={() => onPreview?.(url)}
               title="Xem ảnh"
@@ -370,14 +371,19 @@ export function ImageAttachBar({
                 const f = e.target.files?.[0];
                 e.target.value = "";
                 if (!f) return;
+                const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+                if (f.size > MAX_IMAGE_SIZE) {
+                  alert("File quá lớn (tối đa 10MB cho ảnh)");
+                  return;
+                }
                 try {
                   const url = await readFileAsDataUrl(f);
                   onChange?.(nodeId, {
                     [field]: url,
                     ...(field === "image" ? { resultUrls: [url] } : {}),
                   } as Partial<WNodeData>);
-                } catch {
-                  /* ignore */
+                } catch (err) {
+                  console.warn('Upload failed:', err);
                 }
               }}
             />
@@ -455,14 +461,19 @@ export function VideoAttachBar({
                 const f = e.target.files?.[0];
                 e.target.value = "";
                 if (!f) return;
+                const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+                if (f.size > MAX_VIDEO_SIZE) {
+                  alert("File quá lớn (tối đa 50MB cho video)");
+                  return;
+                }
                 try {
                   const url = await readFileAsDataUrl(f);
                   onChange?.(nodeId, {
                     [field]: url,
                     resultUrls: [url],
                   } as Partial<WNodeData>);
-                } catch {
-                  /* ignore */
+                } catch (err) {
+                  console.warn('Upload failed:', err);
                 }
               }}
             />

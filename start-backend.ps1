@@ -1,5 +1,17 @@
-# G-Labs BW backend watchdog — keeps API :8765 + Auth :18923 alive
+# G-Labs BW backend watchdog — keeps API :8765 + Auth alive
 $Root = if ($PSScriptRoot) { $PSScriptRoot } else { "C:\Users\Admin\Desktop\g-labs-bw" }
+
+$AUTH_BRIDGE_PORT = 18923
+$EnvFile = Join-Path $Root ".env"
+if (Test-Path $EnvFile) {
+    $envContent = Get-Content $EnvFile -Raw
+    if ($envContent -match "AUTH_BRIDGE_URL=[^\r\n]+") {
+        $url = $Matches[0].Split("=")[1].Trim()
+        if ($url -match ":(\d+)") {
+            $AUTH_BRIDGE_PORT = [int]$Matches[1]
+        }
+    }
+}
 $Bat = Join-Path $Root "run-api.bat"
 $LogDir = Join-Path $Root "data\logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -18,7 +30,7 @@ function BackendUp {
 }
 
 function KillPorts {
-  foreach ($port in 8765, 18923) {
+  foreach ($port in 8765, $AUTH_BRIDGE_PORT) {
     Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
       ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
   }
@@ -26,7 +38,7 @@ function KillPorts {
 
 Write-Host "G-Labs BW Backend Watchdog"
 Write-Host "  Keep this window open."
-Write-Host "  API http://127.0.0.1:8765  Auth http://127.0.0.1:18923"
+Write-Host "  API http://127.0.0.1:8765  Auth http://127.0.0.1:$AUTH_BRIDGE_PORT"
 Write-Host ""
 
 $proc = $null

@@ -580,7 +580,7 @@ class GoogleFlowClient:
         # Prefer Omni keys for ingredients — only R2V path matching Flow web
         elif active_mode == "components" or omni:
             model_keys = resolve_video_model_candidates(
-                "omni_flash",
+                "omni_flash" if (omni or model != "veo_31_lite_relaxed") else model,
                 aspect_ratio,
                 mode=active_mode if active_mode != "components" else "components",
                 user_paygate_tier=user_paygate_tier,
@@ -783,8 +783,7 @@ class GoogleFlowClient:
                     # Lite/relaxed models must not use V2 Model Config (legacy API wrappers)
                     use_v2 = (
                         not (active_mode == "start_end_image" and attempt >= 1)
-                        and "lite" not in model_key
-                        and "relaxed" not in model_key
+                        and "veo_3_1" in model_key
                     )
                     media_name = await _submit_and_poll(
                         model_key=model_key,
@@ -817,7 +816,7 @@ class GoogleFlowClient:
                         exc,
                     )
                     # Out of credits — stop trying other keys (avoids fake INTERNAL spam)
-                    if quota_hit:
+                    if quota_hit and active_mode != "components":
                         raise ProviderError(
                             str(exc),
                             error_code=429,
@@ -866,7 +865,7 @@ class GoogleFlowClient:
                 duration=duration,
             ):
                 if key not in i2v_keys:
-                    i2v_keys.insert(0, key)
+                    i2v_keys.append(key)
 
             for model_key in i2v_keys[:4]:
                 try:
@@ -892,13 +891,22 @@ class GoogleFlowClient:
         if media_name is None and active_mode == "components":
             logger.warning("I2V fallback failed — last resort pure T2V without references")
             t2v_keys = resolve_video_model_candidates(
-                "omni_flash",
+                model,
                 aspect_ratio,
                 mode="text_to_video",
                 user_paygate_tier=tier,
                 duration=duration,
             )
-            for model_key in t2v_keys[:3]:
+            for key in resolve_video_model_candidates(
+                "omni_flash",
+                aspect_ratio,
+                mode="text_to_video",
+                user_paygate_tier=tier,
+                duration=duration,
+            ):
+                if key not in t2v_keys:
+                    t2v_keys.append(key)
+            for model_key in t2v_keys[:4]:
                 try:
                     media_name = await _submit_and_poll(
                         model_key=model_key,

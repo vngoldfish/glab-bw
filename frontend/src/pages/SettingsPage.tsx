@@ -18,6 +18,8 @@ import {
   startLoginBrowser,
   testAiApi,
   updateAccount,
+  fetchPortsConfig,
+  savePortsConfig,
   type LoginBrowserJob,
   type TestRunResult,
   type TestSuite,
@@ -176,8 +178,16 @@ function formatCooldown(sec?: number): string {
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
   const dialog = useUiDialog();
-  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "system">("accounts");
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system">("accounts");
   const [showGuide, setShowGuide] = useState(false);
+
+  // Ports Configuration State
+  const [apiPort, setApiPort] = useState(8765);
+  const [authBridgePort, setAuthBridgePort] = useState(18923);
+  const [portsLoading, setPortsLoading] = useState(false);
+  const [portsSaving, setPortsSaving] = useState(false);
+  const [portsMsg, setPortsMsg] = useState("");
+  const [portsOk, setPortsOk] = useState<boolean | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [newProvider, setNewProvider] = useState<Provider>("flow");
@@ -246,9 +256,51 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }, [applyAiSettings, onError]);
 
+  const loadPortsConfig = useCallback(async () => {
+    setPortsLoading(true);
+    try {
+      const data = await fetchPortsConfig();
+      setApiPort(data.port);
+      setAuthBridgePort(data.auth_bridge_port);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPortsLoading(false);
+    }
+  }, [onError]);
+
+  const handleSavePorts = async (restart: boolean) => {
+    setPortsSaving(true);
+    setPortsMsg("");
+    setPortsOk(null);
+    try {
+      const res = await savePortsConfig({ port: apiPort, auth_bridge_port: authBridgePort, restart });
+      if (res.success) {
+        setPortsOk(true);
+        setPortsMsg(res.message);
+        if (restart) {
+          await dialog.alert({
+            title: "Khởi động lại Server",
+            message: "Hệ thống đang khởi động lại uvicorn trên cổng mới. Hãy đợi ~3-5 giây và tải lại trang này hoặc chạy lệnh start.",
+            tone: "success",
+          });
+        }
+      } else {
+        setPortsOk(false);
+        setPortsMsg(res.message || "Lỗi lưu cấu hình");
+      }
+    } catch (err) {
+      setPortsOk(false);
+      setPortsMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPortsSaving(false);
+    }
+  };
+
   useEffect(() => {
     void loadAiSettings();
-  }, [loadAiSettings]);
+    void loadPortsConfig();
+  }, [loadAiSettings, loadPortsConfig]);
 
   function applyAiProviderPreset(value: string) {
     setAiProvider(value);
@@ -489,33 +541,45 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         </div>
       </header>
 
-      {/* Tabs Menu */}
-      <div className="settings-tabs">
-        <button
-          type="button"
-          className={`settings-tab ${activeTab === "accounts" ? "active" : ""}`}
-          onClick={() => setActiveTab("accounts")}
-        >
-          <Users size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
-          Quản lý Tài khoản ({accounts.length})
-        </button>
-        <button
-          type="button"
-          className={`settings-tab ${activeTab === "ai" ? "active" : ""}`}
-          onClick={() => setActiveTab("ai")}
-        >
-          <Sparkles size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
-          Trợ lý AI & Prompt
-        </button>
-        <button
-          type="button"
-          className={`settings-tab ${activeTab === "system" ? "active" : ""}`}
-          onClick={() => setActiveTab("system")}
-        >
-          <Cpu size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
-          Hệ thống & Tiện ích
-        </button>
-      </div>
+      <div className="settings-container">
+        {/* Left column: Sidebar Tabs */}
+        <aside className="settings-sidebar">
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "accounts" ? "active" : ""}`}
+            onClick={() => setActiveTab("accounts")}
+          >
+            <Users size={16} />
+            <span>Tài khoản ({accounts.length})</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "ai" ? "active" : ""}`}
+            onClick={() => setActiveTab("ai")}
+          >
+            <Sparkles size={16} />
+            <span>Trợ lý AI & Prompt</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "ports" ? "active" : ""}`}
+            onClick={() => setActiveTab("ports")}
+          >
+            <Globe size={16} />
+            <span>Cổng kết nối (Ports)</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "system" ? "active" : ""}`}
+            onClick={() => setActiveTab("system")}
+          >
+            <Cpu size={16} />
+            <span>Hệ thống & Tiện ích</span>
+          </button>
+        </aside>
+
+        {/* Right column: Content Area */}
+        <div className="settings-main-content">
 
       {/* TAB 1: ACCOUNTS */}
       {activeTab === "accounts" && (
@@ -1316,6 +1380,102 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           </section>
         </div>
       )}
+
+      {/* TAB 3: PORTS CONFIG */}
+      {activeTab === "ports" && (
+        <div className="settings-tab-content" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Globe size={18} style={{ color: "var(--blue)" }} />
+              <h2 style={{ margin: 0 }}>Cấu hình Cổng Dịch Vụ</h2>
+            </div>
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px", lineHeight: 1.5 }}>
+              Thay đổi cổng API Backend và cổng Auth Bridge cho G-Labs BW. Dữ liệu cấu hình sẽ được lưu trực tiếp vào file <code>.env</code>.
+            </p>
+
+            <div
+              className="muted"
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                fontSize: "13px",
+                lineHeight: 1.6,
+                marginBottom: 16,
+              }}
+            >
+              <strong style={{ color: "var(--red-bright)", display: "block", marginBottom: 4 }}>
+                ⚠️ Lưu ý quan trọng:
+              </strong>
+              Sau khi thay đổi cổng, bạn cần khởi động lại máy chủ (Backend) để cấu hình mới có hiệu lực.
+              Nếu chọn <strong>"Lưu & Tự động khởi động lại"</strong>, Backend sẽ lập tức tự tắt để watchdog script khởi động lại Backend trên cổng mới.
+            </div>
+
+            {portsLoading ? (
+              <p className="muted">Đang tải cấu hình cổng...</p>
+            ) : (
+              <div className="form-grid" style={{ marginBottom: 14 }}>
+                <label>
+                  Cổng API Backend (uvicorn)
+                  <input
+                    type="number"
+                    value={apiPort}
+                    onChange={(e) => setApiPort(Number(e.target.value))}
+                    placeholder="8765"
+                    min={1024}
+                    max={65535}
+                  />
+                </label>
+                <label>
+                  Cổng Auth Bridge (Chrome Extension)
+                  <input
+                    type="number"
+                    value={authBridgePort}
+                    onChange={(e) => setAuthBridgePort(Number(e.target.value))}
+                    placeholder="18923"
+                    min={1024}
+                    max={65535}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleSavePorts(true)}
+                disabled={portsSaving || portsLoading}
+              >
+                {portsSaving ? "Đang xử lý..." : "Lưu & Tự động khởi động lại"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void handleSavePorts(false)}
+                disabled={portsSaving || portsLoading}
+              >
+                Lưu cấu hình (Không tự động khởi động lại)
+              </button>
+              {portsMsg && (
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: portsOk ? "var(--success)" : "var(--red-bright)",
+                    fontWeight: 600,
+                  }}
+                >
+                  {portsMsg}
+                </span>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+        </div>
+      </div>
     </div>
   );
 }

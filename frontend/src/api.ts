@@ -1418,3 +1418,26 @@ export function parsePromptCsv(text: string): string[] {
   }
   return out;
 }
+
+export interface PortsConfig {
+  port: number;
+  auth_bridge_port: number;
+}
+
+export async function fetchPortsConfig(): Promise<PortsConfig> {
+  const res = await apiFetch("/api/maintenance/ports");
+  await ensureOk(res, "Không tải được cài đặt cổng");
+  return readJson<PortsConfig>(res);
+}
+
+export async function savePortsConfig(
+  payload: { port: number; auth_bridge_port: number; restart: boolean }
+): Promise<{ success: boolean; message: string }> {
+  const res = await apiFetch("/api/maintenance/ports", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Không lưu được cấu hình cổng");
+  return readJson<{ success: boolean; message: string }>(res);
+}

@@ -11,6 +11,23 @@ LOG="$LOG_DIR/watchdog.log"
 VENV_PY="$ROOT/backend/.venv/bin/python"
 [[ -x "$VENV_PY" ]] || VENV_PY="$(command -v python3)"
 
+# Read AUTH_BRIDGE_PORT and API_PORT from .env dynamically, fallbacks to defaults
+AUTH_BRIDGE_PORT=18923
+API_PORT=8765
+if [[ -f "$ROOT/.env" ]]; then
+  LINE=$(grep -E "^AUTH_BRIDGE_URL=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$LINE" ]]; then
+    PORT_PART=$(echo "$LINE" | grep -oE ":[0-9]+" | tr -d ":" || true)
+    if [[ -n "$PORT_PART" ]]; then
+      AUTH_BRIDGE_PORT="$PORT_PART"
+    fi
+  fi
+  PORT_LINE=$(grep -E "^PORT=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$PORT_LINE" ]]; then
+    API_PORT="$PORT_LINE"
+  fi
+fi
+
 export PYTHONPATH="$ROOT/backend"
 
 log() {
@@ -20,11 +37,11 @@ log() {
 }
 
 backend_up() {
-  curl -fsS -m 2 "http://127.0.0.1:8765/api/health" >/dev/null 2>&1
+  curl -fsS -m 2 "http://127.0.0.1:$API_PORT/api/health" >/dev/null 2>&1
 }
 
 kill_ports() {
-  for port in 8765 18923; do
+  for port in "$API_PORT" "$AUTH_BRIDGE_PORT"; do
     pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
     if [[ -n "$pids" ]]; then
       # shellcheck disable=SC2086
@@ -36,7 +53,7 @@ kill_ports() {
   done
 }
 
-log "Watchdog started (API :8765 + Auth :18923)"
+log "Watchdog started (API :$API_PORT + Auth :$AUTH_BRIDGE_PORT)"
 proc=""
 
 while true; do
@@ -49,7 +66,7 @@ while true; do
     sleep 1
     (
       cd "$ROOT"
-      "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8765 \
+      "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$API_PORT" \
         >>"$LOG_DIR/backend.console.log" 2>&1
     ) &
     proc=$!

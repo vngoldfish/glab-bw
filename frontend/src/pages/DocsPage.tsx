@@ -74,6 +74,12 @@ export default function DocsPage() {
   const navigate = useNavigate();
   const [apiTab, setApiTab] = useState<"curl" | "python">("curl");
 
+  const apiOrigin = typeof window !== "undefined"
+    ? (window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8765` : window.location.origin)
+    : "http://localhost:8765";
+
+  const uiOrigin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:5173";
+
   const handleTriggerDemo = async (demoType: "modernyou" | "char", action: "create" | "run") => {
     const isModern = demoType === "modernyou";
     const projectName = isModern ? `Demo Báo Thức API (${action === "create" ? "Thô" : "Chạy"})` : `Demo Võ Thuật API (${action === "create" ? "Thô" : "Chạy"})`;
@@ -734,7 +740,7 @@ Phải:
                     lineHeight: "1.5" 
                   }}>
 {`# 🎨 Kịch bản 1: Tạo dự án thô (Chờ chạy - Dùng create-bulk)
-curl -X POST http://localhost:8765/api/workflows/create-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "Chuỗi Võ Thuật 007",
@@ -754,7 +760,7 @@ curl -X POST http://localhost:8765/api/workflows/create-bulk \\
   }'
 
 # 🚀 Kịch bản 2: Tạo dự án & Khởi chạy lập tức (Dùng run-bulk)
-curl -X POST http://localhost:8765/api/workflows/run-bulk \\
+curl -X POST ${apiOrigin}/api/workflows/run-bulk \\
   -H "Content-Type: application/json" \\
   -d '{
     "project_name": "Modern You Alarm Clock",
@@ -782,7 +788,7 @@ curl -X POST http://localhost:8765/api/workflows/run-bulk \\
 {`import json
 import urllib.request
 
-BASE_URL = "http://localhost:8765/api"
+BASE_URL = "${apiOrigin}/api"
 
 payload = {
     "project_name": "Modern You Alarm Clock",
@@ -812,7 +818,7 @@ try:
     with urllib.request.urlopen(req) as response:
         data = json.loads(response.read().decode("utf-8"))
         print(f"Project Created! ID: {data['project_id']}")
-        print(f"Open URL: http://127.0.0.1:5173/workflow/{data['project_id']}")
+        print(f"Open URL: ${uiOrigin}/workflow/{data['project_id']}")
 except Exception as e:
     print("Error:", e)`}
                   </pre>

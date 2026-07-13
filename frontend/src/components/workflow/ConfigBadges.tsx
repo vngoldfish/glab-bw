@@ -60,7 +60,7 @@ export default function ConfigBadges(props: ConfigBadgesProps) {
           {b.icon} {b.value!.split(",")[0]}
         </span>
       ))}
-      {props.studioDuration && (
+      {props.studioDuration != null && props.studioDuration > 0 && (
         <span
           style={{
             ...badgeBase,

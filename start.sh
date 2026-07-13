@@ -10,6 +10,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# Read AUTH_BRIDGE_PORT and API_PORT from .env dynamically, fallbacks to defaults
+AUTH_BRIDGE_PORT=18923
+API_PORT=8765
+if [[ -f "$ROOT/.env" ]]; then
+  LINE=$(grep -E "^AUTH_BRIDGE_URL=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$LINE" ]]; then
+    PORT_PART=$(echo "$LINE" | grep -oE ":[0-9]+" | tr -d ":" || true)
+    if [[ -n "$PORT_PART" ]]; then
+      AUTH_BRIDGE_PORT="$PORT_PART"
+    fi
+  fi
+  PORT_LINE=$(grep -E "^PORT=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$PORT_LINE" ]]; then
+    API_PORT="$PORT_LINE"
+  fi
+fi
+
 PROD=0
 WATCHDOG=0
 for arg in "$@"; do
@@ -79,7 +96,7 @@ start_backend_once() {
   (
     cd "$ROOT"
     export PYTHONPATH="$ROOT/backend"
-    nohup "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port 8765 \
+    nohup "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$API_PORT" \
       >>"$BACKEND_LOG" 2>&1 &
     echo $! >"$BACKEND_PID_FILE"
   )
@@ -104,8 +121,8 @@ if [[ "$PROD" -eq 1 ]]; then
   fi
 fi
 
-echo "[1/4] Free ports 8765, 18923, 5173..."
-for p in 8765 18923 5173; do kill_port "$p"; done
+echo "[1/4] Free ports $API_PORT, $AUTH_BRIDGE_PORT, 5173..."
+for p in "$API_PORT" "$AUTH_BRIDGE_PORT" 5173; do kill_port "$p"; done
 # stop old watchdog if any
 if [[ -f "$WATCHDOG_PID_FILE" ]]; then
   wp="$(cat "$WATCHDOG_PID_FILE" 2>/dev/null || true)"
@@ -114,17 +131,17 @@ if [[ -f "$WATCHDOG_PID_FILE" ]]; then
 fi
 sleep 1
 
-echo "[2/4] Backend API :8765 + Auth :18923..."
+echo "[2/4] Backend API :$API_PORT + Auth :$AUTH_BRIDGE_PORT..."
 start_backend_once
-wait_http "http://127.0.0.1:8765/api/health" "Backend" 25
+wait_http "http://127.0.0.1:$API_PORT/api/health" "Backend" 25
 
 if [[ "$WATCHDOG" -eq 1 ]]; then
   echo "  starting backend watchdog..."
   (
     while true; do
-      if ! curl -fsS -m 2 "http://127.0.0.1:8765/api/health" >/dev/null 2>&1; then
+      if ! curl -fsS -m 2 "http://127.0.0.1:$API_PORT/api/health" >/dev/null 2>&1; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') watchdog: backend DOWN — restart" >>"$LOG_DIR/watchdog.log"
-        for p in 8765 18923; do
+        for p in "$API_PORT" "$AUTH_BRIDGE_PORT"; do
           pid="$(lsof -nP -iTCP:$p -sTCP:LISTEN -t 2>/dev/null || true)"
           if [[ -n "$pid" ]]; then kill $pid 2>/dev/null || true; fi
         done
@@ -141,8 +158,8 @@ fi
 UI_URL="http://127.0.0.1:5173"
 if [[ "$PROD" -eq 1 ]]; then
   echo "[3/4] Prod UI served by backend (skip Vite)"
-  UI_URL="http://127.0.0.1:8765"
-  wait_http "http://127.0.0.1:8765/" "Static UI" 10 || true
+  UI_URL="http://127.0.0.1:$API_PORT"
+  wait_http "http://127.0.0.1:$API_PORT/" "Static UI" 10 || true
 else
   if ! command -v npm >/dev/null 2>&1; then
     echo "ERROR: npm not found (need Node.js 18+)."
@@ -168,8 +185,8 @@ fi
 echo ""
 echo "========================================"
 echo "  App:     $UI_URL"
-echo "  Backend: http://127.0.0.1:8765"
-echo "  Auth:    http://127.0.0.1:18923"
+echo "  Backend: http://127.0.0.1:$API_PORT"
+echo "  Auth:    http://127.0.0.1:$AUTH_BRIDGE_PORT"
 echo "  Logs:    $LOG_DIR"
 echo "  Stop:    ./stop.sh"
 echo "========================================"

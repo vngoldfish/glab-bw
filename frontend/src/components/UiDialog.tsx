@@ -78,17 +78,33 @@ function normalizeAlert(opts: AlertOpts | string): AlertOpts {
 
 export function UiDialogProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveDialog | null>(null);
+  const [closingValue, setClosingValue] = useState<boolean | string | null | void | undefined>(undefined);
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const lastActiveRef = useRef<ActiveDialog | null>(null);
   const titleId = useId();
   const descId = useId();
 
+  if (active) {
+    lastActiveRef.current = active;
+  }
+  const rendered = active || lastActiveRef.current;
+
   const close = useCallback((value: boolean | string | null | void) => {
-    setActive((cur) => {
-      if (cur) cur.resolve(value);
-      return null;
-    });
+    setClosingValue(value);
   }, []);
+
+  useEffect(() => {
+    if (closingValue === undefined) return;
+    const t = setTimeout(() => {
+      setActive((cur) => {
+        if (cur) cur.resolve(closingValue);
+        return null;
+      });
+      setClosingValue(undefined);
+    }, 180); // Matches CSS transition (0.18s)
+    return () => clearTimeout(t);
+  }, [closingValue]);
 
   const confirm = useCallback((opts: ConfirmOpts | string) => {
     const o = normalizeConfirm(opts);
@@ -153,6 +169,12 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
         inputRef.current?.select();
       }, 30);
       return () => window.clearTimeout(t);
+    } else {
+      const t = window.setTimeout(() => {
+        const btn = document.querySelector<HTMLButtonElement>(".ui-dialog-actions button");
+        btn?.focus();
+      }, 30);
+      return () => window.clearTimeout(t);
     }
   }, [active]);
 
@@ -166,7 +188,6 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
         else close(null);
       }
       if (e.key === "Enter" && active.mode !== "prompt") {
-        // prompt handled by form submit
         if (e.target instanceof HTMLInputElement) return;
         e.preventDefault();
         if (active.mode === "confirm") close(true);
@@ -180,56 +201,79 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
   const api: DialogApi = { confirm, prompt, alert };
 
   function onConfirmClick() {
-    if (!active) return;
-    if (active.mode === "prompt") {
+    if (!rendered) return;
+    if (rendered.mode === "prompt") {
       const v = input.trim();
       if (!v) return;
       close(v);
       return;
     }
-    if (active.mode === "confirm") close(true);
+    if (rendered.mode === "confirm") close(true);
     else close(undefined);
   }
 
   function onCancelClick() {
-    if (!active) return;
-    if (active.mode === "confirm") close(false);
-    else if (active.mode === "prompt") close(null);
+    if (!rendered) return;
+    if (rendered.mode === "confirm") close(false);
+    else if (rendered.mode === "prompt") close(null);
     else close(undefined);
   }
+
+  const onOverlayKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab") return;
+    const overlay = e.currentTarget;
+    const focusables = overlay.querySelectorAll<HTMLElement>(
+      'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex="0"]'
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        last.focus();
+        e.preventDefault();
+      }
+    } else {
+      if (document.activeElement === last) {
+        first.focus();
+        e.preventDefault();
+      }
+    }
+  };
 
   return (
     <UiDialogContext.Provider value={api}>
       {children}
-      {active && (
+      {rendered && (active || closingValue !== undefined) && (
         <div
-          className="ui-dialog-overlay"
+          className={`ui-dialog-overlay ${closingValue !== undefined ? "closing" : ""}`}
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onCancelClick();
           }}
+          onKeyDown={onOverlayKeyDown}
         >
           <div
-            className={`ui-dialog ui-dialog--${active.tone}`}
+            className={`ui-dialog ui-dialog--${rendered.tone}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            aria-describedby={active.message ? descId : undefined}
+            aria-describedby={rendered.message ? descId : undefined}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="ui-dialog-icon" aria-hidden>
-              {active.tone === "danger" ? "!" : active.tone === "success" ? "✓" : "i"}
+              {rendered.tone === "danger" ? "!" : rendered.tone === "success" ? "✓" : "i"}
             </div>
             <h2 id={titleId} className="ui-dialog-title">
-              {active.title}
+              {rendered.title}
             </h2>
-            {active.message ? (
+            {rendered.message ? (
               <p id={descId} className="ui-dialog-message">
-                {active.message}
+                {rendered.message}
               </p>
             ) : null}
 
-            {active.mode === "prompt" && (
+            {rendered.mode === "prompt" && (
               <form
                 className="ui-dialog-form"
                 onSubmit={(e) => {
@@ -241,7 +285,7 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
                   ref={inputRef}
                   className="ui-dialog-input"
                   value={input}
-                  placeholder={active.placeholder}
+                  placeholder={rendered.placeholder}
                   onChange={(e) => setInput(e.target.value)}
                   autoComplete="off"
                 />
@@ -249,18 +293,18 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
             )}
 
             <div className="ui-dialog-actions">
-              {active.mode !== "alert" && (
+              {rendered.mode !== "alert" && (
                 <button type="button" className="ui-dialog-btn ghost" onClick={onCancelClick}>
-                  {active.cancelLabel}
+                  {rendered.cancelLabel}
                 </button>
               )}
               <button
                 type="button"
-                className={`ui-dialog-btn primary${active.tone === "danger" ? " danger" : ""}`}
+                className={`ui-dialog-btn primary${rendered.tone === "danger" ? " danger" : ""}`}
                 onClick={onConfirmClick}
-                disabled={active.mode === "prompt" && !input.trim()}
+                disabled={rendered.mode === "prompt" && !input.trim()}
               >
-                {active.confirmLabel}
+                {rendered.confirmLabel}
               </button>
             </div>
           </div>
@@ -273,7 +317,6 @@ export function UiDialogProvider({ children }: { children: ReactNode }) {
 export function useUiDialog(): DialogApi {
   const ctx = useContext(UiDialogContext);
   if (!ctx) {
-    // Fallback to native if provider missing (should not happen)
     return {
       confirm: async (opts) => {
         const o = normalizeConfirm(opts);
@@ -291,3 +334,7 @@ export function useUiDialog(): DialogApi {
   }
   return ctx;
 }
+
+
+
+

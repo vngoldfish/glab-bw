@@ -86,13 +86,14 @@ export default function Sidebar({
   const navigate = useNavigate();
 
   return (
-    <aside className="sidebar" style={{ position: "relative" }}>
+    <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       {/* Floating Toggle Handle */}
       <button
         type="button"
         className="sidebar-toggle-handle"
         onClick={onToggle}
         title={collapsed ? "Mở rộng menu chính" : "Thu gọn menu chính"}
+        aria-label={collapsed ? "Mở rộng menu chính" : "Thu gọn menu chính"}
       >
         {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
       </button>
@@ -112,6 +113,7 @@ export default function Sidebar({
               <NavLink
                 key={item.id}
                 to={NAV_ROUTES[item.id]}
+                data-tooltip={item.label}
                 onClick={(e) => {
                   if ((window as any).workflowDirty && item.id !== "workflow") {
                     e.preventDefault();
@@ -125,18 +127,18 @@ export default function Sidebar({
                          tone: "danger",
                        });
                        if (leave) navigate(NAV_ROUTES[item.id]);
-                    })();
-                  }
-                }}
-                className={({ isActive }) =>
-                  [
-                    "sidebar-link",
-                    isActive ? "active" : "",
-                    item.enabled === false ? "disabled" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                }
+                     })();
+                   }
+                 }}
+                 className={({ isActive }) =>
+                   [
+                     "sidebar-link",
+                     isActive ? "active" : "",
+                     item.enabled === false ? "disabled" : "",
+                   ]
+                     .filter(Boolean)
+                     .join(" ")
+                 }
               >
                 <span className={`nav-icon nav-icon-${item.id}`}>
                   <item.icon size={15} strokeWidth={2} />
@@ -152,10 +154,10 @@ export default function Sidebar({
       <div className="sidebar-footer">
         <div className={`sidebar-status ${extensionConnected ? "online" : "offline"}`}>
           <span className="status-dot" />
-          {extensionConnected ? "Auth Helper OK" : "Chưa kết nối"}
+          <span>{extensionConnected ? "Auth Helper OK" : "Chưa kết nối"}</span>
         </div>
         {extensionConnected && (
-          <div className="sidebar-ext-meta" style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+          <div className="sidebar-ext-meta">
             Flow {flowTab} · Grok {grokTab}
           </div>
         )}

@@ -7,8 +7,9 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
   const ready = Boolean(health?.ready_to_generate);
   const reasons = Array.isArray(health?.readiness_reasons)
     ? (health?.readiness_reasons as string[]).join(" · ")
-    : "";
-  const origin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8765";
+    : "";  const apiOrigin = typeof window !== "undefined"
+    ? (window.location.port === "5173" ? `${window.location.protocol}//${window.location.hostname}:8765` : window.location.origin)
+    : "http://127.0.0.1:8765";
 
   return (
     <div className="webhook-page" style={{ paddingBottom: 60 }}>
@@ -18,11 +19,11 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
           <span className="pill pill-purple">REST API v0.2</span>
         </div>
       </header>
-
+ 
       <div className="info-grid" style={{ marginBottom: 24 }}>
         <div className="info-card">
           <span>Base URL</span>
-          <code>{origin}/api</code>
+          <code>{apiOrigin}/api</code>
         </div>
         <div className="info-card">
           <span>API Key của bạn</span>
@@ -38,13 +39,13 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
           Lưu ý hệ thống chưa sẵn sàng: {reasons}
         </p>
       ) : null}
-
+ 
       <div className="settings-tabs" style={{ marginBottom: 24, borderBottom: "1px solid var(--border)" }}>
         <div className="settings-tab active">Danh sách chi tiết API & Hướng dẫn sử dụng</div>
       </div>
-
+ 
       <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-
+ 
         {/* 1. API Image Generate */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -82,12 +83,12 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
             </tbody>
           </table>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
-          <pre className="code-block">{`curl -X POST ${origin}/api/image/generate \\
+          <pre className="code-block">{`curl -X POST ${apiOrigin}/api/image/generate \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ${apiKey}" \\
   -d '{"prompt":"A magical wizard cat, detailed digital art","model":"nano_banana_2_lite","aspect_ratio":"16:9"}'`}</pre>
         </div>
-
+ 
         {/* 2. List Workflows */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -110,9 +111,9 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
 }`}</pre>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
           <pre className="code-block">{`curl -H "X-API-Key: ${apiKey}" \\
-  ${origin}/api/webhook/workflows`}</pre>
+  ${apiOrigin}/api/webhook/workflows`}</pre>
         </div>
-
+ 
         {/* 3. Run Workflow */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -150,7 +151,7 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
             </tbody>
           </table>
           <div className="api-params-title">Lệnh gọi mẫu (Chạy Async + Ghi đè prompt cho nút n_prompt)</div>
-          <pre className="code-block">{`curl -X POST ${origin}/api/webhook/workflows/<workflow_id>/run \\
+          <pre className="code-block">{`curl -X POST ${apiOrigin}/api/webhook/workflows/<workflow_id>/run \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ${apiKey}" \\
   -d '{
@@ -162,7 +163,7 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
     }
   }'`}</pre>
         </div>
-
+ 
         {/* 4. Poll Workflow Run Status */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -190,9 +191,9 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
 }`}</pre>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
           <pre className="code-block">{`curl -H "X-API-Key: ${apiKey}" \\
-  ${origin}/api/webhook/workflows/runs/<run_id>`}</pre>
+  ${apiOrigin}/api/webhook/workflows/runs/<run_id>`}</pre>
         </div>
-
+ 
         {/* 5. Upload File */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -220,11 +221,11 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
             </tbody>
           </table>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
-          <pre className="code-block">{`curl -X POST ${origin}/api/webhook/upload \\
+          <pre className="code-block">{`curl -X POST ${apiOrigin}/api/webhook/upload \\
   -H "X-API-Key: ${apiKey}" \\
   -F "file=@/path/to/sound.mp3"`}</pre>
         </div>
-
+ 
         {/* 6. Assemble Video */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -267,7 +268,7 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
             </tbody>
           </table>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
-          <pre className="code-block">{`curl -X POST ${origin}/api/webhook/video/assemble \\
+          <pre className="code-block">{`curl -X POST ${apiOrigin}/api/webhook/video/assemble \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: ${apiKey}" \\
   -d '{
@@ -284,7 +285,7 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
     ]
   }'`}</pre>
         </div>
-
+ 
         {/* 7. List Accounts */}
         <div className="api-doc-card">
           <div className="api-header">
@@ -310,9 +311,8 @@ export default function WebhookPage({ apiKey, health }: WebhookPageProps) {
 }`}</pre>
           <div className="api-params-title">Lệnh gọi curl mẫu</div>
           <pre className="code-block">{`curl -H "X-API-Key: ${apiKey}" \\
-  ${origin}/api/webhook/accounts`}</pre>
+  ${apiOrigin}/api/webhook/accounts`}</pre>
         </div>
-
       </div>
     </div>
   );

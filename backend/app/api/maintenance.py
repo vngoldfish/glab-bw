@@ -152,3 +152,76 @@ async def run_project_tests_get(
     result = run_tests(path=path_map[suite], quiet=True, timeout_sec=180)
     result["suite"] = suite
     return result
+
+
+class PortsConfig(BaseModel):
+    port: int = Field(default=8765, ge=1024, le=65535)
+    auth_bridge_port: int = Field(default=18923, ge=1024, le=65535)
+    restart: bool = False
+
+
+@router.get("/ports")
+async def get_ports() -> dict:
+    """Lấy cấu hình cổng API và cổng Auth Bridge hiện tại."""
+    from urllib.parse import urlparse
+    api_port = settings.port
+    auth_port = 18923
+    try:
+        parsed = urlparse(settings.auth_bridge_url)
+        if parsed.port:
+            auth_port = parsed.port
+    except Exception:
+        pass
+    return {"port": api_port, "auth_bridge_port": auth_port}
+
+
+@router.post("/ports")
+async def update_ports(body: PortsConfig) -> dict:
+    """Cập nhật cấu hình cổng vào file .env và tự động restart backend."""
+    import os
+    import sys
+    import asyncio
+    from app.core.config import PROJECT_ROOT
+
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        # Sao chép từ file .env.example
+        example_path = PROJECT_ROOT / ".env.example"
+        if example_path.exists():
+            shutil.copy(str(example_path), str(env_path))
+        else:
+            env_path.write_text(f"PORT={body.port}\nAUTH_BRIDGE_URL=http://127.0.0.1:{body.auth_bridge_port}\n", encoding="utf-8")
+
+    # Đọc và cập nhật các dòng
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    port_found = False
+    bridge_found = False
+
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("PORT="):
+            new_lines.append(f"PORT={body.port}")
+            port_found = True
+        elif stripped.startswith("AUTH_BRIDGE_URL="):
+            new_lines.append(f"AUTH_BRIDGE_URL=http://127.0.0.1:{body.auth_bridge_port}")
+            bridge_found = True
+        else:
+            new_lines.append(line)
+
+    if not port_found:
+        new_lines.append(f"PORT={body.port}")
+    if not bridge_found:
+        new_lines.append(f"AUTH_BRIDGE_URL=http://127.0.0.1:{body.auth_bridge_port}")
+
+    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    if body.restart:
+        async def do_restart():
+            await asyncio.sleep(1.0)
+            os._exit(0)
+        asyncio.create_task(do_restart())
+        return {"success": True, "message": "Cấu hình cổng đã được lưu. Hệ thống đang khởi động lại..."}
+
+    return {"success": True, "message": "Cấu hình cổng đã được lưu thành công. Cần khởi động lại máy chủ để áp dụng."}
+
