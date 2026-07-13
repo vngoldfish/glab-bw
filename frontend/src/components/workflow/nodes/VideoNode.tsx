@@ -163,6 +163,8 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
       showRerun
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
+      percent={d.percent}
+      step={d.step}
     >
       <Handle
         type="target"

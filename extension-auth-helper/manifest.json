@@ -25,7 +25,6 @@
       "128": "icon128.png",
       "48": "icon48.png"
    },
-   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqwoxQ68a3Nzg/th9gni/dLSOabKQvEC+QzVBoEaaWzN7E/wET5J31rTLLvP5XRQ1N2j94QtkhLao2LffVGy2AQA8jbURpI0zcsO841SAF1HFY+fblqa+48p+mucM5sl98hy16a35dkWgoGGpEU+JiEi4Mw6AgFOj4JYAaUMLeLHv/mce1CuxQwD47vKf6K1zE1SdhA60quSQkfCo+1BBxrwodx8fFE+yHrTVtmkCbpwb/VPyaWDA/J+lwZiBKHbYtwTkSF5rUMaRQRhOQPx82HFO0+o9cMwC+rLMhhgKJbiUJzhqFYI6XXgMCEf86FvXkdMMuFhQ1RmfsTzp8TTUPQIDAQAB",
    "manifest_version": 3,
    "name": "__MSG_appName__",
    "options_ui": {

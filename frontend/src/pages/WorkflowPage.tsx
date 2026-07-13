@@ -203,6 +203,8 @@ function mergeRunResultIntoNodes(
         runError: raw.error || undefined,
         reused: Boolean(raw.reused),
         folder: raw.folder ?? prev.folder,
+        percent: (raw as any).percent,
+        step: (raw as any).step,
         ...(urls.length ? { resultUrls: urls } : {}),
         ...(frames.length ? { frames } : {}),
         ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),

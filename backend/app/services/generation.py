@@ -1,5 +1,6 @@
 import logging
 import secrets
+import asyncio
 
 from app.core.config import settings
 from app.core.retry import is_retryable_error, is_session_stale_error, with_retries
@@ -193,6 +194,10 @@ async def handle_image_task(task: Task) -> list[str]:
     file_prefix = custom_prefix if custom_prefix else f"image_{task.task_id}"
     row_id = params.get("row_id")
     event_data = {"row_id": row_id} if row_id else {}
+    if params.get("workflow_run_id"):
+        event_data["workflow_run_id"] = params["workflow_run_id"]
+    if params.get("workflow_node_id"):
+        event_data["workflow_node_id"] = params["workflow_node_id"]
 
     try:
         from app.core.progress import emit_task_progress
@@ -263,6 +268,10 @@ async def handle_video_task(task: Task) -> list[str]:
     _validate_prompt(task)
     row_id = task.payload.get("row_id")
     event_data = {"row_id": row_id} if row_id else {}
+    if task.payload.get("workflow_run_id"):
+        event_data["workflow_run_id"] = task.payload["workflow_run_id"]
+    if task.payload.get("workflow_node_id"):
+        event_data["workflow_node_id"] = task.payload["workflow_node_id"]
 
     try:
         from app.core.progress import emit_task_progress
@@ -332,9 +341,16 @@ async def handle_grok_task(task: Task) -> list[str]:
             error_code=0,
         )
 
+    row_id = task.payload.get("row_id")
+    event_data = {"row_id": row_id} if row_id else {}
+    if task.payload.get("workflow_run_id"):
+        event_data["workflow_run_id"] = task.payload["workflow_run_id"]
+    if task.payload.get("workflow_node_id"):
+        event_data["workflow_node_id"] = task.payload["workflow_node_id"]
+
     try:
         from app.core.progress import emit_task_progress
-        emit_task_progress(task.task_id, "Đang kết nối Grok...", percent=20, task_type=task.task_type)
+        emit_task_progress(task.task_id, "Đang kết nối Grok...", percent=20, task_type=task.task_type, data=event_data)
     except Exception:
         pass
 
@@ -346,7 +362,7 @@ async def handle_grok_task(task: Task) -> list[str]:
             session_health.mark_grok_ok()
             try:
                 from app.core.progress import emit_task_progress
-                emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+                emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type, data=event_data)
             except Exception:
                 pass
             file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
@@ -356,7 +372,7 @@ async def handle_grok_task(task: Task) -> list[str]:
         session_health.mark_grok_ok()
         try:
             from app.core.progress import emit_task_progress
-            emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type)
+            emit_task_progress(task.task_id, "Đang lưu kết quả...", percent=85, task_type=task.task_type, data=event_data)
         except Exception:
             pass
         file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"

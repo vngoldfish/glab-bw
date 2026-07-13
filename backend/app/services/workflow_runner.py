@@ -54,6 +54,15 @@ def get_run(run_id: str) -> dict[str, Any] | None:
     return _runs.get(run_id)
 
 
+def update_node_progress(run_id: str, node_id: str, percent: int, step: str) -> None:
+    run = _runs.get(run_id)
+    if run and "node_results" in run:
+        if node_id not in run["node_results"]:
+            run["node_results"][node_id] = {}
+        run["node_results"][node_id]["percent"] = percent
+        run["node_results"][node_id]["step"] = step
+
+
 def _topo_order(nodes: list[dict], edges: list[dict]) -> list[str]:
     ids = {str(n["id"]) for n in nodes}
     indeg: dict[str, int] = {i: 0 for i in ids}
@@ -247,6 +256,7 @@ async def _execute_node(
     *,
     project_id: str | None = None,
     workflow: dict[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one node; mutates outputs; returns node_results entry."""
     # Project-scoped output folders
@@ -381,6 +391,9 @@ async def _execute_node(
             "custom_prefix": custom_prefix,
             "mode": "t2i",
         }
+        if run_id:
+            params["workflow_run_id"] = run_id
+        params["workflow_node_id"] = nid
         if ref_data:
             params["reference_images"] = ref_data
         try:
@@ -518,6 +531,9 @@ async def _execute_node(
             "resolution": data.get("resolution") or ["720p"],
             "custom_prefix": custom_prefix,
         }
+        if run_id:
+            params["workflow_run_id"] = run_id
+        params["workflow_node_id"] = nid
         ref_list: list[str] = []
         for r in start_refs[:1]:
             if str(r).startswith("data:"):
@@ -827,7 +843,8 @@ async def run_workflow(
                     _execute_node(
                         nid, ntype, data, inputs, outputs, 
                         project_id=str(pid) if pid else None,
-                        workflow=workflow
+                        workflow=workflow,
+                        run_id=rid
                     )
                 )
                 running_tasks[nid] = task

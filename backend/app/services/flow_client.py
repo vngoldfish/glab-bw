@@ -109,6 +109,19 @@ class GoogleFlowClient:
         self.max_image_retries = 3
         self._client: httpx.AsyncClient | None = None
 
+    def _make_client(self) -> httpx.AsyncClient:
+        """Create httpx client bypassing dead system proxy.
+
+        Windows has a system proxy (127.0.0.1:8888) that httpx auto-detects.
+        When that proxy is not running, ALL outbound requests fail.
+        Setting NO_PROXY=* forces httpx to connect directly.
+        """
+        import os
+        os.environ.setdefault("NO_PROXY", "*")
+        os.environ["HTTP_PROXY"] = ""
+        os.environ["HTTPS_PROXY"] = ""
+        return httpx.AsyncClient(timeout=self.timeout)
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
@@ -170,7 +183,7 @@ class GoogleFlowClient:
         browser_like: bool = False,
     ) -> dict[str, Any]:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self.timeout)
+            self._client = self._make_client()
         client = self._client
         req_timeout = timeout or self.timeout
         if browser_like and json_data is not None:
@@ -1195,7 +1208,7 @@ class GoogleFlowClient:
         url = generated.get("fifeUrl") or generated.get("videoUrl") or video.get("fifeUrl")
         if url:
             if self._client is None:
-                self._client = httpx.AsyncClient(timeout=self.timeout)
+                self._client = self._make_client()
             response = await self._client.get(url, timeout=180.0)
             response.raise_for_status()
             return response.content
@@ -1326,7 +1339,7 @@ class GoogleFlowClient:
 
     async def _async_download(self, url: str) -> bytes:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self.timeout)
+            self._client = self._make_client()
         response = await self._client.get(url, timeout=120.0)
         response.raise_for_status()
         return response.content
@@ -1339,7 +1352,7 @@ class GoogleFlowClient:
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             }
             if self._client is None:
-                self._client = httpx.AsyncClient(timeout=self.timeout)
+                self._client = self._make_client()
             res = await self._client.get(url, headers=headers, timeout=15.0)
             if res.status_code == 200:
                 data = res.json()

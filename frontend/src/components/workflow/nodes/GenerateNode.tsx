@@ -40,6 +40,8 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
       showRerun
       reused={d.reused}
       onRerun={() => d.onRerun?.(id)}
+      percent={d.percent}
+      step={d.step}
     >
       <Handle
         type="target"

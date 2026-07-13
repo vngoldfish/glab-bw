@@ -852,6 +852,15 @@ export async function fetchDashboard(): Promise<Record<string, unknown>> {
   return readJson(res);
 }
 
+export async function clearDashboardHistory(type: "all" | "completed" | "failed"): Promise<void> {
+  const res = await apiFetch("/api/dashboard/clear", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type }),
+  });
+  await ensureOk(res, "Không thể xóa lịch sử");
+}
+
 /* —— Workflow (G-Labs node editor) —— */
 
 export interface WorkflowMeta {

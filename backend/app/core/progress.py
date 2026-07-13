@@ -177,6 +177,18 @@ def emit_task_progress(
         **kwargs,
     ))
 
+    # Update active workflow runs if applicable
+    data_dict = kwargs.get("data")
+    if data_dict and isinstance(data_dict, dict):
+        w_run_id = data_dict.get("workflow_run_id")
+        w_node_id = data_dict.get("workflow_node_id")
+        if w_run_id and w_node_id:
+            try:
+                from app.services.workflow_runner import update_node_progress
+                update_node_progress(w_run_id, w_node_id, percent, step)
+            except Exception:
+                pass
+
 
 def emit_workflow_log(
     run_id: str,

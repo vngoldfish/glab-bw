@@ -244,4 +244,23 @@ class TaskQueue:
                 )
 
 
+    def clear_history(self, status: str | None = None) -> None:
+        """Clear tasks with completed/failed status from database and memory."""
+        # 1. Delete from SQLite store
+        self._store.clear_history(status)
+        
+        # 2. Filter from in-memory self._tasks dictionary
+        to_delete = []
+        for tid, t in self._tasks.items():
+            if status:
+                if t.status.value == status:
+                    to_delete.append(tid)
+            else:
+                if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                    to_delete.append(tid)
+        
+        for tid in to_delete:
+            self._tasks.pop(tid, None)
+
+
 task_queue = TaskQueue()

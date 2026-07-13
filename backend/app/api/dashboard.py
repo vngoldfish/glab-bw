@@ -155,3 +155,18 @@ async def dashboard() -> dict:
         "session": session_health.payload(),
         "generated_at": time.time(),
     }
+
+
+@router.post("/clear")
+async def clear_dashboard_history(payload: dict = None) -> dict:
+    """Clear completed/failed tasks from history.
+    Payload: {"type": "all" | "completed" | "failed"}
+    """
+    p_type = (payload or {}).get("type", "all")
+    if p_type == "failed":
+        task_queue.clear_history(status="failed")
+    elif p_type == "completed":
+        task_queue.clear_history(status="completed")
+    else:
+        task_queue.clear_history(status=None)
+    return {"status": "ok"}

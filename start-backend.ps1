@@ -1,8 +1,8 @@
-# G-Labs BW backend watchdog — keeps API :8765 + Auth alive
-$Root = if ($PSScriptRoot) { $PSScriptRoot } else { "C:\Users\Admin\Desktop\g-labs-bw" }
+$Root = $PSScriptRoot
+if (-not $Root) { $Root = "c:\Users\Admin\Desktop\glabsbw" }
 
 $AUTH_BRIDGE_PORT = 18923
-$EnvFile = Join-Path $Root ".env"
+$EnvFile = "$Root\.env"
 if (Test-Path $EnvFile) {
     $envContent = Get-Content $EnvFile -Raw
     if ($envContent -match "AUTH_BRIDGE_URL=[^\r\n]+") {
@@ -12,28 +12,36 @@ if (Test-Path $EnvFile) {
         }
     }
 }
-$Bat = Join-Path $Root "run-api.bat"
-$LogDir = Join-Path $Root "data\logs"
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$Log = Join-Path $LogDir "backend.log"
+$Bat = "$Root\run-api.bat"
+$LogDir = "$Root\data\logs"
+if (-not (Test-Path $LogDir)) {
+    New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+}
+$Log = "$LogDir\backend.log"
 
 function Log($m) {
-  $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-  "$t $m" | Tee-Object -FilePath $Log -Append
+    $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    try {
+        "$t $m" | Out-File -FilePath $Log -Append -ErrorAction SilentlyContinue
+    } catch {}
+    Write-Host "$t $m"
 }
 
 function BackendUp {
-  try {
-    $r = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 10
-    return $r.StatusCode -eq 200
-  } catch { return $false }
+    try {
+        $r = Invoke-WebRequest "http://127.0.0.1:8765/api/health" -UseBasicParsing -TimeoutSec 10
+        return $r.StatusCode -eq 200
+    } catch {
+        return $false
+    }
 }
 
 function KillPorts {
-  foreach ($port in 8765, $AUTH_BRIDGE_PORT) {
-    Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
-      ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-  }
+    foreach ($port in @(8765, $AUTH_BRIDGE_PORT)) {
+        Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+            Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Write-Host "G-Labs BW Backend Watchdog"
@@ -44,32 +52,38 @@ Write-Host ""
 $proc = $null
 $consecutive_failures = 0
 while ($true) {
-  if (BackendUp) {
-    $consecutive_failures = 0
-  } else {
-    $consecutive_failures++
-    Log "Health check failed (consecutive=$consecutive_failures/3)"
-    if ($consecutive_failures -ge 3) {
-      Log "DOWN (3 consecutive failures) — restarting via run-api.bat"
-      $consecutive_failures = 0
-      if ($proc -and -not $proc.HasExited) {
-        try { $proc.Kill() } catch {}
-      }
-      KillPorts
-      Start-Sleep 1
-      $proc = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c `"$Bat`"" `
-        -WorkingDirectory $Root `
-        -WindowStyle Hidden `
-        -PassThru
-      $ok = $false
-      for ($i = 0; $i -lt 20; $i++) {
-        Start-Sleep 1
-        if (BackendUp) { $ok = $true; break }
-        if ($proc.HasExited) { break }
-      }
-      if ($ok) { Log "UP pid=$($proc.Id)" } else { Log "FAILED exit=$($proc.ExitCode) — retry 5s"; Start-Sleep 5; continue }
+    if (BackendUp) {
+        $consecutive_failures = 0
+    } else {
+        $consecutive_failures++
+        Log "Health check failed (consecutive=$consecutive_failures/3)"
+        if ($consecutive_failures -ge 3) {
+            Log "DOWN (3 consecutive failures) - restarting via run-api.bat"
+            $consecutive_failures = 0
+            if ($proc -and -not $proc.HasExited) {
+                try { $proc.Kill() } catch {}
+            }
+            KillPorts
+            Start-Sleep 1
+            $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$Bat`"" -WorkingDirectory $Root -WindowStyle Hidden -PassThru
+            $ok = $false
+            for ($i = 0; $i -lt 20; $i++) {
+                Start-Sleep 1
+                if (BackendUp) {
+                    $ok = $true
+                    break
+                }
+                if ($proc.HasExited) {
+                    break
+                }
+            }
+            if ($ok) {
+                Log "UP pid=$($proc.Id)"
+            } else {
+                Log "FAILED exit=$($proc.ExitCode) - retry 5s"
+                Start-Sleep 5
+            }
+        }
     }
-  }
-  Start-Sleep 10
+    Start-Sleep 10
 }

@@ -33,6 +33,8 @@ export type WNodeData = {
   runStatus?: RunStatus;
   runError?: string;
   reused?: boolean;
+  percent?: number;
+  step?: string;
   onChange?: (id: string, patch: Partial<WNodeData>) => void;
   onPreview?: (url: string) => void;
   onRerun?: (id: string) => void;
@@ -117,6 +119,8 @@ export function Shell({
   showRerun,
   onRerun,
   reused,
+  percent,
+  step,
 }: {
   type: string;
   title: string;
@@ -127,6 +131,8 @@ export function Shell({
   showRerun?: boolean;
   onRerun?: () => void;
   reused?: boolean;
+  percent?: number;
+  step?: string;
 }) {
   const color = NODE_COLORS[type] || "#888";
   const st = STATUS_META[runStatus] || STATUS_META.idle;
@@ -184,7 +190,21 @@ export function Shell({
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {st.label && (
+          {runStatus === "running" && percent !== undefined && percent >= 0 ? (
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: st.color,
+                background: st.bg,
+                padding: "2px 6px",
+                borderRadius: 6,
+                letterSpacing: "0.02em",
+              }}
+            >
+              {percent}%
+            </span>
+          ) : st.label ? (
             <span
               style={{
                 fontSize: 9,
@@ -199,7 +219,7 @@ export function Shell({
             >
               {st.label}
             </span>
-          )}
+          ) : null}
           {showRerun && onRerun && (
             <button
               type="button"
@@ -230,6 +250,18 @@ export function Shell({
           )}
         </div>
       </div>
+
+      {runStatus === "running" && percent !== undefined && percent >= 0 && (
+        <div style={{ width: "100%", height: 4, background: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 10 }}>
+          <div style={{ width: `${percent}%`, height: "100%", background: "#38bdf8", borderRadius: 2, transition: "width 0.3s ease" }} />
+        </div>
+      )}
+
+      {runStatus === "running" && step && (
+        <div style={{ fontSize: 9, color: "#38bdf8", opacity: 0.8, marginBottom: 10, fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={step}>
+          {step}
+        </div>
+      )}
 
       {runError && (
         <div

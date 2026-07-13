@@ -68,7 +68,10 @@ def track_run(model_name: str, kind: str = "video", account_id: str | None = Non
         credits = 0
     else:
         # video
-        if "omni" in m or "abra" in m:
+        if "relaxed" in m or "free" in m:
+            std_name = "free_video"
+            credits = 0
+        elif "omni" in m or "abra" in m:
             std_name = "omni_flash"
             credits = 12
         elif "lite" in m:

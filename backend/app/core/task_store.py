@@ -158,6 +158,14 @@ class TaskStore:
         conn.commit()
         return cur.rowcount
 
+    def clear_history(self, status: str | None = None) -> None:
+        conn = self._get_conn()
+        if status:
+            conn.execute("DELETE FROM tasks WHERE status = ?", (status,))
+        else:
+            conn.execute("DELETE FROM tasks WHERE status IN ('completed', 'failed')")
+        conn.commit()
+
     def close(self) -> None:
         """Close the persistent connection (for shutdown)."""
         with self._conn_lock:
