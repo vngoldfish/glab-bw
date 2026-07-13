@@ -1448,3 +1448,25 @@ export async function savePortsConfig(
   await ensureOk(res, "Không lưu được cấu hình cổng");
   return readJson<{ success: boolean; message: string }>(res);
 }
+
+export interface ModelCreditDetails {
+  runs: number;
+  credits: number;
+}
+
+export interface CreditUsageConfig {
+  total_runs: number;
+  total_credits: number;
+  models: {
+    omni_flash: ModelCreditDetails;
+    veo_31_lite: ModelCreditDetails;
+    veo_31_fast: ModelCreditDetails;
+    veo_31_quality: ModelCreditDetails;
+  };
+}
+
+export async function fetchCreditsUsage(): Promise<CreditUsageConfig> {
+  const res = await apiFetch("/api/maintenance/credits");
+  await ensureOk(res, "Không tải được thống kê sử dụng credit");
+  return readJson<CreditUsageConfig>(res);
+}

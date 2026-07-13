@@ -20,6 +20,8 @@ import {
   updateAccount,
   fetchPortsConfig,
   savePortsConfig,
+  fetchCreditsUsage,
+  type CreditUsageConfig,
   type LoginBrowserJob,
   type TestRunResult,
   type TestSuite,
@@ -189,6 +191,9 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [portsMsg, setPortsMsg] = useState("");
   const [portsOk, setPortsOk] = useState<boolean | null>(null);
 
+  const [creditsUsage, setCreditsUsage] = useState<CreditUsageConfig | null>(null);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [newProvider, setNewProvider] = useState<Provider>("flow");
   const [newLabel, setNewLabel] = useState("");
@@ -269,6 +274,18 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }, [onError]);
 
+  const loadCreditsUsage = useCallback(async () => {
+    setCreditsLoading(true);
+    try {
+      const data = await fetchCreditsUsage();
+      setCreditsUsage(data);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreditsLoading(false);
+    }
+  }, [onError]);
+
   const handleSavePorts = async (restart: boolean) => {
     setPortsSaving(true);
     setPortsMsg("");
@@ -300,7 +317,8 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   useEffect(() => {
     void loadAiSettings();
     void loadPortsConfig();
-  }, [loadAiSettings, loadPortsConfig]);
+    void loadCreditsUsage();
+  }, [loadAiSettings, loadPortsConfig, loadCreditsUsage]);
 
   function applyAiProviderPreset(value: string) {
     setAiProvider(value);
@@ -1377,6 +1395,99 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                 </pre>
               </div>
             )}
+          </section>
+
+          {/* Credit Usage Statistics */}
+          <section className="panel-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <Sparkles size={18} style={{ color: "var(--amber-bright)" }} />
+              <h2 style={{ margin: 0 }}>Thống kê Credit sử dụng</h2>
+            </div>
+            <p className="muted" style={{ marginTop: 0, fontSize: "13.5px", lineHeight: 1.5 }}>
+              Theo dõi số lượt chạy và tổng số credit tiêu tốn khi sử dụng các mô hình tạo video Google Flow/Veo.
+            </p>
+            {creditsLoading ? (
+              <p className="muted">Đang tải...</p>
+            ) : creditsUsage ? (
+              <div>
+                <div style={{ display: "flex", gap: 24, marginBottom: 16, background: "rgba(255, 255, 255, 0.02)", padding: "12px 18px", borderRadius: 8, border: "1px solid rgba(255, 255, 255, 0.05)" }}>
+                  <div>
+                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Tổng số lượt chạy:</span>
+                    <div style={{ fontSize: "20px", fontWeight: "bold", color: "#fff" }}>{creditsUsage.total_runs} lượt</div>
+                  </div>
+                  <div style={{ width: 1, background: "rgba(255, 255, 255, 0.1)" }}></div>
+                  <div>
+                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Tổng credit đã xài:</span>
+                    <div style={{ fontSize: "20px", fontWeight: "bold", color: "var(--purple-bright)" }}>{creditsUsage.total_credits} credit</div>
+                  </div>
+                </div>
+
+                <h3 style={{ fontSize: "14px", margin: "12px 0 8px", color: "var(--text-secondary)" }}>Chi tiết từng mô hình:</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Gemini Omni Flash</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 12 credit/lượt</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.omni_flash?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{creditsUsage.models?.omni_flash?.credits || 0}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Lite</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 5 credit/lượt</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.veo_31_lite?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{creditsUsage.models?.veo_31_lite?.credits || 0}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Fast</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 10 credit/lượt</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.veo_31_fast?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{creditsUsage.models?.veo_31_fast?.credits || 0}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Quality</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 100 credit/lượt</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.veo_31_quality?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{creditsUsage.models?.veo_31_quality?.credits || 0}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Không có dữ liệu credit.</p>
+            )}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginTop: 14 }}
+              onClick={loadCreditsUsage}
+            >
+              🔄 Tải lại thống kê
+            </button>
           </section>
         </div>
       )}

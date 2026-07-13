@@ -225,3 +225,9 @@ async def update_ports(body: PortsConfig) -> dict:
 
     return {"success": True, "message": "Cấu hình cổng đã được lưu thành công. Cần khởi động lại máy chủ để áp dụng."}
 
+
+@router.get("/credits")
+async def get_credits() -> dict:
+    from app.services.credit_store import get_usage
+    return get_usage()
+

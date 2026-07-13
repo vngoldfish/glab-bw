@@ -954,6 +954,12 @@ class GoogleFlowClient:
             session_token=session_token,
         )
 
+        try:
+            from app.services.credit_store import track_run
+            track_run(used_key)
+        except Exception:
+            logger.exception("Failed to track model credit usage")
+
         if not resolution_targets:
             return [base_video]
 
