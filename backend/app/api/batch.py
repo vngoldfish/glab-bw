@@ -210,3 +210,22 @@ async def get_batch(batch_id: str) -> dict:
             "running": task_queue.running_count(),
         },
     }
+
+
+@router.get("/tasks/recent")
+async def get_recent_tasks() -> list[dict]:
+    """Lấy danh sách các tác vụ gần đây từ hàng đợi task_queue."""
+    tasks = task_queue.list_tasks(limit=100)
+    formatted = []
+    for t in tasks:
+        formatted.append({
+            "task_id": t.task_id,
+            "task_type": t.task_type,
+            "prompt": t.prompt,
+            "status": t.status.value,
+            "created_at": t.created_at,
+            "completed_at": t.completed_at,
+            "results": t.results,
+            "error": t.error,
+        })
+    return formatted

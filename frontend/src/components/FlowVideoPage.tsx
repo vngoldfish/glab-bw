@@ -500,6 +500,67 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       saveFlowVideoSnapshot({ config, rows, promptInput, advancedOpen });
     };
   }, [config, rows, promptInput, advancedOpen]);
+ 
+  // Recovery/sync loop: polls backend /api/batch/tasks/recent to update active row statuses
+  useEffect(() => {
+    const hasActive = rows.some((r) => r.status === "queued" || r.status === "running");
+    if (!hasActive) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/batch/tasks/recent");
+        if (!res.ok) return;
+        const tasks = (await res.json()) as Array<any>;
+
+        setRows((prev) => {
+          let changed = false;
+          const nextRows = prev.map((r) => {
+            if (r.status !== "queued" && r.status !== "running") {
+              return r;
+            }
+            const matched = tasks.find(
+              (t) => t.prompt.trim() === r.prompt.trim() && t.task_type === "video"
+            );
+            if (matched) {
+              if (matched.status === "completed") {
+                changed = true;
+                return {
+                  ...r,
+                  status: "completed" as const,
+                  results: (matched.results || []).map((url: string) => {
+                    if (url.startsWith("http")) return url;
+                    if (url.startsWith("data/")) return "/" + url;
+                    return url;
+                  }),
+                };
+              } else if (matched.status === "failed") {
+                changed = true;
+                return {
+                  ...r,
+                  status: "failed" as const,
+                  error: matched.error || "Tác vụ thất bại",
+                };
+              }
+            }
+            return r;
+          });
+          return changed ? nextRows : prev;
+        });
+      } catch (e) {
+        console.error("Failed to recover active video tasks:", e);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [rows]);
+
+  // Sync running state with active rows in queue
+  useEffect(() => {
+    const hasActive = rows.some((r) => r.status === "queued" || r.status === "running");
+    if (hasActive !== running) {
+      setRunning(hasActive);
+    }
+  }, [rows, running]);
 
   const updateRow = useCallback((id: string, patch: Partial<QueueRow>) => {
     setRows((prev) =>
