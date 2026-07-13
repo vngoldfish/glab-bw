@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchDashboard } from "../api";
-import { Activity, CheckCircle2, Users, Puzzle, Server, RefreshCw } from "lucide-react";
+import { Activity, CheckCircle2, Users, Puzzle, Server, RefreshCw, Sparkles } from "lucide-react";
 
 interface DashboardPageProps {
   onError: (msg: string) => void;
@@ -42,6 +42,7 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
   const byStatus = (tasks.by_status || {}) as Record<string, number>;
   const accounts = (data?.accounts || {}) as Record<string, unknown>;
   const ext = (data?.extension || {}) as Record<string, unknown>;
+  const credits = (data?.credits || {}) as Record<string, unknown>;
   const recentFailed = (tasks.recent_failed || []) as Array<Record<string, unknown>>;
   const items = (accounts.items || []) as Array<Record<string, unknown>>;
 
@@ -157,6 +158,19 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
 
         <div className="info-card">
           <div className="info-card-header">
+            <span>Credit tiêu thụ</span>
+            <Sparkles size={16} style={{ color: "var(--amber-bright)" }} />
+          </div>
+          <div className="info-card-value" style={{ color: "var(--amber-bright)" }}>
+            {Number(credits.total_credits ?? 0)} <span className="value-unit">credit</span>
+          </div>
+          <div className="info-card-footer">
+            Tổng: {Number(credits.total_runs ?? 0)} lượt chạy
+          </div>
+        </div>
+
+        <div className="info-card">
+          <div className="info-card-header">
             <span>Uptime backend</span>
             <Server size={16} style={{ color: "var(--cyan)" }} />
           </div>
@@ -192,6 +206,11 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
                       {String(a.provider)} · {a.enabled ? "Hoạt động" : "Tắt"}
                       {a.in_cooldown ? " · Cooldown" : ""}
                     </p>
+                    <div style={{ fontSize: "11.5px", color: "var(--amber-bright)", marginTop: 4, display: "flex", gap: 8 }}>
+                      <span>Lượt chạy: <strong>{Number(a.total_runs || 0)}</strong></span>
+                      <span>•</span>
+                      <span>Tiêu thụ: <strong>{Number(a.total_credits || 0)} credit</strong></span>
+                    </div>
                     {a.last_error ? (
                       <p className="dash-error-text" title={String(a.last_error)}>
                         {String(a.last_error)}

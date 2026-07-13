@@ -35,8 +35,13 @@ async def dashboard() -> dict:
             )
 
     accounts = account_store.list_accounts()
+    from app.services.credit_store import get_usage
+    credits_data = get_usage()
+    acc_credits = credits_data.get("accounts", {})
+
     acc_summary = []
     for a in accounts:
+        ac_stats = acc_credits.get(a.id, {})
         acc_summary.append(
             {
                 "id": a.id,
@@ -47,6 +52,8 @@ async def dashboard() -> dict:
                 "video_enabled": a.video_enabled,
                 "in_cooldown": account_store._in_cooldown(a),  # noqa: SLF001
                 "last_error": a.last_error,
+                "total_runs": ac_stats.get("total_runs", 0),
+                "total_credits": ac_stats.get("total_credits", 0),
             }
         )
 
@@ -77,6 +84,7 @@ async def dashboard() -> dict:
             "flow_video_ready": len(account_store.list_eligible("flow", for_video=True)),
             "items": acc_summary,
         },
+        "credits": credits_data,
         "extension": ext,
         "session": session_health.payload(),
         "generated_at": time.time(),

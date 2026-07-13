@@ -324,6 +324,8 @@ class GoogleFlowClient:
         upscale_targets: list[str] | None = None,
         count: int = 1,
         session_token: str | None = None,
+        account_id: str | None = None,
+        account_label: str | None = None,
     ) -> list[bytes]:
         last_error: ProviderError | None = None
         result: dict[str, Any] | None = None
@@ -447,7 +449,7 @@ class GoogleFlowClient:
         images = await self._extract_images(result)
         try:
             from app.services.credit_store import track_run
-            track_run(model_name, kind="image")
+            track_run(model_name, kind="image", account_id=account_id, account_label=account_label)
         except Exception:
             logger.exception("Failed to track free image model usage")
 
@@ -519,6 +521,8 @@ class GoogleFlowClient:
         resolution_targets: list[str] | None = None,
         duration: int | None = None,
         session_token: str | None = None,
+        account_id: str | None = None,
+        account_label: str | None = None,
     ) -> list[bytes]:
         """Submit video generation with careful model-key + payload strategy.
 
@@ -962,7 +966,7 @@ class GoogleFlowClient:
 
         try:
             from app.services.credit_store import track_run
-            track_run(used_key)
+            track_run(used_key, account_id=account_id, account_label=account_label)
         except Exception:
             logger.exception("Failed to track model credit usage")
 

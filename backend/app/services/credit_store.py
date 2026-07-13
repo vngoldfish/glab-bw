@@ -57,7 +57,7 @@ def _save(data: dict[str, Any]) -> None:
     except Exception:
         logger.exception("Failed to save credit usage")
 
-def track_run(model_name: str, kind: str = "video") -> None:
+def track_run(model_name: str, kind: str = "video", account_id: str | None = None, account_label: str | None = None) -> None:
     """Track a successful run of a model and increment credits."""
     m = str(model_name).lower()
     std_name = None
@@ -100,8 +100,32 @@ def track_run(model_name: str, kind: str = "video") -> None:
 
         data["models"][std_name]["runs"] += 1
         data["models"][std_name]["credits"] += credits
+
+        # Account-specific tracking
+        if account_id:
+            if "accounts" not in data:
+                data["accounts"] = {}
+            if account_id not in data["accounts"]:
+                data["accounts"][account_id] = {
+                    "label": account_label or account_id,
+                    "total_runs": 0,
+                    "total_credits": 0,
+                    "models": {}
+                }
+            acc_data = data["accounts"][account_id]
+            acc_data["label"] = account_label or acc_data.get("label") or account_id
+            acc_data["total_runs"] += 1
+            acc_data["total_credits"] += credits
+
+            if "models" not in acc_data:
+                acc_data["models"] = {}
+            if std_name not in acc_data["models"]:
+                acc_data["models"][std_name] = {"runs": 0, "credits": 0}
+            acc_data["models"][std_name]["runs"] += 1
+            acc_data["models"][std_name]["credits"] += credits
+
         _save(data)
-        logger.info("Tracked model %s (%s) run, +%s credits. Total: %s credits (%s runs)", std_name, kind, credits, data["total_credits"], data["total_runs"])
+        logger.info("Tracked model %s (%s) run for account %s, +%s credits. Total: %s credits (%s runs)", std_name, kind, account_id or "global", credits, data["total_credits"], data["total_runs"])
 
 def get_usage() -> dict[str, Any]:
     with _LOCK:

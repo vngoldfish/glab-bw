@@ -223,6 +223,8 @@ class FlowVeoProvider(BaseProvider):
         image_inputs = await self._build_reference_inputs(session, reference_items)
         count = max(1, min(int(params.get("count", 1)), 4))
 
+        acc_id = self.account.id if self.account else None
+        acc_label = self.account.label if self.account else None
         return await google_flow_client.generate_image(
             access_token=session["access_token"],
             project_id=session["project_id"],
@@ -234,6 +236,8 @@ class FlowVeoProvider(BaseProvider):
             upscale_targets=params.get("upscale", []),
             count=count,
             session_token=session.get("session_token"),
+            account_id=acc_id,
+            account_label=acc_label,
         )
 
     async def generate_video(self, prompt: str, params: dict[str, Any]) -> list[bytes]:
@@ -352,6 +356,8 @@ class FlowVeoProvider(BaseProvider):
         except (TypeError, ValueError):
             duration_int = None
 
+        acc_id = self.account.id if self.account else None
+        acc_label = self.account.label if self.account else None
         video_kwargs = dict(
             access_token=session["access_token"],
             session_token=session["session_token"],
@@ -366,6 +372,8 @@ class FlowVeoProvider(BaseProvider):
             user_paygate_tier=session.get("user_paygate_tier", "PAYGATE_TIER_ONE"),
             resolution_targets=params.get("resolution", []),
             duration=duration_int,
+            account_id=acc_id,
+            account_label=acc_label,
         )
         try:
             return await google_flow_client.generate_video(**video_kwargs)
