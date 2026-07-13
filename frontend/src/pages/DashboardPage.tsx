@@ -42,7 +42,7 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
   const byStatus = (tasks.by_status || {}) as Record<string, number>;
   const accounts = (data?.accounts || {}) as Record<string, unknown>;
   const ext = (data?.extension || {}) as Record<string, unknown>;
-  const credits = (data?.credits || {}) as Record<string, unknown>;
+  const credits = (data?.credits || {}) as any;
   const recentFailed = (tasks.recent_failed || []) as Array<Record<string, unknown>>;
   const items = (accounts.items || []) as Array<Record<string, unknown>>;
 
@@ -222,6 +222,92 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
             })}
           </div>
         )}
+      </section>
+
+      <section className="panel-card" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <Sparkles size={18} style={{ color: "var(--amber-bright)" }} />
+          <h2 style={{ margin: 0 }}>Thống kê Credit sử dụng (Theo mô hình)</h2>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Gemini Omni Flash</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 12 credit/lượt</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.omni_flash?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{credits.models?.omni_flash?.credits || 0}</span>
+            </div>
+          </div>
+
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Lite</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 5 credit/lượt</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.veo_31_lite?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{credits.models?.veo_31_lite?.credits || 0}</span>
+            </div>
+          </div>
+
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Fast</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 10 credit/lượt</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.veo_31_fast?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{credits.models?.veo_31_fast?.credits || 0}</span>
+            </div>
+          </div>
+
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Veo 3.1 Quality</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: 100 credit/lượt</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.veo_31_quality?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{credits.models?.veo_31_quality?.credits || 0}</span>
+            </div>
+          </div>
+
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Model Ảnh Miễn Phí</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: Miễn phí (0 credit)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.free_image?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>0</span>
+            </div>
+          </div>
+
+          <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Model Video Miễn Phí</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: Miễn phí (0 credit)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span>Lượt chạy:</span>
+              <span style={{ fontWeight: 600 }}>{credits.models?.free_video?.runs || 0}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+              <span>Credit tiêu thụ:</span>
+              <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>0</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="panel-card" style={{ marginTop: 16 }}>
