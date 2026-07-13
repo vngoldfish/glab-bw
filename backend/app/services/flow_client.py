@@ -445,6 +445,12 @@ class GoogleFlowClient:
             raise last_error or ProviderError("Tạo ảnh thất bại", error_code=0)
 
         images = await self._extract_images(result)
+        try:
+            from app.services.credit_store import track_run
+            track_run(model_name, kind="image")
+        except Exception:
+            logger.exception("Failed to track free image model usage")
+
         if upscale_targets:
             upscaled: list[bytes] = []
             media_id = self._extract_media_id(result)

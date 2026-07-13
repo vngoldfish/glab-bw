@@ -188,6 +188,11 @@ async def handle_image_task(task: Task) -> list[str]:
         openai = get_openai_provider()
         if openai:
             images = await openai.generate_image(task.prompt, params)
+            try:
+                from app.services.credit_store import track_run
+                track_run("openai", kind="image")
+            except Exception:
+                logger.exception("Failed to track fallback openai image run")
             return _save_outputs(images, task, file_prefix)
         raise
 
@@ -233,10 +238,20 @@ async def handle_grok_task(task: Task) -> list[str]:
     try:
         if not for_video:
             images = await provider.generate_image(task.prompt, task.payload)
+            try:
+                from app.services.credit_store import track_run
+                track_run("grok", kind="image")
+            except Exception:
+                logger.exception("Failed to track grok image run")
             session_health.mark_grok_ok()
             file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
             return _save_outputs(images, task, file_prefix)
         videos = await provider.generate_video(task.prompt, task.payload)
+        try:
+            from app.services.credit_store import track_run
+            track_run("grok", kind="video")
+        except Exception:
+            logger.exception("Failed to track grok video run")
         session_health.mark_grok_ok()
         file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
         return _save_outputs(videos, task, file_prefix, ext="mp4")
@@ -263,9 +278,19 @@ async def handle_meta_task(task: Task) -> list[str]:
     custom_prefix = task.payload.get("custom_prefix")
     if for_video:
         outputs = await provider.generate_video(task.prompt, {**task.payload, "count": count})
+        try:
+            from app.services.credit_store import track_run
+            track_run("meta", kind="video")
+        except Exception:
+            logger.exception("Failed to track meta video run")
         file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
         return _save_outputs(outputs, task, file_prefix, ext="mp4")
     outputs = await provider.generate_image(task.prompt, {**task.payload, "count": count})
+    try:
+        from app.services.credit_store import track_run
+        track_run("meta", kind="image")
+    except Exception:
+        logger.exception("Failed to track meta image run")
     file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
     return _save_outputs(outputs, task, file_prefix)
 
@@ -279,6 +304,11 @@ async def handle_openai_task(task: Task) -> list[str]:
         raise ProviderError("No active OpenAI account available", error_code=0)
 
     images = await provider.generate_image(task.prompt, task.payload)
+    try:
+        from app.services.credit_store import track_run
+        track_run("openai", kind="image")
+    except Exception:
+        logger.exception("Failed to track openai image run")
     custom_prefix = task.payload.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"openai_{task.task_id}"
     return _save_outputs(images, task, file_prefix)

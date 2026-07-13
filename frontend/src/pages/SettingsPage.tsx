@@ -1475,6 +1475,32 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                       <span style={{ color: "var(--amber-bright)", fontWeight: 600 }}>{creditsUsage.models?.veo_31_quality?.credits || 0}</span>
                     </div>
                   </div>
+
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Model Ảnh Miễn Phí</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: Miễn phí (0 credit)</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.free_image?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>0</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: "rgba(255,255,255,0.01)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: "#fff" }}>Model Video Miễn Phí</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>Giá: Miễn phí (0 credit)</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>Lượt chạy:</span>
+                      <span style={{ fontWeight: 600 }}>{creditsUsage.models?.free_video?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 2 }}>
+                      <span>Credit tiêu thụ:</span>
+                      <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>0</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (

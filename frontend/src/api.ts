@@ -1462,6 +1462,8 @@ export interface CreditUsageConfig {
     veo_31_lite: ModelCreditDetails;
     veo_31_fast: ModelCreditDetails;
     veo_31_quality: ModelCreditDetails;
+    free_image: ModelCreditDetails;
+    free_video: ModelCreditDetails;
   };
 }
 
