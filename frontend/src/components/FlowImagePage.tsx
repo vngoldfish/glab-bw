@@ -173,6 +173,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     () => loadFlowImageSnapshot()?.rows ?? [],
   );
   const [running, setRunning] = useState(false);
+  const [activeMedia, setActiveMedia] = useState<{ url: string; type: "image" | "video" } | null>(null);
   const [queueSearch, setQueueSearch] = useState("");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [queueStatusFilter, setQueueStatusFilter] = useState<QueueStatusFilter>("all");
@@ -1450,15 +1451,14 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                             <div className="result-grid">
                               {row.results.map((url, ri) => (
                                 <div key={`${row.id}-img-${ri}`} className="flow-image-result-item">
-                                  <a
+                                  <div
                                     className="result-frame"
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    title="Mở ảnh"
+                                    style={{ cursor: "pointer" }}
+                                    onClick={() => setActiveMedia({ url, type: "image" })}
+                                    title="Click để phóng to ảnh"
                                   >
                                     <img src={url} alt="result" className="result-thumb" />
-                                  </a>
+                                  </div>
                                   <button
                                     type="button"
                                     className="btn btn-primary btn-xs btn-create-video-flow"
@@ -1703,6 +1703,83 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                   </div>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+      {activeMedia && (
+        <div
+          className="ui-lightbox"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(6, 8, 15, 0.95)",
+            backdropFilter: "blur(12px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100000,
+            animation: "fadeIn 0.2s ease-out",
+          }}
+          onClick={() => setActiveMedia(null)}
+        >
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              fontSize: 24,
+              color: "#fff",
+              cursor: "pointer",
+              zIndex: 100001,
+            }}
+            onClick={() => setActiveMedia(null)}
+          >
+            ✕
+          </button>
+          
+          <div
+            style={{
+              maxWidth: "90%",
+              maxHeight: "85%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              position: "relative",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {activeMedia.type === "image" ? (
+              <img
+                src={activeMedia.url}
+                alt="Enlarged view"
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  objectFit: "contain",
+                  borderRadius: 8,
+                  boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                }}
+              />
+            ) : (
+              <video
+                src={activeMedia.url}
+                controls
+                autoPlay
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  borderRadius: 8,
+                  boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                  outline: "none",
+                }}
+              />
             )}
           </div>
         </div>
