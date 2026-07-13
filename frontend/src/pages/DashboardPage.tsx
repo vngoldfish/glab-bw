@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { fetchDashboard } from "../api";
 import { Activity, CheckCircle2, Users, Puzzle, Server, RefreshCw, Sparkles } from "lucide-react";
 
@@ -14,6 +15,12 @@ function formatUptime(secondsNum: unknown): string {
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
+}
+
+function fmtTime(ts?: number) {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export default function DashboardPage({ onError }: DashboardPageProps) {
@@ -43,6 +50,7 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
   const accounts = (data?.accounts || {}) as Record<string, unknown>;
   const ext = (data?.extension || {}) as Record<string, unknown>;
   const credits = (data?.credits || {}) as any;
+  const workflowRuns = (data?.workflow_runs || []) as Array<Record<string, any>>;
   const recentFailed = (tasks.recent_failed || []) as Array<Record<string, unknown>>;
   const items = (accounts.items || []) as Array<Record<string, unknown>>;
 
@@ -218,6 +226,102 @@ export default function DashboardPage({ onError }: DashboardPageProps) {
                     ) : null}
                   </div>
                 </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="panel-card" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <Activity size={18} style={{ color: "var(--purple-bright)" }} />
+          <h2 style={{ margin: 0 }}>Tiến độ chạy Workflow (Thời gian thực)</h2>
+        </div>
+        {workflowRuns.length === 0 ? (
+          <div className="empty-state" style={{ padding: "24px" }}>
+            <div className="empty-state-icon">⚙️</div>
+            <h3 className="empty-state-title">Chưa chạy workflow nào</h3>
+            <p className="empty-state-desc">Hãy mở trang Workflow Editor và khởi chạy một project để theo dõi tiến trình.</p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {workflowRuns.map((r) => {
+              const total = r.progress?.total || 1;
+              const done = r.progress?.done || 0;
+              const pct = Math.min(100, Math.round((done / total) * 100));
+              const isRunning = r.status === "running" || r.status === "pending";
+
+              return (
+                <div
+                  key={r.run_id}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid rgba(255, 255, 255, 0.05)",
+                    borderRadius: 8,
+                    padding: "12px 16px"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span
+                        className={`pill ${
+                          r.status === "completed"
+                            ? "pill-green"
+                            : r.status === "failed"
+                              ? "pill-red"
+                              : r.status === "pending"
+                                ? "pill-yellow"
+                                : "pill-blue"
+                        }`}
+                        style={{ fontSize: "10px", padding: "2px 8px" }}
+                      >
+                        {r.status === "running" ? "ĐANG CHẠY" : r.status === "pending" ? "ĐANG CHỜ" : r.status === "completed" ? "HOÀN THÀNH" : "THẤT BẠI"}
+                      </span>
+                      {r.project_id ? (
+                        <Link
+                          to={`/workflow/${r.project_id}`}
+                          style={{ fontWeight: 600, color: "#fff", textDecoration: "none", fontSize: "14px" }}
+                          className="hover-underline"
+                        >
+                          📂 {r.project_name}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 600, color: "#fff", fontSize: "14px" }}>📂 {r.project_name}</span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                      Bắt đầu: {fmtTime(r.started_at)} {r.finished_at ? `· Xong: ${fmtTime(r.finished_at)}` : ""}
+                    </span>
+                  </div>
+
+                  {isRunning && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: 4 }}>
+                        <span style={{ color: "var(--text-secondary)" }}>
+                          {r.progress?.current ? `Đang xử lý: ${r.progress.current}` : "Đang chạy..."}
+                        </span>
+                        <span style={{ fontWeight: 600, color: "var(--purple-bright)" }}>{pct}% ({done}/{total} node)</span>
+                      </div>
+                      <div style={{ height: 6, background: "rgba(255, 255, 255, 0.05)", borderRadius: 3, overflow: "hidden" }}>
+                        <div
+                          className="st-progress-bar-fill"
+                          style={{
+                            width: `${pct}%`,
+                            height: "100%",
+                            background: "linear-gradient(90deg, var(--purple-bright), var(--cyan))",
+                            transition: "width 0.4s ease"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {r.status === "failed" && r.error && (
+                    <div style={{ marginTop: 8, fontSize: "12px", color: "var(--red)", background: "rgba(239, 68, 68, 0.05)", padding: "6px 10px", borderRadius: 4, border: "1px solid rgba(239, 68, 68, 0.1)" }}>
+                      ❌ Lỗi: {r.error}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

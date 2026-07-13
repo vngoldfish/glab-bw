@@ -916,6 +916,16 @@ def start_workflow_background(
     rid = secrets.token_hex(5)
     nodes = list(workflow.get("nodes") or [])
     pid = project_id or workflow.get("project_id")
+    project_name = "Workflow"
+    if pid:
+        try:
+            from app.services import project_store
+            p_obj = project_store.get_project(str(pid))
+            if p_obj:
+                project_name = p_obj.get("name") or project_name
+        except Exception:
+            pass
+
     if pid:
         from app.services.project_outputs import project_root
 
@@ -924,6 +934,7 @@ def start_workflow_background(
         "run_id": rid,
         "workflow_id": workflow.get("id"),
         "project_id": pid,
+        "project_name": project_name,
         "status": "running",
         "started_at": time.time(),
         "finished_at": None,
@@ -973,6 +984,16 @@ async def get_active_run_for_project(project_id: str) -> dict[str, Any] | None:
             if run.get("project_id") == project_id and run.get("status") in {"running", "pending"}:
                 return run
     return None
+
+
+async def get_recent_runs() -> list[dict[str, Any]]:
+    """Lấy danh sách các run gần đây, sắp xếp mới nhất lên đầu."""
+    async with _runs_lock:
+        return sorted(
+            list(_runs.values()),
+            key=lambda r: r.get("started_at") or 0,
+            reverse=True
+        )
 
 
 def _save_project_results(project_id: str, run: dict[str, Any]) -> None:

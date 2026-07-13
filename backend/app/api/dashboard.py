@@ -63,6 +63,25 @@ async def dashboard() -> dict:
     success_rate = round(100.0 * completed / done, 1) if done else None
 
     ext = auth_bridge_state.status_payload()
+    
+    from app.services.workflow_runner import get_recent_runs
+    recent_runs = await get_recent_runs()
+    active_runs = [r for r in recent_runs if r.get("status") in {"running", "pending"}]
+    finished_runs = [r for r in recent_runs if r.get("status") not in {"running", "pending"}]
+    
+    formatted_runs = []
+    for r in (active_runs + finished_runs)[:10]:
+        formatted_runs.append({
+            "run_id": r.get("run_id"),
+            "project_id": r.get("project_id"),
+            "project_name": r.get("project_name") or "Workflow",
+            "status": r.get("status"),
+            "started_at": r.get("started_at"),
+            "finished_at": r.get("finished_at"),
+            "error": r.get("error"),
+            "progress": r.get("progress"),
+        })
+
     return {
         "uptime": task_queue.uptime,
         "queue": {
@@ -85,6 +104,7 @@ async def dashboard() -> dict:
             "items": acc_summary,
         },
         "credits": credits_data,
+        "workflow_runs": formatted_runs,
         "extension": ext,
         "session": session_health.payload(),
         "generated_at": time.time(),
