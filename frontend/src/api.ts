@@ -1488,3 +1488,39 @@ export async function fetchCreditsUsage(): Promise<CreditUsageConfig> {
   await ensureOk(res, "Không tải được thống kê sử dụng credit");
   return readJson<CreditUsageConfig>(res);
 }
+
+export interface GoogleDriveSettings {
+  enabled: boolean;
+  folder_id: string;
+  has_credentials: boolean;
+  client_email?: string;
+  project_id?: string;
+}
+
+export async function fetchGoogleDriveSettings(): Promise<GoogleDriveSettings> {
+  const res = await apiFetch("/api/maintenance/google-drive");
+  await ensureOk(res, "Không tải được cấu hình Google Drive");
+  return readJson<GoogleDriveSettings>(res);
+}
+
+export async function saveGoogleDriveSettings(payload: {
+  enabled?: boolean;
+  folder_id?: string;
+  service_account_info?: string | Record<string, unknown>;
+}): Promise<GoogleDriveSettings> {
+  const res = await apiFetch("/api/maintenance/google-drive", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await ensureOk(res, "Không lưu được cấu hình Google Drive");
+  return readJson<GoogleDriveSettings>(res);
+}
+
+export async function testGoogleDriveConnection(): Promise<{ success: boolean; message: string }> {
+  const res = await apiFetch("/api/maintenance/google-drive/test", {
+    method: "POST",
+  });
+  await ensureOk(res, "Lỗi kiểm tra kết nối Google Drive");
+  return readJson<{ success: boolean; message: string }>(res);
+}

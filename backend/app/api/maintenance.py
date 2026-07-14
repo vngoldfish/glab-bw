@@ -231,3 +231,30 @@ async def get_credits() -> dict:
     from app.services.credit_store import get_usage
     return get_usage()
 
+
+class GoogleDriveSettingsUpdate(BaseModel):
+    enabled: bool | None = None
+    folder_id: str | None = None
+    service_account_info: str | dict | None = None
+
+
+@router.get("/google-drive")
+async def get_google_drive_settings() -> dict:
+    from app.services import google_drive_store
+    return google_drive_store.public_view()
+
+
+@router.put("/google-drive")
+async def put_google_drive_settings(body: GoogleDriveSettingsUpdate) -> dict:
+    from app.services import google_drive_store
+    patch = body.model_dump(exclude_unset=True)
+    raw = google_drive_store.save_raw(patch)
+    return google_drive_store.public_view(raw)
+
+
+@router.post("/google-drive/test")
+async def test_google_drive_connection() -> dict:
+    from app.services.google_drive import test_connection
+    return await test_connection()
+
+

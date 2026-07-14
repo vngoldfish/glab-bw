@@ -44,6 +44,13 @@ def _save_outputs(
     output_dir = resolve_task_output_dir(task)
     urls: list[str] = []
     from app.services.output_storage import copy_to_central_dir
+    from app.services.google_drive_store import load_raw as load_gdrive_config
+    from app.services.google_drive import upload_file as upload_to_gdrive
+    import asyncio
+    
+    gdrive_config = load_gdrive_config()
+    should_upload = bool(gdrive_config.get("enabled"))
+
     for index, data in enumerate(data_list, start=1):
         filename = f"{prefix}_{index:03d}.{ext}"
         saved = upscale_service.save_bytes(data, filename, output_dir)
@@ -52,6 +59,14 @@ def _save_outputs(
         # Copy to central directory
         file_type = "video" if ext == "mp4" else "anh"
         copy_to_central_dir(saved, "workflow", file_type)
+        
+        # Google Drive Auto-Upload
+        if should_upload:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(upload_to_gdrive(saved))
+            except RuntimeError:
+                pass
         
     return urls
 

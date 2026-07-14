@@ -20,6 +20,9 @@ import {
   savePortsConfig,
   fetchCreditsUsage,
   fetchFlowModels,
+  fetchGoogleDriveSettings,
+  saveGoogleDriveSettings,
+  testGoogleDriveConnection,
   type CreditUsageConfig,
   type TestRunResult,
   type TestSuite,
@@ -42,7 +45,8 @@ import {
   Key,
   Database,
   History,
-  Layers
+  Layers,
+  Cloud
 } from "lucide-react";
 
 const AI_PROVIDERS = [
@@ -180,10 +184,24 @@ function formatCooldown(sec?: number): string {
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
   const dialog = useUiDialog();
-  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog" | "models">("accounts");
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog" | "models" | "gdrive">("accounts");
   const [showGuide, setShowGuide] = useState(false);
   const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number; api_value?: string }>>([]);
   const [flowModelsLoading, setFlowModelsLoading] = useState(false);
+
+  // Google Drive Configuration State
+  const [gdriveEnabled, setGdriveEnabled] = useState(false);
+  const [gdriveFolderId, setGdriveFolderId] = useState("");
+  const [gdriveHasCredentials, setGdriveHasCredentials] = useState(false);
+  const [gdriveClientEmail, setGdriveClientEmail] = useState("");
+  const [gdriveProjectId, setGdriveProjectId] = useState("");
+  const [gdriveJsonInput, setGdriveJsonInput] = useState("");
+
+  const [gdriveLoading, setGdriveLoading] = useState(false);
+  const [gdriveSaving, setGdriveSaving] = useState(false);
+  const [gdriveTesting, setGdriveTesting] = useState(false);
+  const [gdriveMsg, setGdriveMsg] = useState("");
+  const [gdriveOk, setGdriveOk] = useState<boolean | null>(null);
 
   // Ports Configuration State
   const [apiPort, setApiPort] = useState(8765);
@@ -311,6 +329,81 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       load();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "gdrive") {
+      async function loadGdriveSettings() {
+        setGdriveLoading(true);
+        setGdriveMsg("");
+        setGdriveOk(null);
+        try {
+          const cfg = await fetchGoogleDriveSettings();
+          setGdriveEnabled(cfg.enabled);
+          setGdriveFolderId(cfg.folder_id);
+          setGdriveHasCredentials(cfg.has_credentials);
+          setGdriveClientEmail(cfg.client_email || "");
+          setGdriveProjectId(cfg.project_id || "");
+        } catch (err) {
+          console.error("Failed to load Google Drive settings", err);
+          onError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setGdriveLoading(false);
+        }
+      }
+      loadGdriveSettings();
+    }
+  }, [activeTab, onError]);
+
+  const handleSaveGdrive = async () => {
+    setGdriveSaving(true);
+    setGdriveMsg("");
+    setGdriveOk(null);
+    try {
+      const saInfo = gdriveJsonInput.trim();
+      const payload: { enabled: boolean; folder_id: string; service_account_info?: string } = {
+        enabled: gdriveEnabled,
+        folder_id: gdriveFolderId,
+      };
+      if (saInfo) {
+        try {
+          JSON.parse(saInfo);
+          payload.service_account_info = saInfo;
+        } catch (e) {
+          throw new Error("Thông tin Service Account JSON không đúng định dạng JSON!");
+        }
+      }
+      const cfg = await saveGoogleDriveSettings(payload);
+      setGdriveEnabled(cfg.enabled);
+      setGdriveFolderId(cfg.folder_id);
+      setGdriveHasCredentials(cfg.has_credentials);
+      setGdriveClientEmail(cfg.client_email || "");
+      setGdriveProjectId(cfg.project_id || "");
+      setGdriveJsonInput("");
+      setGdriveOk(true);
+      setGdriveMsg("Lưu cấu hình Google Drive thành công!");
+    } catch (err) {
+      setGdriveOk(false);
+      setGdriveMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGdriveSaving(false);
+    }
+  };
+
+  const handleTestGdrive = async () => {
+    setGdriveTesting(true);
+    setGdriveMsg("");
+    setGdriveOk(null);
+    try {
+      const res = await testGoogleDriveConnection();
+      setGdriveOk(res.success);
+      setGdriveMsg(res.message);
+    } catch (err) {
+      setGdriveOk(false);
+      setGdriveMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGdriveTesting(false);
+    }
+  };
 
   const handleSavePorts = async (restart: boolean) => {
     setPortsSaving(true);
@@ -686,6 +779,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           >
             <Layers size={16} />
             <span>Danh sách Model</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "gdrive" ? "active" : ""}`}
+            onClick={() => setActiveTab("gdrive")}
+          >
+            <Cloud size={16} />
+            <span>Google Drive</span>
           </button>
         </aside>
 
@@ -1830,6 +1931,130 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* TAB 7: GOOGLE DRIVE CONFIG */}
+      {activeTab === "gdrive" && (
+        <div className="settings-tab-content">
+          <section className="panel-card">
+            <h3 style={{ margin: "0 0 16px", fontSize: "17px", display: "flex", alignItems: "center", gap: 8 }}>
+              <Cloud size={20} style={{ color: "var(--purple-bright)" }} />
+              Cấu hình Google Drive Auto-Upload
+            </h3>
+            <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+              Tự động tải lên các tệp tin ảnh hoặc video được tạo thành công lên tài khoản Google Drive của bạn thông qua Google Service Account.
+            </p>
+
+            {gdriveLoading ? (
+              <div style={{ padding: "40px 0", textAlign: "center", color: "var(--muted)" }}>
+                Đang tải cài đặt Google Drive...
+              </div>
+            ) : (
+              <div>
+                {/* Switch enabled status */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid var(--border-light)" }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>Tự động tải lên Google Drive</h4>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>Bật tính năng tự động tải lên khi tác vụ tạo ảnh/video hoàn thành.</span>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={gdriveEnabled}
+                      onChange={(e) => setGdriveEnabled(e.target.checked)}
+                    />
+                    <span className="slider round"></span>
+                  </label>
+                </div>
+
+                <div className="form-grid" style={{ marginBottom: 20 }}>
+                  <label className="span-2">
+                    Google Drive Folder ID (Thư mục đích)
+                    <input
+                      type="text"
+                      value={gdriveFolderId}
+                      onChange={(e) => setGdriveFolderId(e.target.value)}
+                      placeholder="Dán ID thư mục của bạn vào đây (để trống sẽ lưu vào thư mục gốc của Drive)"
+                      style={{ marginTop: 6 }}
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--muted)", marginTop: 4, display: "block" }}>
+                      * LƯU Ý: Bạn bắt buộc phải <strong>Chia sẻ quyền Chỉnh sửa (Editor)</strong> thư mục này với địa chỉ Email của Service Account ở dưới.
+                    </span>
+                  </label>
+
+                  <label className="span-2" style={{ marginTop: 12 }}>
+                    Cấu hình Service Account JSON (Khóa bí mật)
+                    <textarea
+                      rows={6}
+                      value={gdriveJsonInput}
+                      onChange={(e) => setGdriveJsonInput(e.target.value)}
+                      placeholder='Dán toàn bộ nội dung tệp tin JSON của Service Account vào đây. Ví dụ:
+{
+  "type": "service_account",
+  "project_id": "...",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+  "client_email": "..."
+}'
+                      style={{ fontFamily: "monospace", fontSize: "11px", marginTop: 6 }}
+                    />
+                  </label>
+                </div>
+
+                {/* Service Account connection status */}
+                {gdriveHasCredentials && (
+                  <div style={{ marginBottom: 20, padding: "14px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 6 }}>
+                    <h5 style={{ margin: "0 0 6px", color: "#10b981", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                      ✅ Đã lưu cấu hình Service Account
+                    </h5>
+                    <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.5 }}>
+                      <div><strong>Project ID:</strong> {gdriveProjectId}</div>
+                      <div style={{ wordBreak: "break-all" }}><strong>Email dịch vụ:</strong> <span style={{ color: "var(--blue-bright)" }}>{gdriveClientEmail}</span></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Status messages and Save / Test buttons */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border-light)" }}>
+                  <div style={{ flex: 1, marginRight: 16 }}>
+                    {gdriveMsg && (
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          color: gdriveOk ? "var(--success)" : "var(--red-bright)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {gdriveMsg}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: 12 }}>
+                    {gdriveHasCredentials && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={handleTestGdrive}
+                        disabled={gdriveTesting || gdriveSaving}
+                      >
+                        {gdriveTesting ? "Đang kiểm tra..." : "Test Connection"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSaveGdrive}
+                      disabled={gdriveSaving || gdriveTesting}
+                    >
+                      {gdriveSaving ? "Đang lưu..." : "Lưu thay đổi"}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </section>
