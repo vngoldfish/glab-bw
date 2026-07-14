@@ -23,7 +23,7 @@ const ExtensionPage = lazy(() => import("./pages/ExtensionPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const ProjectMediaPage = lazy(() => import("./pages/ProjectMediaPage"));
 const PromptHubPage = lazy(() => import("./pages/PromptHubPage"));
-const ReferenceLibraryPage = lazy(() => import("./pages/ReferenceLibraryPage"));
+import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const VideoEditorPage = lazy(() => import("./pages/VideoEditorPage"));
 const WebhookPage = lazy(() => import("./pages/WebhookPage"));
