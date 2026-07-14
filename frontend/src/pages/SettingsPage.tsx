@@ -19,6 +19,7 @@ import {
   fetchPortsConfig,
   savePortsConfig,
   fetchCreditsUsage,
+  fetchFlowModels,
   type CreditUsageConfig,
   type TestRunResult,
   type TestSuite,
@@ -40,7 +41,8 @@ import {
   ChevronUp,
   Key,
   Database,
-  History
+  History,
+  Layers
 } from "lucide-react";
 
 const AI_PROVIDERS = [
@@ -178,8 +180,10 @@ function formatCooldown(sec?: number): string {
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
   const dialog = useUiDialog();
-  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog">("accounts");
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog" | "models">("accounts");
   const [showGuide, setShowGuide] = useState(false);
+  const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number; api_value?: string }>>([]);
+  const [flowModelsLoading, setFlowModelsLoading] = useState(false);
 
   // Ports Configuration State
   const [apiPort, setApiPort] = useState(8765);
@@ -288,6 +292,25 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       setCreditsLoading(false);
     }
   }, [onError]);
+
+  useEffect(() => {
+    if (activeTab === "models") {
+      async function load() {
+        setFlowModelsLoading(true);
+        try {
+          const data = await fetchFlowModels();
+          if (data && data.models) {
+            setFlowModels(data.models);
+          }
+        } catch (err) {
+          console.error("Failed to load models for settings page", err);
+        } finally {
+          setFlowModelsLoading(false);
+        }
+      }
+      load();
+    }
+  }, [activeTab]);
 
   const handleSavePorts = async (restart: boolean) => {
     setPortsSaving(true);
@@ -655,6 +678,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           >
             <History size={16} />
             <span>Lịch sử nâng cấp</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "models" ? "active" : ""}`}
+            onClick={() => setActiveTab("models")}
+          >
+            <Layers size={16} />
+            <span>Danh sách Model</span>
           </button>
         </aside>
 
@@ -1742,6 +1773,65 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
               <div className="changelog-files">24 files modified | Python py_compile ✅ | TypeScript tsc ✅ | 0 errors</div>
             </div>
 
+          </section>
+        </div>
+      )}
+
+      {/* TAB 6: MODELS LIST */}
+      {activeTab === "models" && (
+        <div className="settings-tab-content">
+          <section className="panel-card">
+            <h3 style={{ margin: "0 0 16px", fontSize: "17px", display: "flex", alignItems: "center", gap: 8 }}>
+              <Layers size={20} style={{ color: "var(--purple-bright)" }} />
+              Danh sách Model Google Flow
+            </h3>
+            <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
+              Thông tin chi tiết các mô hình, mã khóa API và mức tiêu hao credit tương ứng quét được từ tab Google Flow.
+            </p>
+
+            {flowModelsLoading ? (
+              <div style={{ padding: "40px 0", textAlign: "center", color: "var(--muted)" }}>
+                Đang tải danh sách model...
+              </div>
+            ) : flowModels.length === 0 ? (
+              <div style={{ padding: "40px 0", textAlign: "center", color: "var(--red-bright)", fontWeight: 500 }}>
+                ⚠️ Không tìm thấy model. Hãy đảm bảo tab Google Flow đang mở trên trình duyệt để đồng bộ.
+              </div>
+            ) : (
+              <div className="table-responsive" style={{ marginTop: "10px" }}>
+                <table className="queue-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                      <th style={{ padding: "10px", color: "var(--muted)", fontSize: "12px" }}>Tên hiển thị</th>
+                      <th style={{ padding: "10px", color: "var(--muted)", fontSize: "12px" }}>Value Key nội bộ</th>
+                      <th style={{ padding: "10px", color: "var(--muted)", fontSize: "12px" }}>Key gửi đi API</th>
+                      <th style={{ padding: "10px", color: "var(--muted)", fontSize: "12px" }}>Giá Credit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flowModels.map((m, idx) => (
+                      <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                        <td style={{ padding: "12px 10px", fontWeight: 600 }}>{m.label.split(" (")[0]}</td>
+                        <td style={{ padding: "12px 10px" }}><code style={{ color: "var(--purple-bright)", fontSize: "12px" }}>{m.value}</code></td>
+                        <td style={{ padding: "12px 10px" }}><code style={{ color: "var(--blue-bright)", fontSize: "12px" }}>{m.api_value || m.value}</code></td>
+                        <td style={{ padding: "12px 10px" }}>
+                          <span style={{ 
+                            padding: "3px 8px", 
+                            borderRadius: "4px", 
+                            fontSize: "11px", 
+                            fontWeight: 600,
+                            background: m.credits > 0 ? "rgba(245, 158, 11, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                            color: m.credits > 0 ? "#f59e0b" : "#10b981"
+                          }}>
+                            {m.credits > 0 ? `${m.credits} credits` : "0 credit (Free)"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         </div>
       )}
