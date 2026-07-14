@@ -274,7 +274,7 @@ async function _syncGoogleFlowModels() {
                         for (const el of all) {
                             if (el.children.length === 0) {
                                 const txt = el.textContent.trim();
-                                if (txt && (txt.includes("Veo 3.1") || txt === "Omni Flash" || txt.includes("Nano Banana"))) {
+                                if (txt && (txt.includes("Veo 3.1") || txt.includes("Omni") || txt.includes("Flash") || txt.includes("Nano Banana"))) {
                                     list.push(txt);
                                 }
                             }
