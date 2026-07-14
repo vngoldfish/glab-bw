@@ -198,9 +198,7 @@ async def update_account(account_id: str, body: AccountUpdate) -> dict:
                 force_refresh=True,
             )
             account = account_store.get(account.id) or account
-            session_health.mark_flow_ok()
-            if account.id in session_health.stale_account_ids:
-                session_health.stale_account_ids.discard(account.id)
+            session_health.mark_flow_ok(account.id)
         except Exception as exc:
             from app.services.session_health import session_health
             session_health.mark_flow_stale(str(exc), account.id)

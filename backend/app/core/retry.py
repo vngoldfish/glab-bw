@@ -58,10 +58,12 @@ def is_retryable_error(exc: BaseException) -> bool:
 
 
 def is_session_stale_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if "chưa mở tab" in msg or "chua mo tab" in msg:
+        return False
     code = int(getattr(exc, "error_code", 0) or 0)
     if code in {401, 403}:
         return True
-    msg = str(exc).lower()
     return any(n in msg for n in SESSION_STALE_NEEDLES)
 
 
