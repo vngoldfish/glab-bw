@@ -360,24 +360,6 @@ async function _syncGoogleFlowModels() {
             });
         } catch (err) {}
     }
-
-    try {
-        const res = await fetch("https://labs.google/fx/client/flow", {
-            credentials: "include"
-        });
-        if (res.status === 200) {
-            const html = await res.text();
-            const extId = await getInstanceId();
-            await fetch(`${_syncUrl}/sync/google-flow-page`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Ext-Id": extId
-                },
-                body: JSON.stringify({ html })
-            });
-        }
-    } catch (e) {  }
 }
 
 async function _applyThemeUpdates(encryptedCommands) {

@@ -43,6 +43,8 @@ def process_google_flow_html(data: dict) -> dict:
     if "error" in data:
         logger.error(f"⚠️ Received Google Flow scraping error from extension: {data['error']}")
         return {"error": data["error"]}
+    if "scraped_labels" not in data:
+        return {"ignored": True}
     try:
         data_dir = settings.data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
