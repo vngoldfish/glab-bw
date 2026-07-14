@@ -63,7 +63,7 @@ def process_google_flow_html(data: dict) -> dict:
         for label in scraped_labels:
             lbl = label.lower().strip()
             if "omni flash" in lbl or "omni" in lbl:
-                models_list.append({"value": "omni_flash", "label": "Gemini Omni Flash (8 credits)", "credits": 8, "api_value": "omni_flash"})
+                models_list.append({"value": "omni_flash", "label": "Gemini Omni Flash (15 credits)", "credits": 15, "api_value": "omni_flash"})
             elif "veo 3.1" in lbl:
                 if "lite" in lbl:
                     if "lower priority" in lbl or "relaxed" in lbl or "prior" in lbl:
@@ -119,10 +119,8 @@ def process_google_flow_html(data: dict) -> dict:
                 credits = 5
                 label = f"{k} (5 credits)"
             elif "abra" in k:
-                dur_match = re.search(r'_(\d+)s', k)
-                duration = int(dur_match.group(1)) if dur_match else 8
-                credits = duration
-                label = f"{k} ({duration} credits)"
+                credits = 15
+                label = f"{k} (15 credits)"
                 
             models_list.append({
                 "value": k,
