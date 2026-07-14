@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { fetchDashboard, clearDashboardHistory } from "../api";
 import {
   Activity,
-  CheckCircle2,
   Users,
   Puzzle,
   Server,
