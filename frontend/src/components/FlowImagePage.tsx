@@ -8,6 +8,7 @@ import {
   rewritePromptsAi,
   runImageThenVideoPipeline,
   submitBatch,
+  mediaUrl,
 } from "../api";
 import {
   clearFlowImageSnapshot,
@@ -326,6 +327,53 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
 
 
+
+  // Load recent image tasks from backend on mount if local queue is empty
+  useEffect(() => {
+    const localSnapshot = loadFlowImageSnapshot();
+    if (localSnapshot && localSnapshot.rows && localSnapshot.rows.length > 0) {
+      return;
+    }
+
+    async function loadRecentFromBackend() {
+      try {
+        const res = await fetch("/api/batch/tasks/recent");
+        if (!res.ok) return;
+        const tasks = (await res.json()) as Array<any>;
+        const imageTasks = tasks.filter((t) => t.task_type !== "video");
+        
+        const restoredRows = imageTasks.map((t, idx) => {
+          return {
+            id: t.task_id || `backend-${idx}-${Date.now()}`,
+            selected: false,
+            prompt: t.prompt,
+            referenceImage: null,
+            referenceName: null,
+            startFrameName: null,
+            startFrameImage: null,
+            endFrameName: null,
+            endFrameImage: null,
+            results: (t.results || []).map((url: string) => {
+              if (url.startsWith("http")) return url;
+              if (url.startsWith("data/")) return "/" + url;
+              return url;
+            }),
+            status: t.status as RowStatus,
+            error: t.error || null,
+            savedFolder: null,
+          };
+        });
+        
+        if (restoredRows.length > 0) {
+          setRows(restoredRows);
+        }
+      } catch (err) {
+        console.error("Failed to restore image queue from backend:", err);
+      }
+    }
+    
+    void loadRecentFromBackend();
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1528,7 +1576,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                                     onClick={() => setActiveMedia({ url, type: "image" })}
                                     title="Click để phóng to ảnh"
                                   >
-                                    <img src={url} alt="result" className="result-thumb" />
+                                    <img src={mediaUrl(url)} alt="result" className="result-thumb" />
                                   </div>
                                   <button
                                     type="button"
@@ -1828,7 +1876,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           >
             {activeMedia.type === "image" ? (
               <img
-                src={activeMedia.url}
+                src={mediaUrl(activeMedia.url)}
                 alt="Enlarged view"
                 style={{
                   maxWidth: "100%",
@@ -1840,7 +1888,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               />
             ) : (
               <video
-                src={activeMedia.url}
+                src={mediaUrl(activeMedia.url)}
                 controls
                 autoPlay
                 style={{

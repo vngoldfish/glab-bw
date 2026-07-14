@@ -10,6 +10,7 @@ import {
   rewritePromptAi,
   rewritePromptsAi,
   submitBatch,
+  mediaUrl,
 } from "../api";
 import {
   clearFlowVideoSnapshot,
@@ -497,6 +498,53 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
 
 
+
+  // Load recent video tasks from backend on mount if local queue is empty
+  useEffect(() => {
+    const localSnapshot = loadFlowVideoSnapshot();
+    if (localSnapshot && localSnapshot.rows && localSnapshot.rows.length > 0) {
+      return;
+    }
+
+    async function loadRecentFromBackend() {
+      try {
+        const res = await fetch("/api/batch/tasks/recent");
+        if (!res.ok) return;
+        const tasks = (await res.json()) as Array<any>;
+        const videoTasks = tasks.filter((t) => t.task_type === "video");
+        
+        const restoredRows = videoTasks.map((t, idx) => {
+          return {
+            id: t.task_id || `backend-${idx}-${Date.now()}`,
+            selected: false,
+            prompt: t.prompt,
+            referenceImage: null,
+            referenceName: null,
+            startFrameName: null,
+            startFrameImage: null,
+            endFrameName: null,
+            endFrameImage: null,
+            results: (t.results || []).map((url: string) => {
+              if (url.startsWith("http")) return url;
+              if (url.startsWith("data/")) return "/" + url;
+              return url;
+            }),
+            status: t.status as RowStatus,
+            error: t.error || null,
+            savedFolder: null,
+          };
+        });
+        
+        if (restoredRows.length > 0) {
+          setRows(restoredRows);
+        }
+      } catch (err) {
+        console.error("Failed to restore video queue from backend:", err);
+      }
+    }
+    
+    void loadRecentFromBackend();
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1893,7 +1941,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                                     title="Click để xem video"
                                   >
                                     <video
-                                      src={url}
+                                      src={mediaUrl(url)}
                                       className="result-video"
                                       muted
                                       playsInline
@@ -2195,7 +2243,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
           >
             {activeMedia.type === "image" ? (
               <img
-                src={activeMedia.url}
+                src={mediaUrl(activeMedia.url)}
                 alt="Enlarged view"
                 style={{
                   maxWidth: "100%",
@@ -2207,7 +2255,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
               />
             ) : (
               <video
-                src={activeMedia.url}
+                src={mediaUrl(activeMedia.url)}
                 controls
                 autoPlay
                 style={{
