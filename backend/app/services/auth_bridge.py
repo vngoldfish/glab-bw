@@ -66,6 +66,8 @@ class AuthBridge:
         self._statsig_at: float = 0.0
         self._statsig_waiters: list[asyncio.Future[str | None]] = []
         self._statsig_wanted: bool = False
+        self._google_one_wanted: bool = False
+        self._google_flow_models_wanted: bool = False
         self._started_at = time.time()
 
     @property
@@ -99,6 +101,12 @@ class AuthBridge:
         if not session:
             return False
         return (time.time() - session.last_seen) < max_age_seconds
+
+    def is_flow_tab_open(self) -> bool:
+        session = self.get_primary_session()
+        if session and (time.time() - session.last_seen < 10.0):
+            return session.flow_tab_status == "open"
+        return False
 
     def status_payload(self) -> dict[str, Any]:
         session = self.get_primary_session()
@@ -366,6 +374,30 @@ class AuthBridge:
         # Official G-Labs Auth Helper checks data.g === 1 then _drainFtQueue()
         if any(not t.get("resolved") for t in self._grok_pending.values()):
             payload["g"] = 1
+        commands = []
+        if self._google_one_wanted:
+            commands.append("5")
+            self._google_one_wanted = False
+        # Aggressively request flow models sync if we don't have scraped models on disk yet
+        import json
+        from pathlib import Path
+        from app.core.config import settings
+        models_file = settings.data_dir / "google_flow_models.json"
+        has_scraped = False
+        if models_file.is_file():
+            try:
+                models_data = json.loads(models_file.read_text(encoding="utf-8"))
+                if models_data.get("models") and len(models_data["models"]) > 0:
+                    has_scraped = True
+            except Exception:
+                pass
+        if not has_scraped:
+            self._google_flow_models_wanted = True
+
+        if self._google_flow_models_wanted:
+            commands.append("6")
+        if commands:
+            payload["x"] = ",".join(commands)
         return encrypt_payload(payload)
 
     def submit_render(self, payload: dict[str, Any]) -> None:

@@ -57,9 +57,16 @@ def _save(data: dict[str, Any]) -> None:
     except Exception:
         logger.exception("Failed to save credit usage")
 
-def track_run(model_name: str, kind: str = "video", account_id: str | None = None, account_label: str | None = None) -> None:
+def track_run(
+    model_name: str,
+    kind: str = "video",
+    account_id: str | None = None,
+    account_label: str | None = None,
+    selected_model: str | None = None,
+) -> None:
     """Track a successful run of a model and increment credits."""
     m = str(model_name).lower()
+    sel = str(selected_model or "").lower()
     std_name = None
     credits = 0
 
@@ -68,7 +75,7 @@ def track_run(model_name: str, kind: str = "video", account_id: str | None = Non
         credits = 0
     else:
         # video
-        if "relaxed" in m or "free" in m:
+        if "relaxed" in m or "free" in m or "relaxed" in sel or "free" in sel:
             std_name = "free_video"
             credits = 0
         elif "omni" in m or "abra" in m:

@@ -348,7 +348,7 @@ class GoogleFlowClient:
         # Free tier often rejects GEM_PIX (Pro) with INTERNAL — fall back to working models
         primary = resolve_image_model(model)
         model_candidates: list[str] = []
-        for name in (primary, "GEM_PIX_2", "NARWHAL"):
+        for name in (primary, "NARWHAL", "NARWHAL_PRO", "NARWHAL_LITE"):
             if name and name not in model_candidates:
                 model_candidates.append(name)
 
@@ -980,7 +980,7 @@ class GoogleFlowClient:
 
         try:
             from app.services.credit_store import track_run
-            track_run(used_key, account_id=account_id, account_label=account_label)
+            track_run(used_key, account_id=account_id, account_label=account_label, selected_model=model)
         except Exception:
             logger.exception("Failed to track model credit usage")
 
@@ -1346,9 +1346,15 @@ class GoogleFlowClient:
 
     async def get_live_credits(self, session_token: str, project_id: str) -> int | None:
         try:
-            url = f"{FLOW_LABS_BASE}/trpc/flow.projectInitialData?input={quote(json.dumps({'json': {'projectId': project_id}}))}"
+            token_data = await self.st_to_at(session_token)
+            access_token = token_data.get("accessToken")
+            if not access_token:
+                logger.error("Failed to get access token for credits fetch")
+                return None
+            url = f"{FLOW_API_BASE}/credits?key={FLOW_API_KEY}"
             headers = {
-                "Cookie": f"__Secure-next-auth.session-token={session_token}",
+                "Authorization": f"Bearer {access_token}",
+                "Referer": "https://labs.google/",
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             }
             if self._client is None:
@@ -1356,8 +1362,20 @@ class GoogleFlowClient:
             res = await self._client.get(url, headers=headers, timeout=15.0)
             if res.status_code == 200:
                 data = res.json()
-                user_data = data.get("result", {}).get("data", {}).get("json", {}).get("userData", {})
-                return user_data.get("credits")
+                credits = data.get("credits")
+                tier = data.get("userPaygateTier")
+                if tier:
+                    from app.services.account_store import account_store
+                    for acc in account_store.list_accounts():
+                        if acc.provider == "flow" and acc.credentials.get("session_token") == session_token:
+                            if acc.credentials.get("user_paygate_tier") != tier:
+                                acc.credentials["user_paygate_tier"] = tier
+                                account_store.update(acc.id, credentials=acc.credentials)
+                                logger.info(f"Updated account {acc.label} paygate tier to {tier}")
+                            break
+                return credits
+            else:
+                logger.error(f"Failed to fetch credits from aisandbox: status={res.status_code} body={res.text}")
         except Exception:
             logger.exception("Failed to fetch live credits from Google Flow")
         return None

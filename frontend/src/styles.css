@@ -112,6 +112,7 @@ textarea {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  padding-bottom: 40px;
 }
 
 .page-panel {

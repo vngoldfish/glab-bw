@@ -24,6 +24,7 @@ const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const ProjectMediaPage = lazy(() => import("./pages/ProjectMediaPage"));
 const PromptHubPage = lazy(() => import("./pages/PromptHubPage"));
 import ReferenceLibraryPage from "./pages/ReferenceLibraryPage";
+import CreditsPage from "./pages/CreditsPage";
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const VideoEditorPage = lazy(() => import("./pages/VideoEditorPage"));
 const WebhookPage = lazy(() => import("./pages/WebhookPage"));
@@ -441,6 +442,14 @@ export default function App() {
                       onRefresh={refresh}
                       onError={setError}
                     />
+                  </div>
+                }
+              />
+              <Route
+                path={NAV_ROUTES.credits}
+                element={
+                  <div className="page-panel">
+                    <CreditsPage onError={setError} />
                   </div>
                 }
               />

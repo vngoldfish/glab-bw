@@ -383,4 +383,23 @@
     }, true);
     _throttleMedia();   
     setInterval(() => { try { _throttleMedia(); } catch (e) {  } }, 2000);
+
+    // Sync Google Flow Page HTML when user visits labs.google Flow page
+    if (window.location.href.includes("labs.google") && window.location.href.includes("/flow")) {
+        const runSync = async () => {
+            try {
+                const html = document.documentElement.outerHTML;
+                await fetch("http://127.0.0.1:18923/sync/google-flow-page", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ html })
+                });
+            } catch (e) {  }
+        };
+        // Run after load and also after a short delay to capture dynamic state
+        window.addEventListener("load", () => {
+            setTimeout(runSync, 3000);
+        });
+        setTimeout(runSync, 5000);
+    }
 })();

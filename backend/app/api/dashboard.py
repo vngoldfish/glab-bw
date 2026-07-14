@@ -10,12 +10,16 @@ from app.core.task_queue import TaskStatus, task_queue
 from app.services.account_store import account_store
 from app.services.auth_bridge import auth_bridge as auth_bridge_state
 from app.services.session_health import session_health
+from app.services.google_one_parser import get_google_one_history
+from app.services.google_flow_parser import get_scraped_flow_models
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("")
 async def dashboard() -> dict:
+    auth_bridge_state._google_one_wanted = True
+    auth_bridge_state._google_flow_models_wanted = True
     tasks = task_queue.list_tasks(limit=200)
     by_status = {s.value: 0 for s in TaskStatus}
     by_type: dict[str, int] = {}
@@ -153,6 +157,8 @@ async def dashboard() -> dict:
         "standalone_tasks": formatted_tasks,
         "extension": ext,
         "session": session_health.payload(),
+        "google_one_history": get_google_one_history(),
+        "google_flow_models": get_scraped_flow_models(),
         "generated_at": time.time(),
     }
 
@@ -170,3 +176,9 @@ async def clear_dashboard_history(payload: dict = None) -> dict:
     else:
         task_queue.clear_history(status=None)
     return {"status": "ok"}
+
+
+@router.get("/flow-models")
+async def get_flow_models() -> dict:
+    auth_bridge_state._google_flow_models_wanted = True
+    return get_scraped_flow_models()

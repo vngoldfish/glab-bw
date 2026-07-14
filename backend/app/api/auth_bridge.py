@@ -1,4 +1,6 @@
 import json
+import logging
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -52,6 +54,44 @@ async def sync_render(
 
     auth_bridge.submit_render(payload)
     return {"ok": True}
+
+
+@router.post("/google-one-activity")
+async def sync_google_one_activity(
+    request: Request,
+    x_ext_id: str | None = Header(default=None, alias="X-Ext-Id"),
+) -> dict:
+    if x_ext_id:
+        auth_bridge.touch(x_ext_id)
+    body = await request.json()
+    html = body.get("html", "")
+    if not html:
+        return {"ok": False, "error": "No HTML received"}
+    try:
+        from app.services.google_one_parser import process_google_one_html
+        result = process_google_one_html(html)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/google-flow-page")
+async def sync_google_flow_page(
+    request: Request,
+    x_ext_id: str | None = Header(default=None, alias="X-Ext-Id"),
+) -> dict:
+    if x_ext_id:
+        auth_bridge.touch(x_ext_id)
+    body = await request.json()
+    if "scraped_labels" in body or "html" in body or "error" in body:
+        auth_bridge._google_flow_models_wanted = False
+    logger.info(f"Received sync/google-flow-page payload. Keys: {list(body.keys())}, scraped_labels_count: {len(body.get('scraped_labels', []))}")
+    try:
+        from app.services.google_flow_parser import process_google_flow_html
+        result = process_google_flow_html(body)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @router.get("/grok-poll-task")

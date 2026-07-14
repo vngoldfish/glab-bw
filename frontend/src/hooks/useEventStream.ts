@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -56,57 +56,104 @@ const RECONNECT_MAX_MS = 16000;
 
 let _logIdCounter = 0;
 
+/* ── Singleton EventStream State ──────────────────────────────── */
+
+interface SSEManager {
+  es: EventSource | null;
+  connected: boolean;
+  listeners: Set<(ev: ProgressEvent) => void>;
+  connListeners: Set<(c: boolean) => void>;
+  reconnectDelay: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  cleanupTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const manager: SSEManager = {
+  es: null,
+  connected: false,
+  listeners: new Set(),
+  connListeners: new Set(),
+  reconnectDelay: RECONNECT_BASE_MS,
+  reconnectTimer: null,
+  cleanupTimer: null,
+};
+
+function connectGlobal(url: string) {
+  if (manager.es) return;
+
+  const es = new EventSource(url);
+  manager.es = es;
+
+  es.onopen = () => {
+    manager.connected = true;
+    manager.reconnectDelay = RECONNECT_BASE_MS;
+    manager.connListeners.forEach((lis) => lis(true));
+  };
+
+  es.onmessage = (ev) => {
+    try {
+      const event: ProgressEvent = JSON.parse(ev.data);
+      manager.listeners.forEach((lis) => lis(event));
+    } catch {
+      // ignore malformed
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    manager.es = null;
+    manager.connected = false;
+    manager.connListeners.forEach((lis) => lis(false));
+
+    // Exponential backoff reconnect
+    const delay = manager.reconnectDelay;
+    manager.reconnectDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
+    if (manager.reconnectTimer) clearTimeout(manager.reconnectTimer);
+    manager.reconnectTimer = setTimeout(() => {
+      // Re-verify we still have listeners before reconnecting
+      if (manager.listeners.size > 0) {
+        connectGlobal(url);
+      }
+    }, delay);
+  };
+}
+
+function disconnectGlobal() {
+  if (manager.reconnectTimer) clearTimeout(manager.reconnectTimer);
+  manager.reconnectTimer = null;
+  if (manager.es) {
+    manager.es.close();
+    manager.es = null;
+  }
+  manager.connected = false;
+  manager.connListeners.forEach((lis) => lis(false));
+}
+
 /* ── Hook ────────────────────────────────────────────────────── */
 
 export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
-  const [connected, setConnected] = useState(false);
-
-  const reconnectDelay = useRef(RECONNECT_BASE_MS);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const esRef = useRef<EventSource | null>(null);
+  const [connected, setConnected] = useState(manager.connected);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
   useEffect(() => {
-    let unmounted = false;
+    // 1. Listen for connection status changes
+    const onConnChange = (c: boolean) => setConnected(c);
+    manager.connListeners.add(onConnChange);
+    setConnected(manager.connected);
 
-    function connect() {
-      if (unmounted) return;
-
-      const es = new EventSource(url);
-      esRef.current = es;
-
-      es.onopen = () => {
-        if (unmounted) return;
-        setConnected(true);
-        reconnectDelay.current = RECONNECT_BASE_MS; // reset backoff
-      };
-
-      es.onmessage = (ev) => {
-        if (unmounted) return;
-        try {
-          const event: ProgressEvent = JSON.parse(ev.data);
-          handleEvent(event);
-        } catch {
-          // ignore malformed events
-        }
-      };
-
-      es.onerror = () => {
-        if (unmounted) return;
-        es.close();
-        esRef.current = null;
-        setConnected(false);
-
-        // Exponential backoff reconnect
-        const delay = reconnectDelay.current;
-        reconnectDelay.current = Math.min(delay * 2, RECONNECT_MAX_MS);
-        reconnectTimer.current = setTimeout(connect, delay);
-      };
+    // Cancel cleanup if we mount again
+    if (manager.cleanupTimer) {
+      clearTimeout(manager.cleanupTimer);
+      manager.cleanupTimer = null;
     }
 
+    // 2. Connect if not connected
+    connectGlobal(url);
+
+    // 3. Listen for events
     function handleEvent(event: ProgressEvent) {
       switch (event.type) {
         case "task_status":
@@ -119,9 +166,6 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
         case "system_log":
           appendLog(event);
           break;
-        case "heartbeat":
-        case "connected":
-          break; // no-op
       }
     }
 
@@ -198,13 +242,21 @@ export function useEventStream(url = "/api/events/stream"): UseEventStreamReturn
       });
     }
 
-    connect();
+    manager.listeners.add(handleEvent);
 
     return () => {
-      unmounted = true;
-      esRef.current?.close();
-      esRef.current = null;
-      clearTimeout(reconnectTimer.current);
+      manager.listeners.delete(handleEvent);
+      manager.connListeners.delete(onConnChange);
+
+      // If no listeners left, close connection after a 10s delay (debounce tab switching / redirects)
+      if (manager.listeners.size === 0) {
+        if (manager.cleanupTimer) clearTimeout(manager.cleanupTimer);
+        manager.cleanupTimer = setTimeout(() => {
+          if (manager.listeners.size === 0) {
+            disconnectGlobal();
+          }
+        }, 10000);
+      }
     };
   }, [url]);
 

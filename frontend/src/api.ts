@@ -852,6 +852,12 @@ export async function fetchDashboard(): Promise<Record<string, unknown>> {
   return readJson(res);
 }
 
+export async function fetchFlowModels(): Promise<{ is_placeholder: boolean; models: Array<{ value: string; label: string; credits: number }> }> {
+  const res = await apiFetch("/api/dashboard/flow-models");
+  await ensureOk(res, "Không tải danh sách model");
+  return readJson(res);
+}
+
 export async function clearDashboardHistory(type: "all" | "completed" | "failed"): Promise<void> {
   const res = await apiFetch("/api/dashboard/clear", {
     method: "POST",

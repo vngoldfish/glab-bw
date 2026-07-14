@@ -11,6 +11,7 @@ import {
   rewritePromptsAi,
   submitBatch,
   mediaUrl,
+  fetchFlowModels,
 } from "../api";
 import {
   clearFlowVideoSnapshot,
@@ -40,7 +41,6 @@ import {
   SAVE_MODES,
   VIDEO_ASPECT_RATIOS,
   VIDEO_MODES,
-  VIDEO_MODELS,
   VIDEO_RESOLUTIONS,
   type MediaEngine,
   type NamedReference,
@@ -64,13 +64,7 @@ const DEFAULT_CONFIG: VideoConfig = {
   duration: 8,
 };
 
-function videoModelsForEngine(engine: MediaEngine) {
-  return engine === "grok" ? GROK_VIDEO_MODELS : engine === "meta" ? META_VIDEO_MODELS : VIDEO_MODELS;
-}
 
-function defaultVideoModel(engine: MediaEngine): string {
-  return engine === "grok" ? GROK_VIDEO_MODELS[0].value : engine === "meta" ? META_VIDEO_MODELS[0].value : VIDEO_MODELS[0].value;
-}
 
 function emptyRow(): QueueRow {
   return {
@@ -381,8 +375,53 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     promptText: string;
   } | null>(null);
 
-  const [modalSubmitting, setModalSubmitting] = useState(false);
   const [customActionVal, setCustomActionVal] = useState("");
+  const [modalSubmitting, setModalSubmitting] = useState(false);
+
+  const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number }>>([]);
+  const [flowModelsLoaded, setFlowModelsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const data = await fetchFlowModels();
+        if (data && data.models) {
+          const vidModels = data.models.filter(m => m.value.includes("veo") || m.value.includes("omni_flash") || m.value.includes("abra"));
+          setFlowModels(vidModels);
+        }
+      } catch (err) {
+        console.error("Failed to load dynamic flow models", err);
+      } finally {
+        setFlowModelsLoaded(true);
+      }
+    }
+    loadModels();
+  }, []);
+
+  const getModelsForEngine = useCallback((engine: MediaEngine) => {
+    if (engine === "grok") return GROK_VIDEO_MODELS;
+    if (engine === "meta") return META_VIDEO_MODELS;
+    return flowModels;
+  }, [flowModels]);
+
+  const getDefaultModelForEngine = useCallback((engine: MediaEngine): string => {
+    if (engine === "grok") return GROK_VIDEO_MODELS[0].value;
+    if (engine === "meta") return META_VIDEO_MODELS[0].value;
+    return flowModels.length > 0 ? flowModels[0].value : "";
+  }, [flowModels]);
+
+  useEffect(() => {
+    if (config.engine === "flow" && flowModelsLoaded) {
+      if (flowModels.length > 0) {
+        const exists = flowModels.some(m => m.value === config.model);
+        if (!exists) {
+          setConfig(c => ({ ...c, model: flowModels[0].value }));
+        }
+      } else if (config.model !== "") {
+        setConfig(c => ({ ...c, model: "" }));
+      }
+    }
+  }, [flowModels, flowModelsLoaded, config.engine, config.model]);
 
   const handleContinueVideo = (videoUrl: string, originalPrompt: string) => {
     setContinueModal({
@@ -515,7 +554,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
         
         const restoredRows = videoTasks.map((t, idx) => {
           return {
-            id: t.task_id || `backend-${idx}-${Date.now()}`,
+            id: t.row_id || t.task_id || `backend-${idx}-${Date.now()}`,
             selected: false,
             prompt: t.prompt,
             referenceImage: null,
@@ -574,9 +613,10 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
             if (r.status !== "queued" && r.status !== "running") {
               return r;
             }
-            const matched = tasks.find(
-              (t) => t.prompt.trim() === r.prompt.trim() && t.task_type === "video"
-            );
+            const matched = tasks.find((t) => {
+              if (t.row_id && t.row_id === r.id) return true;
+              return !t.row_id && t.prompt.trim() === r.prompt.trim() && t.task_type === "video";
+            });
             if (matched) {
               if (matched.status === "completed") {
                 changed = true;
@@ -1190,7 +1230,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                   setConfig((c) => ({
                     ...c,
                     engine,
-                    model: defaultVideoModel(engine),
+                    model: getDefaultModelForEngine(engine),
                     mode: (engine === "grok" || engine === "meta") ? "text_to_video" : c.mode,
                     outputFolder:
                       engine === "grok"
@@ -1215,10 +1255,17 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                 value={config.model}
                 onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
               >
-                {videoModelsForEngine(config.engine || "flow").map((m) => (
+                {getModelsForEngine(config.engine || "flow").map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
+              {config.engine === "flow" && (
+                <small className="field-hint" style={{ color: flowModels.length > 0 ? "#10b981" : "#f59e0b" }}>
+                  {flowModels.length > 0
+                    ? "🟢 Đã đồng bộ model từ Google Flow"
+                    : "🟡 Đang sử dụng list model mặc định. Hãy mở tab Google Flow và nhấn F5 để đồng bộ mới nhất"}
+                </small>
+              )}
               {config.model === "omni_flash" && config.engine !== "grok" && (
                 <small className="field-hint">
                   Omni Flash (abra): T2V / ảnh đầu / @tham chiếu · 4–10s · cần credit Flow
@@ -1567,9 +1614,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
                 <div className="flow-queue-actions">
                   <button
                     type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setRows((prev) => [{ ...emptyRow() }, ...prev]);
+                    }}
+                    disabled={running}
+                    title="Thêm một dòng trống mới vào hàng chờ"
+                  >
+                    + Thêm dòng
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-primary btn-sm"
                     onClick={runSelected}
-                    disabled={running || selectedCount === 0}
+                    disabled={running || selectedCount === 0 || config.model === "none"}
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
                   </button>

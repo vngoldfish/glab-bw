@@ -16,6 +16,7 @@ import {
   Webhook,
   Puzzle,
   Settings,
+  Coins,
   ChevronLeft,
   ChevronRight,
   type LucideIcon
@@ -40,6 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "projects", label: "Dự án", icon: FolderKanban },
       { id: "project-media", label: "Media Tổng Hợp", icon: Images },
+      { id: "credits", label: "Tín Dụng & Hoạt Động", icon: Coins },
     ]
   },
   {

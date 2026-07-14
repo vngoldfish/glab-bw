@@ -9,6 +9,7 @@ import {
   runImageThenVideoPipeline,
   submitBatch,
   mediaUrl,
+  fetchFlowModels,
 } from "../api";
 import {
   clearFlowImageSnapshot,
@@ -36,7 +37,6 @@ import {
   META_IMAGE_MODELS,
   ASPECT_RATIOS,
   GROK_IMAGE_MODELS,
-  IMAGE_MODELS,
   MEDIA_ENGINES,
   SAVE_MODES,
   type ImageConfig,
@@ -58,13 +58,7 @@ const DEFAULT_CONFIG: ImageConfig = {
   upscale: [],
 };
 
-function modelsForEngine(engine: MediaEngine) {
-  return engine === "grok" ? GROK_IMAGE_MODELS : engine === "meta" ? META_IMAGE_MODELS : IMAGE_MODELS;
-}
 
-function defaultModelForEngine(engine: MediaEngine): string {
-  return engine === "grok" ? GROK_IMAGE_MODELS[0].value : engine === "meta" ? META_IMAGE_MODELS[0].value : IMAGE_MODELS[0].value;
-}
 
 function emptyRow(): QueueRow {
   return {
@@ -199,6 +193,51 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [customActionVal, setCustomActionVal] = useState("");
+
+  const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number }>>([]);
+  const [flowModelsLoaded, setFlowModelsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const data = await fetchFlowModels();
+        if (data && data.models) {
+          const imgModels = data.models.filter(m => m.value.includes("nano_banana") || m.value.includes("imagen"));
+          setFlowModels(imgModels);
+        }
+      } catch (err) {
+        console.error("Failed to load dynamic flow models", err);
+      } finally {
+        setFlowModelsLoaded(true);
+      }
+    }
+    loadModels();
+  }, []);
+
+  const getModelsForEngine = useCallback((engine: MediaEngine) => {
+    if (engine === "grok") return GROK_IMAGE_MODELS;
+    if (engine === "meta") return META_IMAGE_MODELS;
+    return flowModels;
+  }, [flowModels]);
+
+  const getDefaultModelForEngine = useCallback((engine: MediaEngine): string => {
+    if (engine === "grok") return GROK_IMAGE_MODELS[0].value;
+    if (engine === "meta") return META_IMAGE_MODELS[0].value;
+    return flowModels.length > 0 ? flowModels[0].value : "";
+  }, [flowModels]);
+
+  useEffect(() => {
+    if (config.engine === "flow" && flowModelsLoaded) {
+      if (flowModels.length > 0) {
+        const exists = flowModels.some(m => m.value === config.model);
+        if (!exists) {
+          setConfig(c => ({ ...c, model: flowModels[0].value }));
+        }
+      } else if (config.model !== "") {
+        setConfig(c => ({ ...c, model: "" }));
+      }
+    }
+  }, [flowModels, flowModelsLoaded, config.engine, config.model]);
 
   const handleContinueImage = (imageUrl: string, promptText: string) => {
     setContinueModal({
@@ -344,7 +383,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         
         const restoredRows = imageTasks.map((t, idx) => {
           return {
-            id: t.task_id || `backend-${idx}-${Date.now()}`,
+            id: t.row_id || t.task_id || `backend-${idx}-${Date.now()}`,
             selected: false,
             prompt: t.prompt,
             referenceImage: null,
@@ -403,9 +442,10 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
             if (r.status !== "queued" && r.status !== "running") {
               return r;
             }
-            const matched = tasks.find(
-              (t) => t.prompt.trim() === r.prompt.trim() && t.task_type !== "video"
-            );
+            const matched = tasks.find((t) => {
+              if (t.row_id && t.row_id === r.id) return true;
+              return !t.row_id && t.prompt.trim() === r.prompt.trim() && t.task_type !== "video";
+            });
             if (matched) {
               if (matched.status === "completed") {
                 changed = true;
@@ -973,7 +1013,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                   setConfig((c) => ({
                     ...c,
                     engine,
-                    model: defaultModelForEngine(engine),
+                    model: getDefaultModelForEngine(engine),
                     outputFolder:
                       engine === "grok"
                         ? "G-Labs BW/grok_output"
@@ -1002,10 +1042,17 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 value={config.model}
                 onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
               >
-                {modelsForEngine(config.engine || "flow").map((m) => (
+                {getModelsForEngine(config.engine || "flow").map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
+              {config.engine === "flow" && (
+                <small className="field-hint" style={{ color: flowModels.length > 0 ? "#10b981" : "#f59e0b" }}>
+                  {flowModels.length > 0
+                    ? "🟢 Đã đồng bộ model từ Google Flow"
+                    : "🟡 Đang sử dụng list model mặc định. Hãy mở tab Google Flow và nhấn F5 để đồng bộ mới nhất"}
+                </small>
+              )}
             </label>
             <label>
               Tỷ lệ ảnh
@@ -1258,9 +1305,20 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 <div className="flow-queue-actions">
                   <button
                     type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setRows((prev) => [{ ...emptyRow() }, ...prev]);
+                    }}
+                    disabled={running}
+                    title="Thêm một dòng trống mới vào hàng chờ"
+                  >
+                    + Thêm dòng
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-primary btn-sm"
                     onClick={runSelected}
-                    disabled={running || selectedCount === 0}
+                    disabled={running || selectedCount === 0 || config.model === "none"}
                   >
                     {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
                   </button>
@@ -1268,7 +1326,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => void runPipelineSelected()}
-                    disabled={running || selectedCount === 0 || config.engine !== "flow"}
+                    disabled={running || selectedCount === 0 || config.engine !== "flow" || config.model === "none"}
                     title="Pipeline G-Labs: gen ảnh rồi video (start frame = ảnh vừa tạo)"
                   >
                     Ảnh→Video

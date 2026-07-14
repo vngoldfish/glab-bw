@@ -14,6 +14,7 @@ export type NavPage =
   | "grok"
   | "webhook"
   | "settings"
+  | "credits"
   | "extension";
 
 export type RowStatus = "idle" | "queued" | "running" | "completed" | "failed";

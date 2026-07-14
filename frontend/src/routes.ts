@@ -17,6 +17,7 @@ export const NAV_ROUTES: Record<NavPage, string> = {
   webhook: "/webhook",
   extension: "/extension",
   settings: "/settings",
+  credits: "/credits",
 };
 
 export const DEFAULT_ROUTE = NAV_ROUTES["flow-image"];

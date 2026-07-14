@@ -197,6 +197,7 @@ async def get_recent_tasks() -> list[dict]:
     tasks = task_queue.list_tasks(limit=100)
     formatted = []
     for t in tasks:
+        row_id = t.payload.get("row_id") if (hasattr(t, "payload") and t.payload) else None
         formatted.append({
             "task_id": t.task_id,
             "task_type": t.task_type,
@@ -206,6 +207,7 @@ async def get_recent_tasks() -> list[dict]:
             "completed_at": t.completed_at,
             "results": t.results,
             "error": t.error,
+            "row_id": row_id,
         })
     return formatted
 
