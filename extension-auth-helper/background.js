@@ -239,8 +239,17 @@ async function _syncGoogleFlowModels() {
                             if (!root) return;
                             const els = root.querySelectorAll("button");
                             for (const el of els) {
-                                const txt = el.textContent || "";
-                                if (el.getAttribute("aria-haspopup") === "menu" && (txt.includes("Video") || txt.includes("Hình ảnh") || txt.includes("Omni") || txt.includes("Veo") || txt.includes("Banana"))) {
+                                const txt = (el.textContent || "").toLowerCase();
+                                const hasPopup = el.getAttribute("aria-haspopup");
+                                if ((hasPopup === "menu" || hasPopup === "listbox" || hasPopup === "dialog") && (
+                                    txt.includes("video") || 
+                                    txt.includes("hình ảnh") || 
+                                    txt.includes("image") || 
+                                    txt.includes("omni") || 
+                                    txt.includes("veo") || 
+                                    txt.includes("banana") || 
+                                    txt.includes("imagen")
+                                )) {
                                     buttons.push(el);
                                 }
                             }
@@ -260,7 +269,8 @@ async function _syncGoogleFlowModels() {
                             const txt = el.textContent || "";
                             if (el.getAttribute("role") === "menuitem" || el.getAttribute("role") === "menuitemradio" || el.getAttribute("role") === "option") {
                                 const cleanTxt = txt.trim().replace(/\n/g, " ");
-                                if (cleanTxt && (cleanTxt.includes("Veo") || cleanTxt.includes("Omni") || cleanTxt.includes("Banana") || cleanTxt.includes("Imagen"))) {
+                                const lTxt = cleanTxt.toLowerCase();
+                                if (cleanTxt && (lTxt.includes("veo") || lTxt.includes("omni") || lTxt.includes("banana") || lTxt.includes("imagen"))) {
                                     list.push(cleanTxt);
                                 }
                             }
@@ -274,7 +284,8 @@ async function _syncGoogleFlowModels() {
                         for (const el of all) {
                             if (el.children.length === 0) {
                                 const txt = el.textContent.trim();
-                                if (txt && (txt.includes("Veo 3.1") || txt.includes("Omni") || txt.includes("Flash") || txt.includes("Nano Banana"))) {
+                                const lTxt = txt.toLowerCase();
+                                if (txt && (lTxt.includes("veo") || lTxt.includes("omni") || lTxt.includes("flash") || lTxt.includes("banana") || lTxt.includes("imagen"))) {
                                     list.push(txt);
                                 }
                             }

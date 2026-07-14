@@ -7,12 +7,12 @@ FLOW_API_KEY = os.getenv("FLOW_API_KEY", "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3p
 RECAPTCHA_SITE_KEY = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
 
 IMAGE_MODELS = {
-    "nano_banana_pro": "NARWHAL_PRO",
-    "nano_banana_2": "NARWHAL",
-    "nano_banana_2_lite": "NARWHAL_LITE",
+    "nano_banana_pro": "GEM_PIX",
+    "nano_banana_2": "GEM_PIX_2",
+    "nano_banana_2_lite": "NARWHAL",
     # Backward compatibility
-    "GEM_PIX": "NARWHAL_PRO",
-    "GEM_PIX_2": "NARWHAL",
+    "GEM_PIX": "GEM_PIX",
+    "GEM_PIX_2": "GEM_PIX_2",
     "NARWHAL": "NARWHAL",
 }
 

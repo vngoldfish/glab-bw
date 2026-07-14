@@ -78,11 +78,11 @@ def process_google_flow_html(data: dict) -> dict:
                     models_list.append({"value": "veo_31_quality", "label": "Veo 3.1 Quality (100 credits)", "credits": 100, "api_value": "veo_3_1_t2v_quality"})
             elif "banana" in lbl or "imagen" in lbl:
                 if "lite" in lbl:
-                    models_list.append({"value": "nano_banana_2_lite", "label": "Nano Banana 2 Lite (0 credit)", "credits": 0, "api_value": "NARWHAL_LITE"})
+                    models_list.append({"value": "nano_banana_2_lite", "label": "Nano Banana 2 Lite (0 credit)", "credits": 0, "api_value": "NARWHAL"})
                 elif "pro" in lbl:
-                    models_list.append({"value": "nano_banana_pro", "label": "Nano Banana Pro (0 credit)", "credits": 0, "api_value": "NARWHAL_PRO"})
+                    models_list.append({"value": "nano_banana_pro", "label": "Nano Banana Pro (0 credit)", "credits": 0, "api_value": "GEM_PIX"})
                 else:
-                    models_list.append({"value": "nano_banana_2", "label": "Nano Banana 2 (0 credit)", "credits": 0, "api_value": "NARWHAL"})
+                    models_list.append({"value": "nano_banana_2", "label": "Nano Banana 2 (0 credit)", "credits": 0, "api_value": "GEM_PIX_2"})
                     
         # Remove duplicates while preserving order
         seen = set()
