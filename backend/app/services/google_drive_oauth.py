@@ -15,9 +15,13 @@ from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
 
+import os
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/userinfo.email"
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid"
 ]
 
 def load_credentials() -> Credentials | None:
