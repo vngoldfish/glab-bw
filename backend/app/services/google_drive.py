@@ -8,31 +8,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 logger = logging.getLogger(__name__)
 
-def get_drive_service() -> Any:
-    """Initialize Drive API v3 client using Service Account credentials."""
-    from app.services import google_drive_store
-    raw = google_drive_store.load_raw()
-    info = raw.get("service_account_info")
-    if not info:
-        raise ValueError("Chưa cấu hình thông tin Google Service Account JSON")
-    try:
-        parsed = json.loads(info)
-        if not isinstance(parsed, dict) or "private_key" not in parsed:
-            raise ValueError("Định dạng JSON Service Account không hợp lệ (thiếu private_key)")
-        
-        credentials = service_account.Credentials.from_service_account_info(
-            parsed,
-            scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        return build("drive", "v3", credentials=credentials)
-    except Exception as e:
-        raise ValueError(f"Không thể khởi tạo kết nối Google Drive: {e}")
+from app.services.google_drive_oauth import get_drive_service
 
 def _sync_test_connection() -> dict:
     try:

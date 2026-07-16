@@ -1492,9 +1492,10 @@ export async function fetchCreditsUsage(): Promise<CreditUsageConfig> {
 export interface GoogleDriveSettings {
   enabled: boolean;
   folder_id: string;
+  has_secrets: boolean;
   has_credentials: boolean;
-  client_email?: string;
-  project_id?: string;
+  client_id?: string;
+  authorized_email?: string;
 }
 
 export async function fetchGoogleDriveSettings(): Promise<GoogleDriveSettings> {
@@ -1506,7 +1507,7 @@ export async function fetchGoogleDriveSettings(): Promise<GoogleDriveSettings> {
 export async function saveGoogleDriveSettings(payload: {
   enabled?: boolean;
   folder_id?: string;
-  service_account_info?: string | Record<string, unknown>;
+  client_secrets_json?: string | Record<string, unknown>;
 }): Promise<GoogleDriveSettings> {
   const res = await apiFetch("/api/maintenance/google-drive", {
     method: "PUT",
@@ -1522,5 +1523,13 @@ export async function testGoogleDriveConnection(): Promise<{ success: boolean; m
     method: "POST",
   });
   await ensureOk(res, "Lỗi kiểm tra kết nối Google Drive");
+  return readJson<{ success: boolean; message: string }>(res);
+}
+
+export async function authGoogleDrive(): Promise<{ success: boolean; message: string }> {
+  const res = await apiFetch("/api/maintenance/google-drive/auth", {
+    method: "POST",
+  });
+  await ensureOk(res, "Lỗi liên kết tài khoản Google Drive");
   return readJson<{ success: boolean; message: string }>(res);
 }

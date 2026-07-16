@@ -235,7 +235,7 @@ async def get_credits() -> dict:
 class GoogleDriveSettingsUpdate(BaseModel):
     enabled: bool | None = None
     folder_id: str | None = None
-    service_account_info: str | dict | None = None
+    client_secrets_json: str | dict | None = None
 
 
 @router.get("/google-drive")
@@ -256,5 +256,15 @@ async def put_google_drive_settings(body: GoogleDriveSettingsUpdate) -> dict:
 async def test_google_drive_connection() -> dict:
     from app.services.google_drive import test_connection
     return await test_connection()
+
+
+@router.post("/google-drive/auth")
+async def auth_google_drive() -> dict:
+    from app.services.google_drive_oauth import run_oauth_flow
+    try:
+        email = await run_oauth_flow()
+        return {"success": True, "message": f"Liên kết thành công tài khoản: {email}"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 

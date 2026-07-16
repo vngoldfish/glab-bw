@@ -23,6 +23,7 @@ import {
   fetchGoogleDriveSettings,
   saveGoogleDriveSettings,
   testGoogleDriveConnection,
+  authGoogleDrive,
   type CreditUsageConfig,
   type TestRunResult,
   type TestSuite,
@@ -192,10 +193,12 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   // Google Drive Configuration State
   const [gdriveEnabled, setGdriveEnabled] = useState(false);
   const [gdriveFolderId, setGdriveFolderId] = useState("");
+  const [gdriveHasSecrets, setGdriveHasSecrets] = useState(false);
   const [gdriveHasCredentials, setGdriveHasCredentials] = useState(false);
-  const [gdriveClientEmail, setGdriveClientEmail] = useState("");
-  const [gdriveProjectId, setGdriveProjectId] = useState("");
+  const [gdriveClientId, setGdriveClientId] = useState("");
+  const [gdriveAuthorizedEmail, setGdriveAuthorizedEmail] = useState("");
   const [gdriveJsonInput, setGdriveJsonInput] = useState("");
+  const [gdriveAuthing, setGdriveAuthing] = useState(false);
 
   const [gdriveLoading, setGdriveLoading] = useState(false);
   const [gdriveSaving, setGdriveSaving] = useState(false);
@@ -340,9 +343,10 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           const cfg = await fetchGoogleDriveSettings();
           setGdriveEnabled(cfg.enabled);
           setGdriveFolderId(cfg.folder_id);
+          setGdriveHasSecrets(cfg.has_secrets);
           setGdriveHasCredentials(cfg.has_credentials);
-          setGdriveClientEmail(cfg.client_email || "");
-          setGdriveProjectId(cfg.project_id || "");
+          setGdriveClientId(cfg.client_id || "");
+          setGdriveAuthorizedEmail(cfg.authorized_email || "");
         } catch (err) {
           console.error("Failed to load Google Drive settings", err);
           onError(err instanceof Error ? err.message : String(err));
@@ -359,25 +363,26 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     setGdriveMsg("");
     setGdriveOk(null);
     try {
-      const saInfo = gdriveJsonInput.trim();
-      const payload: { enabled: boolean; folder_id: string; service_account_info?: string } = {
+      const secretsText = gdriveJsonInput.trim();
+      const payload: { enabled: boolean; folder_id: string; client_secrets_json?: string } = {
         enabled: gdriveEnabled,
         folder_id: gdriveFolderId,
       };
-      if (saInfo) {
+      if (secretsText) {
         try {
-          JSON.parse(saInfo);
-          payload.service_account_info = saInfo;
+          JSON.parse(secretsText);
+          payload.client_secrets_json = secretsText;
         } catch (e) {
-          throw new Error("Thông tin Service Account JSON không đúng định dạng JSON!");
+          throw new Error("Thông tin OAuth Client Secrets không đúng định dạng JSON!");
         }
       }
       const cfg = await saveGoogleDriveSettings(payload);
       setGdriveEnabled(cfg.enabled);
       setGdriveFolderId(cfg.folder_id);
+      setGdriveHasSecrets(cfg.has_secrets);
       setGdriveHasCredentials(cfg.has_credentials);
-      setGdriveClientEmail(cfg.client_email || "");
-      setGdriveProjectId(cfg.project_id || "");
+      setGdriveClientId(cfg.client_id || "");
+      setGdriveAuthorizedEmail(cfg.authorized_email || "");
       setGdriveJsonInput("");
       setGdriveOk(true);
       setGdriveMsg("Lưu cấu hình Google Drive thành công!");
@@ -386,6 +391,25 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       setGdriveMsg(err instanceof Error ? err.message : String(err));
     } finally {
       setGdriveSaving(false);
+    }
+  };
+
+  const handleAuthGdrive = async () => {
+    setGdriveAuthing(true);
+    setGdriveMsg("Đang mở trình duyệt xác thực Google... Vui lòng cấp quyền ở tab mới.");
+    setGdriveOk(null);
+    try {
+      const res = await authGoogleDrive();
+      setGdriveOk(res.success);
+      setGdriveMsg(res.message);
+      const cfg = await fetchGoogleDriveSettings();
+      setGdriveHasCredentials(cfg.has_credentials);
+      setGdriveAuthorizedEmail(cfg.authorized_email || "");
+    } catch (err) {
+      setGdriveOk(false);
+      setGdriveMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGdriveAuthing(false);
     }
   };
 
@@ -1946,7 +1970,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
               Cấu hình Google Drive Auto-Upload
             </h3>
             <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
-              Tự động tải lên các tệp tin ảnh hoặc video được tạo thành công lên tài khoản Google Drive của bạn thông qua Google Service Account.
+              Tự động tải lên các tệp tin ảnh hoặc video được tạo thành công lên tài khoản Google Drive cá nhân của bạn thông qua liên kết Google OAuth2.
             </p>
 
             {gdriveLoading ? (
@@ -1982,39 +2006,68 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                       style={{ marginTop: 6 }}
                     />
                     <span style={{ fontSize: "11px", color: "var(--muted)", marginTop: 4, display: "block" }}>
-                      * LƯU Ý: Bạn bắt buộc phải <strong>Chia sẻ quyền Chỉnh sửa (Editor)</strong> thư mục này với địa chỉ Email của Service Account ở dưới.
+                      * LƯU Ý: Đảm bảo tài khoản Google cá nhân của bạn có quyền xem/sửa thư mục này.
                     </span>
                   </label>
 
                   <label className="span-2" style={{ marginTop: 12 }}>
-                    Cấu hình Service Account JSON (Khóa bí mật)
+                    Cấu hình Google OAuth Client Secrets JSON
                     <textarea
                       rows={6}
                       value={gdriveJsonInput}
                       onChange={(e) => setGdriveJsonInput(e.target.value)}
-                      placeholder='Dán toàn bộ nội dung tệp tin JSON của Service Account vào đây. Ví dụ:
+                      placeholder='Dán toàn bộ nội dung tệp tin JSON OAuth Client ID (loại Desktop app) tải về từ Google Cloud Console vào đây. Ví dụ:
 {
-  "type": "service_account",
-  "project_id": "...",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "..."
+  "installed": {
+    "client_id": "...",
+    "project_id": "...",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "...",
+    "redirect_uris": ["http://localhost"]
+  }
 }'
                       style={{ fontFamily: "monospace", fontSize: "11px", marginTop: 6 }}
                     />
                   </label>
                 </div>
 
-                {/* Service Account connection status */}
-                {gdriveHasCredentials && (
-                  <div style={{ marginBottom: 20, padding: "14px", background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 6 }}>
-                    <h5 style={{ margin: "0 0 6px", color: "#10b981", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                      ✅ Đã lưu cấu hình Service Account
-                    </h5>
-                    <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.5 }}>
-                      <div><strong>Project ID:</strong> {gdriveProjectId}</div>
-                      <div style={{ wordBreak: "break-all" }}><strong>Email dịch vụ:</strong> <span style={{ color: "var(--blue-bright)" }}>{gdriveClientEmail}</span></div>
-                    </div>
+                {/* OAuth Configuration connection status */}
+                {gdriveHasSecrets ? (
+                  <div style={{ marginBottom: 20, padding: "14px", background: gdriveHasCredentials ? "rgba(16, 185, 129, 0.08)" : "rgba(245, 158, 11, 0.08)", border: gdriveHasCredentials ? "1px solid rgba(16, 185, 129, 0.2)" : "1px solid rgba(245, 158, 11, 0.2)", borderRadius: 6 }}>
+                    {gdriveHasCredentials ? (
+                      <div>
+                        <h5 style={{ margin: "0 0 6px", color: "#10b981", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          ✅ Đã liên kết tài khoản Google Drive cá nhân
+                        </h5>
+                        <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.5 }}>
+                          <div><strong>Tài khoản hoạt động:</strong> <span style={{ color: "var(--blue-bright)" }}>{gdriveAuthorizedEmail}</span></div>
+                          <div><strong>OAuth Client ID:</strong> {gdriveClientId}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <h5 style={{ margin: "0 0 8px", color: "#f59e0b", fontSize: "13px", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          ⚠️ Chưa liên kết tài khoản Google Drive
+                        </h5>
+                        <p style={{ margin: "0 0 12px", fontSize: "12px", color: "var(--muted)" }}>
+                          Đã lưu cấu hình Client Secrets (Client ID: {gdriveClientId}). Bạn cần bấm nút bên dưới để đăng nhập tài khoản Google cá nhân của bạn và cấp quyền truy cập.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={handleAuthGdrive}
+                          disabled={gdriveAuthing || gdriveSaving}
+                        >
+                          {gdriveAuthing ? "Đang mở trình duyệt..." : "Liên kết tài khoản Google Drive"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 20, padding: "14px", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 6, fontSize: "12px", color: "var(--red-bright)", fontWeight: 500 }}>
+                    ⚠️ Vui lòng cấu hình và lưu tệp JSON Client Secrets (loại Desktop app) để mở tính năng liên kết tài khoản Google Drive.
                   </div>
                 )}
 
@@ -2040,7 +2093,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                         type="button"
                         className="btn btn-ghost"
                         onClick={handleTestGdrive}
-                        disabled={gdriveTesting || gdriveSaving}
+                        disabled={gdriveTesting || gdriveSaving || gdriveAuthing}
                       >
                         {gdriveTesting ? "Đang kiểm tra..." : "Test Connection"}
                       </button>
@@ -2049,7 +2102,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                       type="button"
                       className="btn btn-primary"
                       onClick={handleSaveGdrive}
-                      disabled={gdriveSaving || gdriveTesting}
+                      disabled={gdriveSaving || gdriveTesting || gdriveAuthing}
                     >
                       {gdriveSaving ? "Đang lưu..." : "Lưu thay đổi"}
                     </button>

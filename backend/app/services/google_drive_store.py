@@ -1,4 +1,4 @@
-"""Persist Google Drive upload settings (local JSON)."""
+"""Persist Google Drive OAuth2 settings (local JSON)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,9 @@ _FILE = settings.data_dir / "google_drive_settings.json"
 DEFAULTS: dict[str, Any] = {
     "enabled": False,
     "folder_id": "",
-    "service_account_info": "",  # Pasted JSON string or parsed dict
+    "client_secrets_json": "",      # Client ID / Secrets uploaded by user
+    "oauth_credentials_json": "",   # Access/Refresh tokens saved after login
+    "authorized_email": "",         # Google Account email of logged-in user
 }
 
 def _path():
@@ -45,9 +47,7 @@ def save_raw(patch: dict[str, Any]) -> dict[str, Any]:
                 continue
             if key == "enabled":
                 current[key] = bool(val)
-            elif key == "folder_id":
-                current[key] = str(val).strip() if val is not None else ""
-            elif key == "service_account_info":
+            elif key in ("folder_id", "client_secrets_json", "oauth_credentials_json", "authorized_email"):
                 if isinstance(val, dict):
                     current[key] = json.dumps(val, ensure_ascii=False)
                 else:
@@ -61,26 +61,36 @@ def save_raw(patch: dict[str, Any]) -> dict[str, Any]:
 
 def public_view(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     data = raw or load_raw()
-    sa_info = str(data.get("service_account_info") or "").strip()
+    secrets = str(data.get("client_secrets_json") or "").strip()
+    creds = str(data.get("oauth_credentials_json") or "").strip()
     
-    # Check if Service Account info is a valid JSON dict containing private_key
-    has_credentials = False
-    client_email = ""
-    project_id = ""
-    if sa_info:
+    has_secrets = False
+    client_id = ""
+    if secrets:
         try:
-            parsed = json.loads(sa_info)
-            if isinstance(parsed, dict) and "private_key" in parsed and "client_email" in parsed:
+            parsed = json.loads(secrets)
+            # Support both web and installed client secret structures
+            oauth_payload = parsed.get("web") or parsed.get("installed") or parsed
+            if "client_id" in oauth_payload:
+                has_secrets = True
+                client_id = oauth_payload.get("client_id", "")
+        except Exception:
+            pass
+            
+    has_credentials = False
+    if creds:
+        try:
+            parsed = json.loads(creds)
+            if isinstance(parsed, dict) and "refresh_token" in parsed:
                 has_credentials = True
-                client_email = parsed.get("client_email", "")
-                project_id = parsed.get("project_id", "")
         except Exception:
             pass
             
     return {
         "enabled": bool(data.get("enabled")),
         "folder_id": str(data.get("folder_id") or ""),
+        "has_secrets": has_secrets,
         "has_credentials": has_credentials,
-        "client_email": client_email,
-        "project_id": project_id,
+        "client_id": client_id[:15] + "..." if len(client_id) > 15 else client_id,
+        "authorized_email": str(data.get("authorized_email") or ""),
     }
