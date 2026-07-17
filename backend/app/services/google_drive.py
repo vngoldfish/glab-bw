@@ -74,6 +74,35 @@ def _sync_upload_file(file_path: Path) -> str:
     
     web_link = uploaded.get("webViewLink", "")
     logger.info("Successfully uploaded %s to Google Drive. Link: %s", file_path.name, web_link)
+    
+    # Save mapping of local relative file path -> Google Drive URL
+    try:
+        from app.core.config import settings
+        rel_path = file_path.relative_to(settings.data_dir).as_posix()
+        
+        mapping_file = settings.data_dir / "google_drive_file_mappings.json"
+        mappings = {}
+        if mapping_file.is_file():
+            try:
+                mappings = json.loads(mapping_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        
+        mappings[rel_path] = web_link
+        mapping_file.write_text(json.dumps(mappings, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info("Saved Google Drive file mapping: %s -> %s", rel_path, web_link)
+    except Exception:
+        logger.exception("Failed to save Google Drive file mapping")
+        
+    # OPTIMIZATION: If save_local is False, delete the local file after successful upload!
+    if not raw.get("save_local", True):
+        try:
+            if file_path.is_file():
+                file_path.unlink()
+                logger.info("Deleted temporary local file %s after upload.", file_path.name)
+        except Exception:
+            logger.exception("Failed to delete temporary local file %s", file_path.name)
+            
     return web_link
 
 async def upload_file(file_path: Path) -> str:
@@ -86,3 +115,16 @@ async def upload_file(file_path: Path) -> str:
     except Exception:
         logger.exception("Failed to upload file %s to Google Drive", file_path.name)
         return ""
+
+def get_drive_mapping(rel_path: str) -> str | None:
+    """Check if a local file relative path maps to an uploaded Google Drive web Link."""
+    from app.core.config import settings
+    mapping_file = settings.data_dir / "google_drive_file_mappings.json"
+    if not mapping_file.is_file():
+        return None
+    try:
+        mappings = json.loads(mapping_file.read_text(encoding="utf-8"))
+        standardized_rel = rel_path.replace("\\", "/")
+        return mappings.get(standardized_rel)
+    except Exception:
+        return None

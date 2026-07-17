@@ -192,6 +192,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
 
   // Google Drive Configuration State
   const [gdriveEnabled, setGdriveEnabled] = useState(false);
+  const [gdriveSaveLocal, setGdriveSaveLocal] = useState(true);
   const [gdriveFolderId, setGdriveFolderId] = useState("");
   const [gdriveHasSecrets, setGdriveHasSecrets] = useState(false);
   const [gdriveHasCredentials, setGdriveHasCredentials] = useState(false);
@@ -342,6 +343,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
         try {
           const cfg = await fetchGoogleDriveSettings();
           setGdriveEnabled(cfg.enabled);
+          setGdriveSaveLocal(cfg.save_local);
           setGdriveFolderId(cfg.folder_id);
           setGdriveHasSecrets(cfg.has_secrets);
           setGdriveHasCredentials(cfg.has_credentials);
@@ -364,8 +366,9 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     setGdriveOk(null);
     try {
       const secretsText = gdriveJsonInput.trim();
-      const payload: { enabled: boolean; folder_id: string; client_secrets_json?: string } = {
+      const payload: { enabled: boolean; save_local: boolean; folder_id: string; client_secrets_json?: string } = {
         enabled: gdriveEnabled,
+        save_local: gdriveSaveLocal,
         folder_id: gdriveFolderId,
       };
       if (secretsText) {
@@ -378,6 +381,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       }
       const cfg = await saveGoogleDriveSettings(payload);
       setGdriveEnabled(cfg.enabled);
+      setGdriveSaveLocal(cfg.save_local);
       setGdriveFolderId(cfg.folder_id);
       setGdriveHasSecrets(cfg.has_secrets);
       setGdriveHasCredentials(cfg.has_credentials);
@@ -1980,7 +1984,7 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
             ) : (
               <div>
                 {/* Switch enabled status */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid var(--border-light)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid var(--border-light)" }}>
                   <div>
                     <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>Tự động tải lên Google Drive</h4>
                     <span style={{ fontSize: "12px", color: "var(--muted)" }}>Bật tính năng tự động tải lên khi tác vụ tạo ảnh/video hoàn thành.</span>
@@ -1989,7 +1993,30 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                     <input
                       type="checkbox"
                       checked={gdriveEnabled}
-                      onChange={(e) => setGdriveEnabled(e.target.checked)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setGdriveEnabled(checked);
+                        if (!checked) {
+                          setGdriveSaveLocal(true);
+                        }
+                      }}
+                    />
+                    <span className="slider round"></span>
+                  </label>
+                </div>
+
+                {/* Switch save_local status */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, padding: "12px 16px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid var(--border-light)", opacity: gdriveEnabled ? 1 : 0.5 }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 600 }}>Lưu tệp cục bộ trên máy tính (Local)</h4>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>Nếu tắt, tệp tin sẽ tự động xóa khỏi máy tính ngay sau khi tải lên Google Drive thành công.</span>
+                  </div>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={gdriveSaveLocal}
+                      disabled={!gdriveEnabled}
+                      onChange={(e) => setGdriveSaveLocal(e.target.checked)}
                     />
                     <span className="slider round"></span>
                   </label>

@@ -234,6 +234,7 @@ async def get_credits() -> dict:
 
 class GoogleDriveSettingsUpdate(BaseModel):
     enabled: bool | None = None
+    save_local: bool | None = None
     folder_id: str | None = None
     client_secrets_json: str | dict | None = None
 

@@ -232,8 +232,9 @@ async def open_folder(body: OpenFolderRequest) -> dict:
 
 
 @router.get("/files/{file_path:path}")
-async def get_file(file_path: str) -> FileResponse:
+async def get_file(file_path: str):
     from app.services.output_storage import resolve_data_file
+    from fastapi.responses import RedirectResponse
 
     try:
         file_path_resolved = resolve_data_file(file_path)
@@ -241,6 +242,12 @@ async def get_file(file_path: str) -> FileResponse:
         raise HTTPException(status_code=400, detail={"error": "Invalid file path"}) from None
 
     if not file_path_resolved.is_file():
+        # Check if we have a Google Drive mapping for this file
+        from app.services.google_drive import get_drive_mapping
+        drive_url = get_drive_mapping(file_path)
+        if drive_url:
+            return RedirectResponse(url=drive_url, status_code=307)
+
         # Back-compat: flat files saved before subfolder support
         legacy = settings.output_dir / Path(file_path).name
         if legacy.is_file():

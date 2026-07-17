@@ -1491,6 +1491,7 @@ export async function fetchCreditsUsage(): Promise<CreditUsageConfig> {
 
 export interface GoogleDriveSettings {
   enabled: boolean;
+  save_local: boolean;
   folder_id: string;
   has_secrets: boolean;
   has_credentials: boolean;
@@ -1506,6 +1507,7 @@ export async function fetchGoogleDriveSettings(): Promise<GoogleDriveSettings> {
 
 export async function saveGoogleDriveSettings(payload: {
   enabled?: boolean;
+  save_local?: boolean;
   folder_id?: string;
   client_secrets_json?: string | Record<string, unknown>;
 }): Promise<GoogleDriveSettings> {

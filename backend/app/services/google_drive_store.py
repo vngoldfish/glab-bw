@@ -13,6 +13,7 @@ _FILE = settings.data_dir / "google_drive_settings.json"
 
 DEFAULTS: dict[str, Any] = {
     "enabled": False,
+    "save_local": True,             # Whether to keep files locally or delete after Drive upload
     "folder_id": "",
     "client_secrets_json": "",      # Client ID / Secrets uploaded by user
     "oauth_credentials_json": "",   # Access/Refresh tokens saved after login
@@ -45,7 +46,7 @@ def save_raw(patch: dict[str, Any]) -> dict[str, Any]:
         for key, val in patch.items():
             if key not in DEFAULTS:
                 continue
-            if key == "enabled":
+            if key in ("enabled", "save_local"):
                 current[key] = bool(val)
             elif key in ("folder_id", "client_secrets_json", "oauth_credentials_json", "authorized_email"):
                 if isinstance(val, dict):
@@ -88,6 +89,7 @@ def public_view(raw: dict[str, Any] | None = None) -> dict[str, Any]:
             
     return {
         "enabled": bool(data.get("enabled")),
+        "save_local": bool(data.get("save_local", True)),
         "folder_id": str(data.get("folder_id") or ""),
         "has_secrets": has_secrets,
         "has_credentials": has_credentials,
