@@ -3,7 +3,7 @@ from typing import Any
 
 from app.providers.base import ProviderError
 
-_MENTION_PATTERN = re.compile(r"@([a-zA-Z][a-zA-Z0-9_]*)")
+_MENTION_PATTERN = re.compile(r"@([^\W\d_]\w*)")
 
 
 def _normalize_prompt(prompt: str) -> str:
@@ -19,7 +19,7 @@ def _ordered_mentions(
     hits: list[tuple[int, str]] = []
 
     for name in ref_by_name:
-        pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
+        pattern = re.compile(rf"@{re.escape(name)}(?!\w)", re.IGNORECASE)
         for match in pattern.finditer(prompt):
             hits.append((match.start(), name.lower()))
 
@@ -117,12 +117,12 @@ def resolve_prompt_references(
     if rewrite_markers:
         for index, name in enumerate(ordered_names):
             slot = index + 1
-            pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
+            pattern = re.compile(rf"@{re.escape(name)}(?!\w)", re.IGNORECASE)
             rewritten_prompt = pattern.sub(f"@reference_{slot}", rewritten_prompt)
     else:
         # Normalize prompt mentions to lowercase (e.g. @MODERNYOU -> @modernyou)
         for name in ordered_names:
-            pattern = re.compile(rf"@{re.escape(name)}(?![a-zA-Z0-9_])", re.IGNORECASE)
+            pattern = re.compile(rf"@{re.escape(name)}(?!\w)", re.IGNORECASE)
             rewritten_prompt = pattern.sub(f"@{name}", rewritten_prompt)
 
     ordered_items = []
