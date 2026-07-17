@@ -396,6 +396,32 @@ async def _execute_node(
         params["workflow_node_id"] = nid
         if ref_data:
             params["reference_images"] = ref_data
+        # Collect Reference nodes connected to the "image" handle of this node to preserve refNames
+        connected_references = []
+        if workflow:
+            edges_list = list(workflow.get("edges") or [])
+            nodes_list = list(workflow.get("nodes") or [])
+            nodes_map = {str(n["id"]): n for n in nodes_list}
+            for e in edges_list:
+                if str(e.get("target")) == nid and str(e.get("targetHandle")) == "image":
+                    src_id = str(e.get("source"))
+                    src_node = nodes_map.get(src_id)
+                    if src_node and src_node.get("type") in {"reference", "generate_plus"}:
+                        src_data = src_node.get("data") or {}
+                        ref_name = str(src_data.get("refName") or "").lstrip("@").strip()
+                        img_val = outputs.get(src_id, {}).get("image") or outputs.get(src_id, {}).get("results")
+                        img_url = img_val[0] if img_val else (
+                            src_data.get("image")
+                            or src_data.get("file_url")
+                            or src_data.get("file_path")
+                            or (src_data.get("resultUrls") and src_data.get("resultUrls")[0])
+                        )
+                        if ref_name and img_url:
+                            connected_references.append({
+                                "name": ref_name,
+                                "url": img_url
+                            })
+
         try:
             from app.services import reference_storage
             library_refs = reference_storage.list_references().get("references", [])
@@ -404,6 +430,20 @@ async def _execute_node(
             library_refs = []
 
         active_named_refs = list(library_refs)
+
+        # Convert connected Reference nodes to base64 data URLs and override/append to named_references
+        for ref in connected_references:
+            try:
+                data_url = await _url_to_data_url(ref["url"])
+                # Override if character with the same name exists
+                active_named_refs = [r for r in active_named_refs if r.get("name") != ref["name"]]
+                active_named_refs.append({
+                    "name": ref["name"],
+                    "data": data_url
+                })
+            except Exception as e:
+                logger.error("Failed to convert connected reference %s to data URL: %s", ref["name"], e)
+
         inline_ref_img = data.get("image")
         inline_ref_name = data.get("refName")
         if inline_ref_img and inline_ref_name:
