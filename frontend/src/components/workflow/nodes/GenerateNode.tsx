@@ -155,6 +155,41 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
           onClose={() => setShowModal(false)}
         />
       )}
+
+      {d.onRerun && (
+        <div style={{ marginTop: 12, display: "flex", gap: 6 }}>
+          <button
+            type="button"
+            className="wf-btn nodrag"
+            style={{
+              width: "100%",
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              background: d.runStatus === "running" ? "rgba(56, 189, 248, 0.15)" : "rgba(34, 197, 94, 0.15)",
+              border: d.runStatus === "running" ? "1px solid rgba(56, 189, 248, 0.3)" : "1px solid rgba(34, 197, 94, 0.3)",
+              color: d.runStatus === "running" ? "#38bdf8" : "#4ade80",
+              borderRadius: 8,
+              cursor: d.runStatus === "running" ? "not-allowed" : "pointer",
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+            }}
+            disabled={d.runStatus === "running"}
+            onClick={() => d.onRerun?.(id)}
+          >
+            {d.runStatus === "running" ? (
+              <>⏳ Đang chạy...</>
+            ) : d.runStatus === "completed" || d.runStatus === "failed" ? (
+              <>⟳ Chạy lại node này</>
+            ) : (
+              <>▶ Chạy node này</>
+            )}
+          </button>
+        </div>
+      )}
     </Shell>
   );
 }
