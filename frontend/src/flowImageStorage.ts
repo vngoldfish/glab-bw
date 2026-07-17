@@ -27,9 +27,6 @@ function normalizeRowOnLoad(row: QueueRow): QueueRow {
     endFrameName: row.endFrameName ?? null,
     endFrameImage: row.endFrameImage ?? null,
   };
-  if (next.status === "running" || next.status === "queued") {
-    next = { ...next, status: "idle" as const, error: null };
-  }
   if (next.status === "completed") {
     next = { ...next, selected: false };
   }
@@ -37,7 +34,15 @@ function normalizeRowOnLoad(row: QueueRow): QueueRow {
 }
 
 function normalizeRowsOnLoad(rows: QueueRow[]): QueueRow[] {
-  return rows.map(normalizeRowOnLoad);
+  const seen = new Set<string>();
+  const uniqueRows: QueueRow[] = [];
+  for (const r of rows) {
+    if (!r.id) continue;
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    uniqueRows.push(normalizeRowOnLoad(r));
+  }
+  return uniqueRows;
 }
 
 function stripReferenceImages(rows: QueueRow[]): QueueRow[] {

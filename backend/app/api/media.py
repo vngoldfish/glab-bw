@@ -49,7 +49,7 @@ def _resolve_video_path(file_path: str = "", file_url: str = "") -> Path:
 async def extract_frames_api(body: ExtractFramesBody) -> dict:
     path = _resolve_video_path(body.file_path, body.file_url)
     try:
-        frames = extract_frames(path, positions=body.positions or ["start", "end", "middle"])
+        frames = await extract_frames(path, positions=body.positions or ["start", "end", "middle"])
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"error": str(exc)}) from exc
     except RuntimeError as exc:
@@ -82,7 +82,7 @@ async def extract_frames_upload(
         "end",
     ]
     try:
-        frames = extract_frames(dest, positions=pos_list)
+        frames = await extract_frames(dest, positions=pos_list)
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"error": str(exc)}) from exc
     return {

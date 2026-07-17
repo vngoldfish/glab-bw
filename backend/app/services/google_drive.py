@@ -5,12 +5,27 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
+import threading
 from pathlib import Path
 from typing import Any
 
 from googleapiclient.http import MediaFileUpload
 
 logger = logging.getLogger(__name__)
+
+_mapping_lock = threading.Lock()
+
+_MIME_MAP = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+}
 
 from app.services.google_drive_oauth import get_drive_service
 
@@ -58,7 +73,8 @@ def _sync_upload_file(file_path: Path) -> str:
     if folder_id:
         file_metadata["parents"] = [folder_id]
         
-    mime_type = "video/mp4" if file_path.suffix.lower() == ".mp4" else "image/png"
+    suffix = file_path.suffix.lower()
+    mime_type = _MIME_MAP.get(suffix) or mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
     media = MediaFileUpload(
         str(file_path),
         mimetype=mime_type,
@@ -81,15 +97,16 @@ def _sync_upload_file(file_path: Path) -> str:
         rel_path = file_path.relative_to(settings.data_dir).as_posix()
         
         mapping_file = settings.data_dir / "google_drive_file_mappings.json"
-        mappings = {}
-        if mapping_file.is_file():
-            try:
-                mappings = json.loads(mapping_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        
-        mappings[rel_path] = web_link
-        mapping_file.write_text(json.dumps(mappings, ensure_ascii=False, indent=2), encoding="utf-8")
+        with _mapping_lock:
+            mappings = {}
+            if mapping_file.is_file():
+                try:
+                    mappings = json.loads(mapping_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            
+            mappings[rel_path] = web_link
+            mapping_file.write_text(json.dumps(mappings, ensure_ascii=False, indent=2), encoding="utf-8")
         logger.info("Saved Google Drive file mapping: %s -> %s", rel_path, web_link)
     except Exception:
         logger.exception("Failed to save Google Drive file mapping")

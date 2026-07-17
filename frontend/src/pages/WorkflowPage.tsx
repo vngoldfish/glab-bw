@@ -1343,6 +1343,28 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     [setEdges],
   );
 
+  const isValidConnection = useCallback((connection: any) => {
+    const sourceHandle = connection.sourceHandle;
+    const targetHandle = connection.targetHandle;
+    if (!sourceHandle || !targetHandle) return false;
+
+    // prompt only connects to prompt
+    if (sourceHandle === "prompt" && targetHandle !== "prompt") return false;
+    if (targetHandle === "prompt" && sourceHandle !== "prompt") return false;
+
+    // video only connects to video
+    if (sourceHandle === "video" && targetHandle !== "video") return false;
+    if (targetHandle === "video" && sourceHandle !== "video") return false;
+
+    // image / start_image / end_image only connects to image / start_image / end_image / reference
+    const isImageSource = ["image", "start_image", "end_image"].includes(sourceHandle);
+    const isImageTarget = ["image", "start_image", "end_image", "reference"].includes(targetHandle);
+    if (isImageSource && !isImageTarget) return false;
+    if (isImageTarget && !isImageSource) return false;
+
+    return true;
+  }, []);
+
   function addNode(type: string) {
     const titles: Record<string, string> = {
       prompt: "Prompt",
@@ -2577,6 +2599,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               onNodesChange={onNodesChangeTracked}
               onEdgesChange={onEdgesChangeTracked}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
               nodeTypes={nodeTypesRef.current}
               onInit={(instance) => {
                 rf.current = instance;

@@ -7,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -165,6 +165,13 @@ async def lifespan(_app: FastAPI):
         settings.port,
         settings.max_concurrent_tasks,
     )
+    # Run cleanup of old frames on startup (M7)
+    try:
+        from app.services.frame_extract import cleanup_old_frames
+        cleanup_old_frames()
+    except Exception:
+        logger.exception("Failed to run startup frames cleanup")
+
     try:
         yield
     finally:
@@ -208,6 +215,128 @@ app.include_router(video_editor.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/templates/index", response_class=HTMLResponse)
+@app.get("/dashboard-view", response_class=HTMLResponse)
+async def get_dashboard_view():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "index.html"
+    if template_path.is_file():
+        return HTMLResponse(content=template_path.read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail="Template not found")
+
+@app.get("/api/settings")
+async def get_settings_route():
+    try:
+        import database
+    except ImportError:
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).resolve().parents[1]))
+        import database
+    return database.get_settings()
+
+@app.post("/api/settings")
+async def save_settings_route(payload: dict):
+    try:
+        import database
+    except ImportError:
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).resolve().parents[1]))
+        import database
+    auto_reply_enabled = int(payload.get("auto_reply_enabled", 0))
+    auto_reply_template = payload.get("auto_reply_template", "Cảm ơn bạn đã quan tâm!")
+    database.save_settings(auto_reply_enabled, auto_reply_template)
+    return {"status": "ok"}
+
+# Keep track of active websocket connections
+class ExtensionConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+extension_conn_manager = ExtensionConnectionManager()
+
+@app.websocket("/ws/extension")
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    from fastapi import WebSocketDisconnect
+    await extension_conn_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            event_type = data.get("event") or data.get("action")
+            
+            if event_type == "fb_post_comments":
+                post_id = data.get("post_id")
+                comments = data.get("comments") or []
+                
+                try:
+                    import database
+                except ImportError:
+                    import sys
+                    from pathlib import Path
+                    sys.path.append(str(Path(__file__).resolve().parents[1]))
+                    import database
+                
+                settings_data = database.get_settings()
+                auto_reply_enabled = settings_data.get("auto_reply_enabled", 0)
+                reply_template = settings_data.get("auto_reply_template", "Cảm ơn bạn đã quan tâm!")
+                
+                for c in comments:
+                    comment_id = c.get("comment_id")
+                    author = c.get("author")
+                    comment_text = c.get("comment_text")
+                    
+                    if not comment_id or not post_id:
+                        continue
+                        
+                    existing = database.get_comment(comment_id)
+                    database.save_comment(comment_id, post_id, author, comment_text)
+                    
+                    is_replied = 0
+                    if existing:
+                        is_replied = existing.get("is_replied", 0)
+                        
+                    if auto_reply_enabled and not is_replied:
+                        reply_text = reply_template
+                        database.mark_comment_replied(comment_id, reply_text)
+                        
+                        reply_message = {
+                            "action": "reply_comment",
+                            "post_id": post_id,
+                            "comment_id": comment_id,
+                            "author": author,
+                            "comment_text": comment_text,
+                            "reply_text": reply_text
+                        }
+                        await websocket.send_json(reply_message)
+            
+            # Broadcast all messages to keep other connected UIs in sync
+            await extension_conn_manager.broadcast(data)
+            
+    except WebSocketDisconnect:
+        extension_conn_manager.disconnect(websocket)
+    except Exception:
+        logger.exception("WebSocket error in /ws/extension")
+        extension_conn_manager.disconnect(websocket)
+
 
 # Production UI: frontend/dist (vite build). Dev still uses Vite :5173.
 FRONTEND_DIST = RESOURCES_ROOT / "frontend" / "dist"

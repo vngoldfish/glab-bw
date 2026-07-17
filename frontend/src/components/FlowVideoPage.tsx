@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   extractFramesFromPath,
   extractFramesUpload,
@@ -12,6 +12,7 @@ import {
   submitBatch,
   mediaUrl,
   fetchFlowModels,
+  apiFetch,
 } from "../api";
 import {
   clearFlowVideoSnapshot,
@@ -359,6 +360,27 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const [rows, setRows] = useState<QueueRow[]>(
     () => loadFlowVideoSnapshot()?.rows ?? [],
   );
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname !== "/flow-video") return;
+    const localSnapshot = loadFlowVideoSnapshot();
+    if (localSnapshot) {
+      if (localSnapshot.rows) {
+        setRows(localSnapshot.rows);
+      }
+      if (localSnapshot.config) {
+        setConfig(localSnapshot.config);
+      }
+      if (localSnapshot.promptInput !== undefined) {
+        setPromptInput(localSnapshot.promptInput);
+      }
+      if (localSnapshot.advancedOpen !== undefined) {
+        setAdvancedOpen(localSnapshot.advancedOpen);
+      }
+    }
+  }, [location]);
+
   const [running, setRunning] = useState(false);
   const [queueSearch, setQueueSearch] = useState("");
   const [activeMedia, setActiveMedia] = useState<{ url: string; type: "image" | "video" } | null>(null);
@@ -547,12 +569,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
     async function loadRecentFromBackend() {
       try {
-        const res = await fetch("/api/batch/tasks/recent");
+        const res = await apiFetch("/api/batch/tasks/recent");
         if (!res.ok) return;
         const tasks = (await res.json()) as Array<any>;
         const videoTasks = tasks.filter((t) => t.task_type === "video");
         
-        const restoredRows = videoTasks.map((t, idx) => {
+        const seenRowIds = new Set<string>();
+        const uniqueVideoTasks = videoTasks.filter((t) => {
+          if (!t.row_id) return true;
+          if (seenRowIds.has(t.row_id)) return false;
+          seenRowIds.add(t.row_id);
+          return true;
+        });
+
+        const restoredRows = uniqueVideoTasks.map((t, idx) => {
           return {
             id: t.row_id || t.task_id || `backend-${idx}-${Date.now()}`,
             selected: false,
@@ -603,7 +633,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch("/api/batch/tasks/recent");
+        const res = await apiFetch("/api/batch/tasks/recent");
         if (!res.ok) return;
         const tasks = (await res.json()) as Array<any>;
 

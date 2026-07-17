@@ -69,7 +69,7 @@ const BACKEND_HINT = isMac
   ? "Backend chưa chạy — hãy mở Terminal và chạy ./start.sh hoặc npm start"
   : "Backend chưa chạy — hãy mở PowerShell và chạy .\\start-backend.ps1 (giữ cửa sổ mở)";
 
-async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(input, init);
   } catch (err) {
@@ -236,13 +236,20 @@ export async function submitBatch(
   items: { prompt: string; provider: BatchProvider; params?: BatchItemParams }[],
   concurrency: number,
 ): Promise<BatchResult> {
-  const res = await apiFetch("/api/batch/submit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items, concurrency }),
-  });
-  await ensureOk(res, "Batch submit failed");
-  return readJson<BatchResult>(res);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  try {
+    const res = await apiFetch("/api/batch/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, concurrency }),
+      signal: controller.signal,
+    });
+    await ensureOk(res, "Batch submit failed");
+    return await readJson<BatchResult>(res);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export interface AiSettings {
@@ -969,6 +976,7 @@ export async function saveWorkflow(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: doc.name,
+      description: doc.description,
       nodes: doc.nodes,
       edges: doc.edges,
       viewport: doc.viewport,
@@ -1417,6 +1425,7 @@ export async function runSavedWorkflow(
       skip_completed: Boolean(opts.skip_completed),
       only_node_ids: opts.only_node_ids ?? null,
       prior_results: opts.prior_results ?? null,
+      project_id: opts.project_id ?? null,
     }),
   });
   await ensureOk(res, "Chạy workflow thất bại");

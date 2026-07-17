@@ -209,7 +209,7 @@ def resolve_image_model(model: str) -> str:
 
 
 def resolve_image_aspect(aspect_ratio: str, *, has_references: bool = False) -> str | None:
-    if aspect_ratio == "auto" or (has_references and aspect_ratio not in IMAGE_ASPECTS):
+    if aspect_ratio == "auto" or has_references:
         return None
     return IMAGE_ASPECTS.get(aspect_ratio, IMAGE_ASPECTS["1:1"])
 

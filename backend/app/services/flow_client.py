@@ -348,9 +348,17 @@ class GoogleFlowClient:
         # Free tier often rejects GEM_PIX (Pro) with INTERNAL — fall back to working models
         primary = resolve_image_model(model)
         model_candidates: list[str] = []
-        for name in (primary, "NARWHAL", "NARWHAL_PRO", "NARWHAL_LITE"):
-            if name and name not in model_candidates:
-                model_candidates.append(name)
+        if has_references:
+            if "NARWHAL" in primary:
+                primary = "GEM_PIX_2"
+            model_candidates = [primary]
+            for name in ("GEM_PIX_2", "GEM_PIX"):
+                if name not in model_candidates:
+                    model_candidates.append(name)
+        else:
+            for name in (primary, "NARWHAL", "NARWHAL_PRO", "NARWHAL_LITE"):
+                if name and name not in model_candidates:
+                    model_candidates.append(name)
 
         # Prefer next model over same-model spam when Google returns INTERNAL for Pro/etc.
         attempts_per_model = 2
@@ -766,7 +774,7 @@ class GoogleFlowClient:
             ref_ids: list[str] | None,
             browser_like: bool,
             use_v2_config: bool = True,
-        ) -> str:
+        ) -> tuple[str, str]:
             nonlocal submit, used_key
             submit = await _submit_once(
                 model_key=model_key,
@@ -794,6 +802,7 @@ class GoogleFlowClient:
             )
 
         media_name: str | None = None
+        refreshed_token = access_token
 
         # --- Primary attempts: submit+poll per model key ---
         # Critical for FL: wrong *_fl / tier key often submits OK then poll FAILED.
@@ -809,7 +818,7 @@ class GoogleFlowClient:
                         not (active_mode == "start_end_image" and attempt >= 1)
                         and "veo_3_1" in model_key
                     )
-                    media_name = await _submit_and_poll(
+                    media_name, refreshed_token = await _submit_and_poll(
                         model_key=model_key,
                         mode_name=active_mode,
                         ep=endpoint,
@@ -893,7 +902,7 @@ class GoogleFlowClient:
 
             for model_key in i2v_keys[:4]:
                 try:
-                    media_name = await _submit_and_poll(
+                    media_name, refreshed_token = await _submit_and_poll(
                         model_key=model_key,
                         mode_name="start_image",
                         ep="video:batchAsyncGenerateVideoStartImage",
@@ -912,6 +921,7 @@ class GoogleFlowClient:
                     await asyncio.sleep(2)
 
         # --- Last resort for Ingredients only: pure T2V (never for true FL) ---
+        # Note: we use active_mode == "components" here
         if media_name is None and active_mode == "components":
             logger.warning("I2V fallback failed — last resort pure T2V without references")
             t2v_keys = resolve_video_model_candidates(
@@ -932,7 +942,7 @@ class GoogleFlowClient:
                     t2v_keys.append(key)
             for model_key in t2v_keys[:4]:
                 try:
-                    media_name = await _submit_and_poll(
+                    media_name, refreshed_token = await _submit_and_poll(
                         model_key=model_key,
                         mode_name="text_to_video",
                         ep="video:batchAsyncGenerateVideoText",
@@ -973,7 +983,7 @@ class GoogleFlowClient:
         )
 
         base_video = await self._download_video(
-            access_token,
+            refreshed_token,
             media_name,
             session_token=session_token,
         )
@@ -1013,7 +1023,23 @@ class GoogleFlowClient:
         project_id: str | None = None,
         session_token: str | None = None,
         task_id: str | None = None,
-    ) -> str:
+    ) -> tuple[str, str]:
+        def extract_percent(obj) -> int:
+            if not isinstance(obj, dict):
+                return -1
+            for key in ("percentComplete", "progressPercent", "generationProgress", "progress", "percent"):
+                val = obj.get(key)
+                if val is not None:
+                    try:
+                        f_val = float(val)
+                        if 0.0 < f_val <= 1.0:
+                            return int(f_val * 100)
+                        if 1.0 < f_val <= 100.0:
+                            return int(f_val)
+                    except (ValueError, TypeError):
+                        pass
+            return -1
+
         media_refs = []
         for op in operations:
             name = (
@@ -1070,23 +1096,6 @@ class GoogleFlowClient:
                 )
                 
                 # Extract actual progress percentage from Google Flow response
-                pct = -1
-                def extract_percent(obj) -> int:
-                    if not isinstance(obj, dict):
-                        return -1
-                    for key in ("percentComplete", "progressPercent", "generationProgress", "progress", "percent"):
-                        val = obj.get(key)
-                        if val is not None:
-                            try:
-                                f_val = float(val)
-                                if 0.0 < f_val <= 1.0:
-                                    return int(f_val * 100)
-                                if 1.0 < f_val <= 100.0:
-                                    return int(f_val)
-                            except (ValueError, TypeError):
-                                pass
-                    return -1
-
                 pct = extract_percent(nested)
                 if pct == -1:
                     pct = extract_percent(item)
@@ -1132,7 +1141,7 @@ class GoogleFlowClient:
                 if "SUCCESS" in status or "COMPLETE" in status or "DONE" in status:
                     media_name = self._extract_media_name(item)
                     if media_name:
-                        return media_name
+                        return media_name, current_access_token
             await asyncio.sleep(5)
         raise ProviderError("Timeout: video generation chưa hoàn thành", error_code=0)
 
@@ -1174,13 +1183,13 @@ class GoogleFlowClient:
             json_data=payload,
             timeout=60.0,
         )
-        media_name = await self._poll_video(
+        media_name, ref_at = await self._poll_video(
             access_token,
             submit.get("operations", []),
             project_id=project_id,
             session_token=session_token,
         )
-        return await self._download_video(access_token, media_name, session_token=session_token)
+        return await self._download_video(ref_at, media_name, session_token=session_token)
 
     async def _download_video(
         self,

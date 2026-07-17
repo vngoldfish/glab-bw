@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   normalizeFileUrl,
   openOutputFolder,
@@ -10,6 +10,7 @@ import {
   submitBatch,
   mediaUrl,
   fetchFlowModels,
+  apiFetch,
 } from "../api";
 import {
   clearFlowImageSnapshot,
@@ -175,6 +176,27 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [rows, setRows] = useState<QueueRow[]>(
     () => loadFlowImageSnapshot()?.rows ?? [],
   );
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.pathname !== "/flow-image") return;
+    const localSnapshot = loadFlowImageSnapshot();
+    if (localSnapshot) {
+      if (localSnapshot.rows) {
+        setRows(localSnapshot.rows);
+      }
+      if (localSnapshot.config) {
+        setConfig(localSnapshot.config);
+      }
+      if (localSnapshot.promptInput !== undefined) {
+        setPromptInput(localSnapshot.promptInput);
+      }
+      if (localSnapshot.advancedOpen !== undefined) {
+        setAdvancedOpen(localSnapshot.advancedOpen);
+      }
+    }
+  }, [location]);
+
   const [running, setRunning] = useState(false);
   const [activeMedia, setActiveMedia] = useState<{ url: string; type: "image" | "video" } | null>(null);
   const [queueSearch, setQueueSearch] = useState("");
@@ -193,6 +215,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [customActionVal, setCustomActionVal] = useState("");
+  const [keepOriginalPrompt, setKeepOriginalPrompt] = useState(true);
 
   const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number }>>([]);
   const [flowModelsLoaded, setFlowModelsLoaded] = useState(false);
@@ -251,7 +274,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     if (!continueModal) return;
     const { imageUrl, promptText } = continueModal;
 
-    let finalPrompt = promptText;
+    let finalPrompt = keepOriginalPrompt ? promptText : "";
     const trimmedAction = actionText.trim();
 
     if (useAi) {
@@ -260,23 +283,31 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
         if (trimmedAction) {
           try {
             const response = await rewritePromptAi({
-              prompt: `Prompt gốc: "${promptText}"\nDiễn biến cảnh tiếp theo: "${trimmedAction}"`,
+              prompt: keepOriginalPrompt
+                ? `Prompt gốc: "${promptText}"\nDiễn biến cảnh tiếp theo: "${trimmedAction}"`
+                : `Viết prompt tạo ảnh cho cảnh tiếp theo với diễn biến: "${trimmedAction}"`,
               kind: "image",
               locale: "vi",
             });
             if (response && response.prompt) {
               finalPrompt = response.prompt;
             } else {
-              finalPrompt = `${promptText}, ${trimmedAction}`;
+              finalPrompt = keepOriginalPrompt && promptText
+                ? `${promptText}, ${trimmedAction}`
+                : trimmedAction;
             }
           } catch {
-            finalPrompt = `${promptText}, ${trimmedAction}`;
+            finalPrompt = keepOriginalPrompt && promptText
+              ? `${promptText}, ${trimmedAction}`
+              : trimmedAction;
           }
         } else {
           // AI automatic suggestion
           try {
             const response = await rewritePromptAi({
-              prompt: `Prompt gốc: "${promptText}"\nViết tiếp cảnh tiếp theo (storyboard next scene)`,
+              prompt: keepOriginalPrompt
+                ? `Prompt gốc: "${promptText}"\nViết tiếp cảnh tiếp theo (storyboard next scene)`
+                : "Gợi ý và viết một prompt tạo ảnh ngẫu nhiên hấp dẫn",
               kind: "image",
               locale: "vi",
             });
@@ -284,7 +315,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               finalPrompt = response.prompt;
             }
           } catch {
-            // fallback to original
+            // fallback
           }
         }
       } finally {
@@ -294,7 +325,11 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     } else {
       // Gắn trực tiếp không dùng AI (Chạy ngay lập tức 0ms)
       if (trimmedAction) {
-        finalPrompt = `${promptText}, ${trimmedAction}`;
+        finalPrompt = keepOriginalPrompt && promptText
+          ? `${promptText}, ${trimmedAction}`
+          : trimmedAction;
+      } else {
+        finalPrompt = keepOriginalPrompt ? promptText : "";
       }
       setContinueModal(null);
     }
@@ -376,12 +411,20 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
     async function loadRecentFromBackend() {
       try {
-        const res = await fetch("/api/batch/tasks/recent");
+        const res = await apiFetch("/api/batch/tasks/recent");
         if (!res.ok) return;
         const tasks = (await res.json()) as Array<any>;
         const imageTasks = tasks.filter((t) => t.task_type !== "video");
         
-        const restoredRows = imageTasks.map((t, idx) => {
+        const seenRowIds = new Set<string>();
+        const uniqueImageTasks = imageTasks.filter((t) => {
+          if (!t.row_id) return true;
+          if (seenRowIds.has(t.row_id)) return false;
+          seenRowIds.add(t.row_id);
+          return true;
+        });
+
+        const restoredRows = uniqueImageTasks.map((t, idx) => {
           return {
             id: t.row_id || t.task_id || `backend-${idx}-${Date.now()}`,
             selected: false,
@@ -432,7 +475,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch("/api/batch/tasks/recent");
+        const res = await apiFetch("/api/batch/tasks/recent");
         if (!res.ok) return;
         const tasks = (await res.json()) as Array<any>;
 
@@ -1789,9 +1832,22 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 Đóng
               </button>
             </div>
-            <p className="muted" style={{ fontSize: 12.5, margin: "12px 0 16px" }}>
+             <p className="muted" style={{ fontSize: 12.5, margin: "12px 0 12px" }}>
               Chọn một hành động hoặc góc máy gợi ý bên dưới (click là chạy ngay) để tạo tiếp cảnh mới cho nhân vật:
             </p>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.03)", padding: "8px 12px", borderRadius: 6, marginBottom: 14, border: "1px solid rgba(255,255,255,0.06)" }}>
+              <input
+                id="keep-original-prompt-checkbox"
+                type="checkbox"
+                checked={keepOriginalPrompt}
+                onChange={(e) => setKeepOriginalPrompt(e.target.checked)}
+                style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#8b5cf6" }}
+              />
+              <label htmlFor="keep-original-prompt-checkbox" style={{ fontSize: 12, color: "#cbd5e1", cursor: "pointer", margin: 0, fontWeight: 500, userSelect: "none" }}>
+                Giữ lại prompt gốc (giúp đồng bộ nhân vật/phong cách)
+              </label>
+            </div>
 
             {modalSubmitting ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 12 }}>

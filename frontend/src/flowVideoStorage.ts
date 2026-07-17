@@ -27,9 +27,6 @@ function normalizeRowOnLoad(row: QueueRow): QueueRow {
     endFrameName: row.endFrameName ?? null,
     endFrameImage: row.endFrameImage ?? null,
   };
-  if (next.status === "running" || next.status === "queued") {
-    next = { ...next, status: "idle" as const, error: null };
-  }
   if (next.status === "completed") {
     next = { ...next, selected: false };
   }
@@ -37,7 +34,15 @@ function normalizeRowOnLoad(row: QueueRow): QueueRow {
 }
 
 function normalizeRowsOnLoad(rows: QueueRow[]): QueueRow[] {
-  return rows.map(normalizeRowOnLoad);
+  const seen = new Set<string>();
+  const uniqueRows: QueueRow[] = [];
+  for (const r of rows) {
+    if (!r.id) continue;
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    uniqueRows.push(normalizeRowOnLoad(r));
+  }
+  return uniqueRows;
 }
 
 function stripReferenceImages(rows: QueueRow[]): QueueRow[] {
@@ -54,9 +59,7 @@ function stripReferenceImages(rows: QueueRow[]): QueueRow[] {
 function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
   const source = config ?? {};
   let mode = source.mode ?? "text_to_video";
-  // Old separate FL mode → unified image mode (end frame optional per row)
-  if (mode === "start_end_image") mode = "start_image";
-  const validModes = new Set(["text_to_video", "start_image", "components"]);
+  const validModes = new Set(["text_to_video", "start_image", "start_end_image", "components"]);
   const durationRaw = Number(source.duration ?? 8);
   const duration = [4, 6, 8, 10, 12, 15].includes(durationRaw) ? durationRaw : 8;
   const engine = source.engine === "grok" ? "grok" : "flow";

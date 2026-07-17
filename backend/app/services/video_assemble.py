@@ -240,15 +240,11 @@ def _escape_concat_path(path: Path) -> str:
     return s.replace("'", r"'\''")
 
 
-def _run_ffmpeg(cmd: list[str], *, timeout: int = 600) -> None:
-    logger.info("ffmpeg assemble: %s", " ".join(cmd[:8]) + "…")
-    proc = subprocess.run(cmd, capture_output=True, timeout=timeout, text=True)
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "")[-800:]
-        raise RuntimeError(f"ffmpeg lỗi: {err}")
+async def _run_ffmpeg(cmd: list[str], *, timeout: int = 600) -> None:
+    await _run_ffmpeg_async(cmd, timeout=timeout)
 
 
-def assemble_clips(
+async def assemble_clips(
     clips: list[dict[str, Any]],
     *,
     output_folder: str | None = None,
@@ -341,7 +337,7 @@ def assemble_clips(
                 ]
                 # Some clips have no audio — allow generate silent if fail, retry without audio map
                 try:
-                    _run_ffmpeg(cmd, timeout=300)
+                    await _run_ffmpeg(cmd, timeout=300)
                 except RuntimeError:
                     cmd_no_a = [
                         ffmpeg,
@@ -372,7 +368,7 @@ def assemble_clips(
                         "+faststart",
                         str(seg),
                     ]
-                    _run_ffmpeg(cmd_no_a, timeout=300)
+                    await _run_ffmpeg(cmd_no_a, timeout=300)
                 if not seg.is_file() or seg.stat().st_size < 100:
                     raise RuntimeError(f"Không tạo được segment #{i + 1}")
                 segment_paths.append(seg)
@@ -385,7 +381,7 @@ def assemble_clips(
 
         # Prefer stream copy when we already re-encoded segments
         try:
-            _run_ffmpeg(
+            await _run_ffmpeg(
                 [
                     ffmpeg,
                     "-y",
@@ -408,7 +404,7 @@ def assemble_clips(
             )
         except RuntimeError:
             # Final re-encode concat
-            _run_ffmpeg(
+            await _run_ffmpeg(
                 [
                     ffmpeg,
                     "-y",
@@ -447,7 +443,7 @@ def assemble_clips(
         from app.services.output_storage import copy_to_central_dir
         copy_to_central_dir(dest, "trinhdungvideo", "video")
 
-        meta = probe_clip(dest)
+        meta = await asyncio.to_thread(probe_clip, dest)
         rel = dest.resolve().relative_to(settings.data_dir.resolve()).as_posix()
         return {
             "ok": True,
@@ -466,12 +462,12 @@ def assemble_clips(
         shutil.rmtree(work, ignore_errors=True)
 
 
-def probe_sources(sources: list[str]) -> list[dict[str, Any]]:
+async def probe_sources(sources: list[str]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for s in sources:
         try:
             p = resolve_clip_path(s)
-            info = probe_clip(p)
+            info = await asyncio.to_thread(probe_clip, p)
             rel = p.resolve().relative_to(settings.data_dir.resolve()).as_posix()
             info["path"] = rel
             info["url"] = file_url_from_path(p)
@@ -509,7 +505,7 @@ def _has_audio_stream(path: Path) -> bool:
         return False
 
 
-def apply_audio_and_text(
+async def apply_audio_and_text(
     video_path: Path,
     *,
     audios: list[dict[str, Any]] | None = None,
@@ -593,7 +589,7 @@ def apply_audio_and_text(
         # else keep stream map 0:v
 
         # Audio mix
-        base_has_a = _has_audio_stream(video_path)
+        base_has_a = await asyncio.to_thread(_has_audio_stream, video_path)
         a_inputs: list[str] = []
         if base_has_a:
             filter_parts.append("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0]")
@@ -655,7 +651,7 @@ def apply_audio_and_text(
             "+faststart",
             str(dest),
         ]
-        _run_ffmpeg(cmd, timeout=900)
+        await _run_ffmpeg(cmd, timeout=900)
         if not dest.is_file() or dest.stat().st_size < 200:
             raise RuntimeError("Xuất audio/text thất bại")
         return dest
@@ -663,7 +659,7 @@ def apply_audio_and_text(
         shutil.rmtree(work, ignore_errors=True)
 
 
-def assemble_timeline(
+async def assemble_timeline(
     clips: list[dict[str, Any]],
     *,
     audios: list[dict[str, Any]] | None = None,
@@ -676,7 +672,7 @@ def assemble_timeline(
     """Concat videos then mix audio + burn text (NLE-style export)."""
     stamp = time.strftime("%Y%m%d_%H%M%S")
     temp_rel = f"temp/assemble/{secrets.token_hex(4)}"
-    stage = assemble_clips(
+    stage = await assemble_clips(
         clips,
         project_id=None,
         output_folder=temp_rel,
@@ -709,7 +705,7 @@ def assemble_timeline(
     audios = list(audios or [])
     texts = list(texts or [])
     if audios or texts:
-        apply_audio_and_text(base_path, audios=audios, texts=texts, dest=dest)
+        await apply_audio_and_text(base_path, audios=audios, texts=texts, dest=dest)
     else:
         shutil.copy2(base_path, dest)
 
@@ -724,7 +720,7 @@ def assemble_timeline(
     from app.services.output_storage import copy_to_central_dir
     copy_to_central_dir(dest, "trinhdungvideo", "video")
 
-    meta = probe_clip(dest)
+    meta = await asyncio.to_thread(probe_clip, dest)
     rel = dest.resolve().relative_to(settings.data_dir.resolve()).as_posix()
     return {
         "ok": True,

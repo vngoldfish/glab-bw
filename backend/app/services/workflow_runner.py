@@ -634,7 +634,7 @@ async def _execute_node(
             from app.services.project_outputs import project_root
 
             frame_out = project_root(project_id) / "frames"
-        frames = extract_frames(vpath, positions=list(positions), output_dir=frame_out)
+        frames = await extract_frames(vpath, positions=list(positions), output_dir=frame_out)
         urls = [f["url"] for f in frames]
         by_pos = {str(f.get("position")): f["url"] for f in frames if f.get("url")}
         # Prefer dedicated handles
@@ -722,6 +722,15 @@ async def run_workflow(
 
     running_tasks: dict[str, asyncio.Task] = {}
     try:
+        # Cycle detection validation (C6)
+        try:
+            _topo_order(nodes, edges)
+        except ValueError as exc:
+            run["status"] = "failed"
+            run["error"] = str(exc)
+            log(f"Lỗi khởi chạy: {exc}")
+            raise
+
         nmap = _node_map(nodes)
         ids = {str(n["id"]) for n in nodes}
         run["progress"] = {"done": 0, "total": len(ids), "current": None}
@@ -927,6 +936,17 @@ async def run_workflow(
         run["finished_at"] = time.time()
         run["progress"]["current"] = None
     finally:
+        # Mark uncompleted nodes as failed if the run is failing (C7)
+        if run.get("status") == "failed":
+            for unfinished_id in ids:
+                if unfinished_id not in completed_nodes and unfinished_id not in run.get("node_results", {}):
+                    node = nmap.get(unfinished_id)
+                    ntype = str(node.get("type") or "") if node else "unknown"
+                    run["node_results"][unfinished_id] = {
+                        "status": "failed",
+                        "type": ntype,
+                        "error": "Skipped or cancelled due to workflow/parent node failure",
+                    }
         # Await cancelled/active tasks to prevent resource leaks and warnings
         if running_tasks:
             for t in list(running_tasks.values()):

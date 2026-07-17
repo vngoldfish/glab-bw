@@ -28,12 +28,13 @@ def test_prompt_hub_crud(tmp_path, monkeypatch):
 
 
 def test_frame_extract_if_sample_exists():
+    import asyncio
     from app.services.frame_extract import extract_frames
 
     samples = list((ROOT / "data").rglob("*.mp4"))
     if not samples:
         pytest.skip("no sample mp4 in data/")
-    frames = extract_frames(samples[0], positions=["start", "end"])
+    frames = asyncio.run(extract_frames(samples[0], positions=["start", "end"]))
     assert len(frames) >= 1
     assert "url" in frames[0]
 

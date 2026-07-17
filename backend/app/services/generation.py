@@ -35,7 +35,7 @@ def _track(provider_name: str, kind: str, **kwargs) -> None:
         logger.exception("Failed to track %s %s run", provider_name, kind)
 
 
-def _save_outputs(
+async def _save_outputs(
     data_list: list[bytes],
     task: Task,
     prefix: str,
@@ -46,8 +46,7 @@ def _save_outputs(
     from app.services.output_storage import copy_to_central_dir
     from app.services.google_drive_store import load_raw as load_gdrive_config
     from app.services.google_drive import upload_file as upload_to_gdrive
-    import asyncio
-    
+
     gdrive_config = load_gdrive_config()
     should_upload = bool(gdrive_config.get("enabled"))
 
@@ -63,10 +62,9 @@ def _save_outputs(
         # Google Drive Auto-Upload
         if should_upload:
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(upload_to_gdrive(saved))
-            except RuntimeError:
-                pass
+                await upload_to_gdrive(saved)
+            except Exception:
+                logger.exception("Google Drive upload failed for %s", saved)
         
     return urls
 
@@ -259,7 +257,7 @@ async def handle_image_task(task: Task) -> list[str]:
         if openai:
             images = await openai.generate_image(task.prompt, params)
             _track("openai", "image")
-            return _save_outputs(images, task, file_prefix)
+            return await _save_outputs(images, task, file_prefix)
         raise
     finally:
         progress_sim.cancel()
@@ -275,8 +273,8 @@ async def handle_image_task(task: Task) -> list[str]:
         upscaled_all: list[bytes] = []
         for image in images:
             upscaled_all.extend(upscale_service.upscale_image(image, upscale_targets))
-        return _save_outputs(upscaled_all, task, file_prefix)
-    return _save_outputs(images, task, file_prefix)
+        return await _save_outputs(upscaled_all, task, file_prefix)
+    return await _save_outputs(images, task, file_prefix)
 
 
 async def handle_video_task(task: Task) -> list[str]:
@@ -339,7 +337,7 @@ async def handle_video_task(task: Task) -> list[str]:
 
     custom_prefix = task.payload.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"video_{task.task_id}"
-    return _save_outputs(videos, task, file_prefix, ext="mp4")
+    return await _save_outputs(videos, task, file_prefix, ext="mp4")
 
 
 async def handle_grok_task(task: Task) -> list[str]:
@@ -381,7 +379,7 @@ async def handle_grok_task(task: Task) -> list[str]:
             except Exception:
                 pass
             file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
-            return _save_outputs(images, task, file_prefix)
+            return await _save_outputs(images, task, file_prefix)
         videos = await provider.generate_video(task.prompt, task.payload)
         _track("grok", "video")
         session_health.mark_grok_ok()
@@ -391,7 +389,7 @@ async def handle_grok_task(task: Task) -> list[str]:
         except Exception:
             pass
         file_prefix = custom_prefix if custom_prefix else f"grok_{task.task_id}"
-        return _save_outputs(videos, task, file_prefix, ext="mp4")
+        return await _save_outputs(videos, task, file_prefix, ext="mp4")
     except ProviderError as exc:
         if is_session_stale_error(exc):
             session_health.mark_grok_stale(str(exc))
@@ -416,11 +414,11 @@ async def handle_meta_task(task: Task) -> list[str]:
         outputs = await provider.generate_video(task.prompt, {**task.payload, "count": count})
         _track("meta", "video")
         file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
-        return _save_outputs(outputs, task, file_prefix, ext="mp4")
+        return await _save_outputs(outputs, task, file_prefix, ext="mp4")
     outputs = await provider.generate_image(task.prompt, {**task.payload, "count": count})
     _track("meta", "image")
     file_prefix = custom_prefix if custom_prefix else f"meta_{task.task_id}"
-    return _save_outputs(outputs, task, file_prefix)
+    return await _save_outputs(outputs, task, file_prefix)
 
 
 async def handle_openai_task(task: Task) -> list[str]:
@@ -434,7 +432,7 @@ async def handle_openai_task(task: Task) -> list[str]:
     _track("openai", "image")
     custom_prefix = task.payload.get("custom_prefix")
     file_prefix = custom_prefix if custom_prefix else f"openai_{task.task_id}"
-    return _save_outputs(images, task, file_prefix)
+    return await _save_outputs(images, task, file_prefix)
 
 
 async def handle_batch_item(prompt: str, provider: str, params: dict) -> dict:

@@ -67,10 +67,14 @@ def _scan_dir(
 # Built-in shared library folders (Flow Ảnh / Flow Video)
 FLOW_VIDEO_FOLDERS = [
     "G-Labs BW/video_output",
-    "G-Labs BW/grok_output",  # may mix image+video
+    "G-Labs BW/media_output",
+    "G-Labs BW/meta_output",
+    "G-Labs BW/grok_output",
 ]
 FLOW_IMAGE_FOLDERS = [
     "G-Labs BW/image_output",
+    "G-Labs BW/media_output",
+    "G-Labs BW/meta_output",
     "G-Labs BW/grok_output",
 ]
 

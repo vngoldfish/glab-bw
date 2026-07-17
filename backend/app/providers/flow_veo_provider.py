@@ -260,7 +260,7 @@ class FlowVeoProvider(BaseProvider):
             # Frame modes: ignore stray @foo in prompt; use picker payload order
             # Non-frame modes (T2V): require explicit @name mentions in prompt to use characters
             strict_unknown_mentions=not frame_mode,
-            prefer_payload_order=frame_mode and "@" not in prompt,
+            prefer_payload_order=frame_mode,
         )
 
         reference_items = []
@@ -269,6 +269,13 @@ class FlowVeoProvider(BaseProvider):
             prompt = resolved_prompt
 
         edge_refs = params.get("reference_images", [])
+        if not edge_refs and frame_mode and named_items:
+            edge_refs = [
+                item.get("data") or item.get("image") or item.get("url")
+                for item in named_items
+                if item.get("data") or item.get("image") or item.get("url")
+            ]
+
         if edge_refs:
             seen_urls = set()
             for item in reference_items:
@@ -286,8 +293,6 @@ class FlowVeoProvider(BaseProvider):
         start_media_id = None
         end_media_id = None
         reference_media_ids: list[str] = []
-
-        edge_refs = params.get("reference_images", [])
 
         # 1. Extract start and end frames strictly from edge_refs
         if mode == "start_image":

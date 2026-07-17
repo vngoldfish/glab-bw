@@ -388,7 +388,7 @@ async def remote_assemble_video(body: RemoteAssembleRequest) -> dict:
     
     try:
         if audios or texts:
-            result = video_assemble.assemble_timeline(
+            result = await video_assemble.assemble_timeline(
                 clips,
                 audios=audios,
                 texts=texts,
@@ -398,7 +398,7 @@ async def remote_assemble_video(body: RemoteAssembleRequest) -> dict:
                 reencode=body.reencode,
             )
         else:
-            result = video_assemble.assemble_clips(
+            result = await video_assemble.assemble_clips(
                 clips,
                 project_id=body.project_id,
                 output_folder=body.output_folder,

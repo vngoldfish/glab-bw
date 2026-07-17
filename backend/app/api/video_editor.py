@@ -130,7 +130,7 @@ async def editor_status() -> dict:
 @router.post("/probe")
 async def probe_clips(body: ProbeRequest) -> dict:
     try:
-        items = video_assemble.probe_sources(body.sources)
+        items = await video_assemble.probe_sources(body.sources)
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
     return {"items": items}
@@ -148,7 +148,7 @@ async def assemble_video(body: AssembleRequest) -> dict:
     )
     try:
         if audios or texts:
-            result = video_assemble.assemble_timeline(
+            result = await video_assemble.assemble_timeline(
                 clips,
                 audios=audios,
                 texts=texts,
@@ -158,7 +158,7 @@ async def assemble_video(body: AssembleRequest) -> dict:
                 reencode=body.reencode,
             )
         else:
-            result = video_assemble.assemble_clips(
+            result = await video_assemble.assemble_clips(
                 clips,
                 project_id=wf_pid,
                 output_folder=out_folder,
@@ -346,7 +346,11 @@ async def upload_audio(
     file: UploadFile = File(...),
     project_id: str | None = Form(default=None),
 ) -> dict:
+    if file.size is not None and file.size > 80 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail={"error": "File quá lớn (max 80MB)"})
     data = await file.read()
+    if len(data) > 80 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail={"error": "File quá lớn (max 80MB)"})
     try:
         result = video_assemble.save_upload_bytes(
             data,

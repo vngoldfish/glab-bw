@@ -7,6 +7,7 @@ import logging
 import secrets
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from app.core.config import settings
@@ -53,10 +54,6 @@ def video_duration_sec(video_path: Path) -> float | None:
         return None
 
 
-def _run_ffmpeg(cmd: list[str], *, timeout: int = 120) -> None:
-    subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
-
-
 _ffmpeg_semaphore = asyncio.Semaphore(2)
 
 
@@ -80,10 +77,14 @@ async def _run_ffmpeg_async(cmd: list[str], *, timeout: int = 120) -> None:
             raise RuntimeError(f"ffmpeg lỗi: {err}")
 
 
-def _extract_start(ffmpeg: str, video_path: Path, dest: Path) -> bool:
+async def _run_ffmpeg(cmd: list[str], *, timeout: int = 120) -> None:
+    await _run_ffmpeg_async(cmd, timeout=timeout)
+
+
+async def _extract_start(ffmpeg: str, video_path: Path, dest: Path) -> bool:
     """First video frame."""
     try:
-        _run_ffmpeg(
+        await _run_ffmpeg(
             [
                 ffmpeg,
                 "-y",
@@ -106,14 +107,14 @@ def _extract_start(ffmpeg: str, video_path: Path, dest: Path) -> bool:
         return False
 
 
-def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
+async def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
     """True last frame — try several strategies."""
     # 1) Seek from end (fast, usually correct)
     for offset in ("-0.04", "-0.1", "-0.25", "-1"):
         try:
             if dest.exists():
                 dest.unlink()
-            _run_ffmpeg(
+            await _run_ffmpeg(
                 [
                     ffmpeg,
                     "-y",
@@ -137,7 +138,7 @@ def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
     try:
         if dest.exists():
             dest.unlink()
-        _run_ffmpeg(
+        await _run_ffmpeg(
             [
                 ffmpeg,
                 "-y",
@@ -157,13 +158,13 @@ def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
         logger.warning("update last-frame failed: %s", exc)
 
     # 3) duration-based accurate seek (ss after -i)
-    dur = video_duration_sec(video_path) or 0.0
+    dur = await asyncio.to_thread(video_duration_sec, video_path) or 0.0
     if dur > 0.05:
         ss = max(0.0, dur - 0.05)
         try:
             if dest.exists():
                 dest.unlink()
-            _run_ffmpeg(
+            await _run_ffmpeg(
                 [
                     ffmpeg,
                     "-y",
@@ -186,10 +187,10 @@ def _extract_end(ffmpeg: str, video_path: Path, dest: Path) -> bool:
     return False
 
 
-def _extract_at_seconds(ffmpeg: str, video_path: Path, dest: Path, seconds: float) -> bool:
+async def _extract_at_seconds(ffmpeg: str, video_path: Path, dest: Path, seconds: float) -> bool:
     """Accurate mid-seek: -ss after -i."""
     try:
-        _run_ffmpeg(
+        await _run_ffmpeg(
             [
                 ffmpeg,
                 "-y",
@@ -210,7 +211,7 @@ def _extract_at_seconds(ffmpeg: str, video_path: Path, dest: Path, seconds: floa
         return False
 
 
-def extract_frames(
+async def extract_frames(
     video_path: Path,
     *,
     positions: list[str] | None = None,
@@ -243,23 +244,23 @@ def extract_frames(
     job_dir = out_root / secrets.token_hex(4)
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    duration = video_duration_sec(video_path) or 0.0
+    duration = await asyncio.to_thread(video_duration_sec, video_path) or 0.0
     results: list[dict] = []
 
     for label in positions:
         if label in {"start", "first", "0"}:
             name = "start.png"
             dest = job_dir / name
-            ok = _extract_start(ffmpeg, video_path, dest)
+            ok = await _extract_start(ffmpeg, video_path, dest)
         elif label in {"end", "last"}:
             name = "end.png"
             dest = job_dir / name
-            ok = _extract_end(ffmpeg, video_path, dest)
+            ok = await _extract_end(ffmpeg, video_path, dest)
         elif label in {"middle", "mid", "center"}:
             name = "middle.png"
             dest = job_dir / name
             mid = duration / 2 if duration > 0 else 0.0
-            ok = _extract_at_seconds(ffmpeg, video_path, dest, mid)
+            ok = await _extract_at_seconds(ffmpeg, video_path, dest, mid)
         else:
             try:
                 sec = float(label)
@@ -267,7 +268,7 @@ def extract_frames(
                 raise ValueError(f"Invalid position: {label}") from exc
             name = f"t{str(sec).replace('.', '_')}s.png"
             dest = job_dir / name
-            ok = _extract_at_seconds(ffmpeg, video_path, dest, sec)
+            ok = await _extract_at_seconds(ffmpeg, video_path, dest, sec)
 
         if not ok:
             logger.warning("Could not extract position=%s from %s", label, video_path.name)
@@ -294,3 +295,18 @@ def extract_frames(
     if not results:
         raise RuntimeError("Could not extract any frames from video")
     return results
+
+
+def cleanup_old_frames(max_age_hours: int = 24):
+    """Remove extracted frame directories older than max_age_hours."""
+    frames_dir = settings.data_dir / "G-Labs BW" / "extracted_frames"
+    if not frames_dir.exists():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    for d in frames_dir.iterdir():
+        if d.is_dir():
+            try:
+                if d.stat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
