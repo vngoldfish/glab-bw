@@ -204,6 +204,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [queueStatusFilter, setQueueStatusFilter] = useState<QueueStatusFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(20);
+  const [inputCollapsed, setInputCollapsed] = useState(() => localStorage.getItem("img_input_collapsed") === "true");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -1219,14 +1220,23 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           />
 
           <section className="flow-input-card">
-            <div className="flow-input-card-head">
+            <div className="flow-input-card-head" style={{ cursor: "pointer" }} onClick={() => {
+              setInputCollapsed(v => {
+                localStorage.setItem("img_input_collapsed", String(!v));
+                return !v;
+              });
+            }}>
               <div>
-                <h3 className="flow-section-title">Nhập prompt</h3>
-                <p className="flow-section-desc">
-                  Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc bấm chip ảnh bên dưới
-                </p>
+                <h3 className="flow-section-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  Nhập prompt {inputCollapsed ? "▼" : "▲"}
+                </h3>
+                {!inputCollapsed && (
+                  <p className="flow-section-desc">
+                    Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc bấm chip ảnh bên dưới
+                  </p>
+                )}
               </div>
-              <div className="flow-input-card-actions">
+              <div className="flow-input-card-actions" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -1240,51 +1250,55 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               </div>
             </div>
 
-            <div className="flow-ref-strip">
-              <span className="flow-ref-strip-label">
-                Tham chiếu ({referenceLibrary.length})
-              </span>
-              {referenceLibrary.length > 0 ? (
-                <div className="flow-ref-strip-chips">
-                  {referenceLibrary.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className="ref-global-chip"
-                      title={`Chèn @${item.name}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        bulkPromptRef.current?.saveSelection();
-                      }}
-                      onClick={() => insertMentionFromLibrary(item.name)}
-                    >
-                      <img src={item.image} alt={item.name} />
-                      <span>@{item.name}</span>
-                    </button>
-                  ))}
+            {!inputCollapsed && (
+              <>
+                <div className="flow-ref-strip">
+                  <span className="flow-ref-strip-label">
+                    Tham chiếu ({referenceLibrary.length})
+                  </span>
+                  {referenceLibrary.length > 0 ? (
+                    <div className="flow-ref-strip-chips">
+                      {referenceLibrary.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="ref-global-chip"
+                          title={`Chèn @${item.name}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            bulkPromptRef.current?.saveSelection();
+                          }}
+                          onClick={() => insertMentionFromLibrary(item.name)}
+                        >
+                          <img src={item.image} alt={item.name} />
+                          <span>@{item.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="flow-ref-strip-empty">Chưa có ảnh — thêm trong tab Ảnh tham chiếu</span>
+                  )}
+                  <button
+                    type="button"
+                    className="flow-ref-strip-link"
+                    onClick={() => navigate(NAV_ROUTES.references)}
+                  >
+                    Quản lý
+                  </button>
                 </div>
-              ) : (
-                <span className="flow-ref-strip-empty">Chưa có ảnh — thêm trong tab Ảnh tham chiếu</span>
-              )}
-              <button
-                type="button"
-                className="flow-ref-strip-link"
-                onClick={() => navigate(NAV_ROUTES.references)}
-              >
-                Quản lý
-              </button>
-            </div>
 
-            <PromptMentionField
-              ref={bulkPromptRef}
-              rows={5}
-              className="queue-bulk-prompt"
-              menuPlacement="above"
-              placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
-              value={promptInput}
-              library={referenceLibrary}
-              onChange={setPromptInput}
-            />
+                <PromptMentionField
+                  ref={bulkPromptRef}
+                  rows={3}
+                  className="queue-bulk-prompt"
+                  menuPlacement="above"
+                  placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
+                  value={promptInput}
+                  library={referenceLibrary}
+                  onChange={setPromptInput}
+                />
+              </>
+            )}
           </section>
 
           <section className="flow-queue-section">
