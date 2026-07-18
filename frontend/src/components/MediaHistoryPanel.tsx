@@ -12,6 +12,7 @@ interface Props {
   kind: "image" | "video";
   onSelect?: (asset: ProjectAsset) => void;
   selectLabel?: string;
+  forceOpen?: boolean;
 }
 
 function formatSize(bytes: number) {
@@ -28,11 +29,17 @@ function formatTime(mtime: number) {
   return d.toLocaleDateString("vi-VN");
 }
 
-export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props) {
-  const [open, setOpen] = useState(false);
+export default function MediaHistoryPanel({ kind, onSelect, selectLabel, forceOpen }: Props) {
+  const [open, setOpen] = useState(forceOpen ?? false);
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (forceOpen !== undefined) {
+      setOpen(forceOpen);
+    }
+  }, [forceOpen]);
   const [search, setSearch] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -103,21 +110,23 @@ export default function MediaHistoryPanel({ kind, onSelect, selectLabel }: Props
   return (
     <div className="mhp-wrap">
       {/* ── Toggle bar ── */}
-      <button
-        className={`mhp-toggle${open ? " mhp-toggle--open" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        type="button"
-      >
-        <span className="mhp-toggle-left">
-          <span className="mhp-icon">{icon}</span>
-          <span className="mhp-label">{label}</span>
-          {assets.length > 0 && (
-            <span className="mhp-badge">{assets.length}</span>
-          )}
-          {loading && <span className="mhp-spinner" />}
-        </span>
-        <span className="mhp-chevron">{open ? "▲" : "▼"}</span>
-      </button>
+      {!forceOpen && (
+        <button
+          className={`mhp-toggle${open ? " mhp-toggle--open" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+          type="button"
+        >
+          <span className="mhp-toggle-left">
+            <span className="mhp-icon">{icon}</span>
+            <span className="mhp-label">{label}</span>
+            {assets.length > 0 && (
+              <span className="mhp-badge">{assets.length}</span>
+            )}
+            {loading && <span className="mhp-spinner" />}
+          </span>
+          <span className="mhp-chevron">{open ? "▲" : "▼"}</span>
+        </button>
+      )}
 
       {/* ── Nội dung thu gọn/mở ── */}
       {open && (

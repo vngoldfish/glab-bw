@@ -389,6 +389,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(20);
   const [showInputPanel, setShowInputPanel] = useState(() => localStorage.getItem("vid_show_input") !== "false");
+  const [showHistory, setShowHistory] = useState(() => localStorage.getItem("vid_show_history") === "true");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -1249,6 +1250,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
             title="Hiện hoặc ẩn khung Nhập prompt ở bên phải"
           >
             {showInputPanel ? "👁 Ẩn ô nhập" : "✍ Hiện ô nhập"}
+          </button>
+          <button
+            type="button"
+            className={`wf-btn ${showHistory ? "wf-btn-primary" : "wf-btn-secondary"}`}
+            style={{ padding: "4px 10px", borderRadius: "10px", fontSize: "11px", marginLeft: "8px", border: "1px solid rgba(255, 255, 255, 0.1)" }}
+            onClick={() => {
+              setShowHistory(v => {
+                localStorage.setItem("vid_show_history", String(!v));
+                return !v;
+              });
+            }}
+            title="Hiện hoặc ẩn phần Lịch sử video đã tạo ở dưới"
+          >
+            {showHistory ? "👁 Ẩn lịch sử" : "🎬 Lịch sử"}
           </button>
         </div>
         <div className="flow-page-stats">
@@ -2200,9 +2215,11 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
       )}
 
       {/* ─── Lịch sử video đã tạo (quét từ đĩa, không phụ thuộc localStorage) ─── */}
-      <div className="flow-history-section">
-        <MediaHistoryPanel kind="video" />
-      </div>
+      {showHistory && (
+        <div className="flow-history-section">
+          <MediaHistoryPanel kind="video" forceOpen={true} />
+        </div>
+      )}
 
       {/* ─── Custom Modal Tạo Cảnh Tiếp Theo (Storyboard) ─── */}
       {continueModal && continueModal.open && (

@@ -205,6 +205,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(20);
   const [showInputPanel, setShowInputPanel] = useState(() => localStorage.getItem("img_show_input") !== "false");
+  const [showHistory, setShowHistory] = useState(() => localStorage.getItem("img_show_history") === "true");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -1046,6 +1047,20 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
           >
             {showInputPanel ? "👁 Ẩn ô nhập" : "✍ Hiện ô nhập"}
           </button>
+          <button
+            type="button"
+            className={`wf-btn ${showHistory ? "wf-btn-primary" : "wf-btn-secondary"}`}
+            style={{ padding: "4px 10px", borderRadius: "10px", fontSize: "11px", marginLeft: "8px", border: "1px solid rgba(255, 255, 255, 0.1)" }}
+            onClick={() => {
+              setShowHistory(v => {
+                localStorage.setItem("img_show_history", String(!v));
+                return !v;
+              });
+            }}
+            title="Hiện hoặc ẩn phần Lịch sử ảnh đã tạo ở dưới"
+          >
+            {showHistory ? "👁 Ẩn lịch sử" : "🖼️ Lịch sử"}
+          </button>
         </div>
         <div className="flow-page-stats">
           <div className="flow-stat-mini flow-stat-mini--accent">
@@ -1851,9 +1866,11 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       )}
 
       {/* ─── Lịch sử ảnh đã tạo (quét từ đĩa, không phụ thuộc localStorage) ─── */}
-      <div className="flow-history-section">
-        <MediaHistoryPanel kind="image" />
-      </div>
+      {showHistory && (
+        <div className="flow-history-section">
+          <MediaHistoryPanel kind="image" forceOpen={true} />
+        </div>
+      )}
 
       {/* ─── Custom Modal Tạo Cảnh Tiếp Theo (Storyboard) ─── */}
       {continueModal && continueModal.open && (
