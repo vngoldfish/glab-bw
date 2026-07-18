@@ -388,7 +388,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const [queueStatusFilter, setQueueStatusFilter] = useState<QueueStatusFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(20);
-  const [inputCollapsed, setInputCollapsed] = useState(() => localStorage.getItem("vid_input_collapsed") === "true");
+  const [showInputPanel, setShowInputPanel] = useState(() => localStorage.getItem("vid_show_input") !== "false");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -1236,6 +1236,20 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
             <Folder size={12} style={{ marginRight: "4px", color: "var(--muted)" }} />
             Thư mục lưu
           </button>
+          <button
+            type="button"
+            className={`wf-btn ${showInputPanel ? "wf-btn-primary" : "wf-btn-secondary"}`}
+            style={{ padding: "4px 10px", borderRadius: "10px", fontSize: "11px", marginLeft: "8px", border: "1px solid rgba(255, 255, 255, 0.1)" }}
+            onClick={() => {
+              setShowInputPanel(v => {
+                localStorage.setItem("vid_show_input", String(!v));
+                return !v;
+              });
+            }}
+            title="Hiện hoặc ẩn khung Nhập prompt ở bên phải"
+          >
+            {showInputPanel ? "👁 Ẩn ô nhập" : "✍ Hiện ô nhập"}
+          </button>
         </div>
         <div className="flow-page-stats">
           <div className="flow-stat-mini flow-stat-mini--accent">
@@ -1453,149 +1467,6 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
               e.target.value = "";
             }}
           />
-
-          <section className="flow-input-card">
-            <div className="flow-input-card-head" style={{ cursor: "pointer" }} onClick={() => {
-              setInputCollapsed(v => {
-                localStorage.setItem("vid_input_collapsed", String(!v));
-                return !v;
-              });
-            }}>
-              <div>
-                <h3 className="flow-section-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  Nhập prompt {inputCollapsed ? "▼" : "▲"}
-                </h3>
-                {!inputCollapsed && (
-                  <p className="flow-section-desc">
-                    {frameMode
-                      ? "Prompt + @nhân_vật tham chiếu · hoặc Ảnh đầu/cuối trên bảng (tự nhận loại tạo)"
-                      : config.mode === "components"
-                        ? "Mỗi dòng một prompt · gõ @ten_anh hoặc bấm chip ảnh tham chiếu"
-                        : "Mỗi dòng một prompt · nhập TXT hoặc dán hàng loạt"}
-                  </p>
-                )}
-              </div>
-              <div className="flow-input-card-actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  Nhập TXT
-                </button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={addPromptsToQueue}>
-                  + Thêm vào hàng chờ
-                </button>
-              </div>
-            </div>
-
-            {!inputCollapsed && (
-              <>
-                {/* Nhân vật / ảnh tham chiếu — luôn hiện để gõ @ (Ingredients) */}
-                <div className="flow-ref-strip">
-                  <span className="flow-ref-strip-label">
-                    Nhân vật tham chiếu ({referenceLibrary.length})
-                  </span>
-                  {referenceLibrary.length > 0 ? (
-                    <div className="flow-ref-strip-chips">
-                      {referenceLibrary.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="ref-global-chip"
-                          title={`Chèn @${item.name} vào prompt`}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            bulkPromptRef.current?.saveSelection();
-                          }}
-                          onClick={() => insertMentionFromLibrary(item.name)}
-                        >
-                          <img src={item.image} alt={item.name} />
-                          <span>@{item.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="flow-ref-strip-empty">
-                      Chưa có ảnh — thêm trong tab Ảnh tham chiếu rồi gõ @tên trong prompt
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className="flow-ref-strip-link"
-                    onClick={() => navigate(NAV_ROUTES.references)}
-                  >
-                    Quản lý
-                  </button>
-                </div>
-
-                {frameMode && (
-                  <div className="flow-frame-bulk-bar">
-                    <span className="flow-frame-bulk-label">
-                      Gán nhanh cho dòng đã chọn ({selectedCount})
-                    </span>
-                    <div className="flow-frame-bulk-pickers">
-                      <QueueFramePicker
-                        label="Ảnh đầu (tuỳ chọn)"
-                        valueName={null}
-                        previewUrl={null}
-                        disabled={selectedCount === 0}
-                        onChange={(frame) => {
-                          if (frame.name || frame.image) applyFrameToSelected("start", frame);
-                        }}
-                        onPickFiles={async (files) => {
-                          const frames = await pickLocalFrameFiles(files);
-                          if (frames[0]) {
-                            applyFrameToSelected("start", {
-                              name: frames[0].name,
-                              image: frames[0].image,
-                            });
-                          }
-                          return frames;
-                        }}
-                      />
-                      <QueueFramePicker
-                        label="Ảnh cuối (tuỳ chọn)"
-                        valueName={null}
-                        previewUrl={null}
-                        disabled={selectedCount === 0}
-                        onChange={(frame) => {
-                          if (frame.name || frame.image) applyFrameToSelected("end", frame);
-                        }}
-                        onPickFiles={async (files) => {
-                          const frames = await pickLocalFrameFiles(files);
-                          if (frames[0]) {
-                            applyFrameToSelected("end", {
-                              name: frames[0].name,
-                              image: frames[0].image,
-                            });
-                          }
-                          return frames;
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <PromptMentionField
-                  ref={bulkPromptRef}
-                  rows={3}
-                  className="queue-bulk-prompt"
-                  menuPlacement="above"
-                  placeholder={
-                    frameMode
-                      ? "@hoa đi dạo trên bãi biển lúc hoàng hôn\n@lieu và @hoa ngồi nói chuyện trong quán cafe\nquay đầu cinematic (không @ = Text→Video; gắn ảnh đầu/cuối trên bảng nếu cần)"
-                      : config.mode === "components"
-                        ? "@a và @b ngồi đối diện nói chuyện trong quán cafe"
-                        : "Drone bay trên bãi biển lúc hoàng hôn\nMột con mèo chạy qua cánh đồng lúa\nThành phố tương lai với xe bay"
-                  }
-                  value={promptInput}
-                  library={referenceLibrary}
-                  onChange={setPromptInput}
-                />
-              </>
-            )}
-          </section>
 
           <section className="flow-queue-section">
             {aiNotice && (
@@ -2120,6 +1991,142 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
             )}
           </section>
         </section>
+
+        {showInputPanel && (
+          <aside className="prompt-input-panel">
+            <div className="flow-input-card-head" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 className="flow-section-title">Nhập prompt</h3>
+                <div className="flow-input-card-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => importInputRef.current?.click()}
+                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto" }}
+                  >
+                    Nhập TXT
+                  </button>
+                </div>
+              </div>
+              <p className="flow-section-desc" style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
+                {frameMode
+                  ? "Prompt + @nhân_vật · hoặc Ảnh đầu/cuối trên bảng"
+                  : config.mode === "components"
+                    ? "Mỗi dòng một prompt · gõ @ten_anh"
+                    : "Mỗi dòng một prompt · nhập TXT"}
+              </p>
+            </div>
+
+            <div className="flow-ref-strip" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, padding: "8px 10px", margin: "4px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="flow-ref-strip-label" style={{ fontSize: "11px", fontWeight: 600 }}>Nhân vật ({referenceLibrary.length})</span>
+                <button
+                  type="button"
+                  className="flow-ref-strip-link"
+                  style={{ padding: 0, fontSize: "11px" }}
+                  onClick={() => navigate(NAV_ROUTES.references)}
+                >
+                  Quản lý
+                </button>
+              </div>
+              {referenceLibrary.length > 0 ? (
+                <div className="flow-ref-strip-chips" style={{ maxHeight: 110, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 4, padding: "4px 0" }}>
+                  {referenceLibrary.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="ref-global-chip"
+                      title={`Chèn @${item.name} vào prompt`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        bulkPromptRef.current?.saveSelection();
+                      }}
+                      onClick={() => insertMentionFromLibrary(item.name)}
+                    >
+                      <img src={item.image} alt={item.name} />
+                      <span>@{item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="flow-ref-strip-empty" style={{ fontSize: "11px" }}>Chưa có ảnh</span>
+              )}
+            </div>
+
+            {frameMode && (
+              <div className="flow-frame-bulk-bar" style={{ display: "flex", flexDirection: "column", gap: 6, margin: 0, padding: "8px 0", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                <span className="flow-frame-bulk-label" style={{ fontSize: 11, fontWeight: 600 }}>Gán nhanh ({selectedCount})</span>
+                <div className="flow-frame-bulk-pickers" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <QueueFramePicker
+                    label="Ảnh đầu (tuỳ chọn)"
+                    valueName={null}
+                    previewUrl={null}
+                    disabled={selectedCount === 0}
+                    onChange={(frame) => {
+                      if (frame.name || frame.image) applyFrameToSelected("start", frame);
+                    }}
+                    onPickFiles={async (files) => {
+                      const frames = await pickLocalFrameFiles(files);
+                      if (frames[0]) {
+                        applyFrameToSelected("start", {
+                          name: frames[0].name,
+                          image: frames[0].image,
+                        });
+                      }
+                      return frames;
+                    }}
+                  />
+                  <QueueFramePicker
+                    label="Ảnh cuối (tuỳ chọn)"
+                    valueName={null}
+                    previewUrl={null}
+                    disabled={selectedCount === 0}
+                    onChange={(frame) => {
+                      if (frame.name || frame.image) applyFrameToSelected("end", frame);
+                    }}
+                    onPickFiles={async (files) => {
+                      const frames = await pickLocalFrameFiles(files);
+                      if (frames[0]) {
+                        applyFrameToSelected("end", {
+                          name: frames[0].name,
+                          image: frames[0].image,
+                        });
+                      }
+                      return frames;
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <PromptMentionField
+              ref={bulkPromptRef}
+              rows={6}
+              className="queue-bulk-prompt"
+              menuPlacement="top"
+              placeholder={
+                frameMode
+                  ? "@hoa đi dạo trên bãi biển lúc hoàng hôn\n@lieu và @hoa ngồi nói chuyện trong quán cafe\nquay đầu cinematic"
+                  : config.mode === "components"
+                    ? "@a và @b ngồi đối diện nói chuyện trong quán cafe"
+                    : "Drone bay trên bãi biển lúc hoàng hôn\nMột con mèo chạy qua cánh đồng lúa"
+              }
+              value={promptInput}
+              library={referenceLibrary}
+              onChange={setPromptInput}
+              style={{ flex: 1, minHeight: 150, fontSize: "13px" }}
+            />
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: "100%", justifyContent: "center", padding: "10px", fontWeight: 700, borderRadius: "8px" }}
+              onClick={addPromptsToQueue}
+            >
+              + Thêm vào hàng chờ
+            </button>
+          </aside>
+        )}
       </div>
 
       {editingPromptId && (

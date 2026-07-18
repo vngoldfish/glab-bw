@@ -204,7 +204,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [queueStatusFilter, setQueueStatusFilter] = useState<QueueStatusFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(20);
-  const [inputCollapsed, setInputCollapsed] = useState(() => localStorage.getItem("img_input_collapsed") === "true");
+  const [showInputPanel, setShowInputPanel] = useState(() => localStorage.getItem("img_show_input") !== "false");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -1032,6 +1032,20 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
             <Folder size={12} style={{ marginRight: "4px", color: "var(--muted)" }} />
             Thư mục lưu
           </button>
+          <button
+            type="button"
+            className={`wf-btn ${showInputPanel ? "wf-btn-primary" : "wf-btn-secondary"}`}
+            style={{ padding: "4px 10px", borderRadius: "10px", fontSize: "11px", marginLeft: "8px", border: "1px solid rgba(255, 255, 255, 0.1)" }}
+            onClick={() => {
+              setShowInputPanel(v => {
+                localStorage.setItem("img_show_input", String(!v));
+                return !v;
+              });
+            }}
+            title="Hiện hoặc ẩn khung Nhập prompt ở bên phải"
+          >
+            {showInputPanel ? "👁 Ẩn ô nhập" : "✍ Hiện ô nhập"}
+          </button>
         </div>
         <div className="flow-page-stats">
           <div className="flow-stat-mini flow-stat-mini--accent">
@@ -1218,88 +1232,6 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               e.target.value = "";
             }}
           />
-
-          <section className="flow-input-card">
-            <div className="flow-input-card-head" style={{ cursor: "pointer" }} onClick={() => {
-              setInputCollapsed(v => {
-                localStorage.setItem("img_input_collapsed", String(!v));
-                return !v;
-              });
-            }}>
-              <div>
-                <h3 className="flow-section-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  Nhập prompt {inputCollapsed ? "▼" : "▲"}
-                </h3>
-                {!inputCollapsed && (
-                  <p className="flow-section-desc">
-                    Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc bấm chip ảnh bên dưới
-                  </p>
-                )}
-              </div>
-              <div className="flow-input-card-actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  Nhập TXT
-                </button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={addPromptsToQueue}>
-                  + Thêm vào hàng chờ
-                </button>
-              </div>
-            </div>
-
-            {!inputCollapsed && (
-              <>
-                <div className="flow-ref-strip">
-                  <span className="flow-ref-strip-label">
-                    Tham chiếu ({referenceLibrary.length})
-                  </span>
-                  {referenceLibrary.length > 0 ? (
-                    <div className="flow-ref-strip-chips">
-                      {referenceLibrary.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="ref-global-chip"
-                          title={`Chèn @${item.name}`}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            bulkPromptRef.current?.saveSelection();
-                          }}
-                          onClick={() => insertMentionFromLibrary(item.name)}
-                        >
-                          <img src={item.image} alt={item.name} />
-                          <span>@{item.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="flow-ref-strip-empty">Chưa có ảnh — thêm trong tab Ảnh tham chiếu</span>
-                  )}
-                  <button
-                    type="button"
-                    className="flow-ref-strip-link"
-                    onClick={() => navigate(NAV_ROUTES.references)}
-                  >
-                    Quản lý
-                  </button>
-                </div>
-
-                <PromptMentionField
-                  ref={bulkPromptRef}
-                  rows={3}
-                  className="queue-bulk-prompt"
-                  menuPlacement="above"
-                  placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
-                  value={promptInput}
-                  library={referenceLibrary}
-                  onChange={setPromptInput}
-                />
-              </>
-            )}
-          </section>
 
           <section className="flow-queue-section">
             {aiNotice && (
@@ -1766,6 +1698,86 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
             )}
           </section>
         </section>
+
+        {showInputPanel && (
+          <aside className="prompt-input-panel">
+            <div className="flow-input-card-head" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 className="flow-section-title">Nhập prompt</h3>
+                <div className="flow-input-card-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => importInputRef.current?.click()}
+                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto" }}
+                  >
+                    Nhập TXT
+                  </button>
+                </div>
+              </div>
+              <p className="flow-section-desc" style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
+                Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc chọn chip bên dưới
+              </p>
+            </div>
+
+            <div className="flow-ref-strip" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, padding: "8px 10px", margin: "4px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="flow-ref-strip-label" style={{ fontSize: "11px", fontWeight: 600 }}>Tham chiếu ({referenceLibrary.length})</span>
+                <button
+                  type="button"
+                  className="flow-ref-strip-link"
+                  style={{ padding: 0, fontSize: "11px" }}
+                  onClick={() => navigate(NAV_ROUTES.references)}
+                >
+                  Quản lý
+                </button>
+              </div>
+              {referenceLibrary.length > 0 ? (
+                <div className="flow-ref-strip-chips" style={{ maxHeight: 110, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 4, padding: "4px 0" }}>
+                  {referenceLibrary.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="ref-global-chip"
+                      title={`Chèn @${item.name}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        bulkPromptRef.current?.saveSelection();
+                      }}
+                      onClick={() => insertMentionFromLibrary(item.name)}
+                    >
+                      <img src={item.image} alt={item.name} />
+                      <span>@{item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="flow-ref-strip-empty" style={{ fontSize: "11px" }}>Chưa có ảnh</span>
+              )}
+            </div>
+
+            <PromptMentionField
+              ref={bulkPromptRef}
+              rows={6}
+              className="queue-bulk-prompt"
+              menuPlacement="top"
+              placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
+              value={promptInput}
+              library={referenceLibrary}
+              onChange={setPromptInput}
+              style={{ flex: 1, minHeight: 150, fontSize: "13px" }}
+            />
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: "100%", justifyContent: "center", padding: "10px", fontWeight: 700, borderRadius: "8px" }}
+              onClick={addPromptsToQueue}
+            >
+              + Thêm vào hàng chờ
+            </button>
+          </aside>
+        )}
       </div>
 
       {editingPromptId && (
