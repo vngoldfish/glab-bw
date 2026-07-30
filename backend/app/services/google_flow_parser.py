@@ -41,7 +41,7 @@ def get_scraped_flow_models() -> dict:
 def process_google_flow_html(data: dict) -> dict:
     """Save the HTML/Scripts and extract Google Flow models list."""
     if "debug_urls" in data:
-        logger.info(f"📊 Extension active tabs found: {data['debug_urls']}")
+        logger.debug(f"📊 Extension active tabs found: {data['debug_urls']}")
         return {"debug": True}
     if "error" in data:
         logger.error(f"⚠️ Received Google Flow scraping error from extension: {data['error']}")

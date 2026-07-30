@@ -87,7 +87,7 @@ async def sync_google_flow_page(
     body = await request.json()
     if "scraped_labels" in body or "html" in body or "error" in body:
         auth_bridge._google_flow_models_wanted = False
-    logger.info(f"Received sync/google-flow-page payload. Keys: {list(body.keys())}, scraped_labels_count: {len(body.get('scraped_labels', []))}")
+    logger.debug(f"Received sync/google-flow-page payload. Keys: {list(body.keys())}, scraped_labels_count: {len(body.get('scraped_labels', []))}")
     try:
         from app.services.google_flow_parser import process_google_flow_html
         result = process_google_flow_html(body)
