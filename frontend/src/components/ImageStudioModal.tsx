@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { mediaUrl } from "../api";
 
 /* ───── DATA: Camera Angles ───── */
 const CAMERA_ANGLES = [
@@ -423,7 +424,7 @@ export default function ImageStudioModal({
                   🎨 Ảnh tham chiếu gốc (Đồng bộ Style & Nhân vật)
                 </span>
                 <img
-                  src={initialReferenceImage}
+                  src={mediaUrl(initialReferenceImage)}
                   alt="Reference Image"
                   style={{ maxHeight: 130, maxWidth: "100%", borderRadius: 8, objectFit: "contain", border: "1px solid rgba(255,255,255,0.15)" }}
                 />
@@ -495,7 +496,7 @@ export default function ImageStudioModal({
               {refImage && (
                 <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(0,0,0,0.4)", borderRadius: 8, border: "1px solid rgba(34,197,94,0.3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <img src={refImage} alt="Reference thumbnail" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
+                    <img src={mediaUrl(refImage)} alt="Reference thumbnail" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
                     <span style={{ fontSize: 11, color: "#4ade80", fontWeight: 600 }}>📷 Ảnh mẫu tham chiếu (Image-to-Image) đã đính kèm</span>
                   </div>
                   <button type="button" onClick={() => setRefImage("")} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer", padding: "2px 6px" }}>✕</button>
