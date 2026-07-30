@@ -260,11 +260,12 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     if (settings.style) parts.push(settings.style);
     if (settings.lighting) parts.push(settings.lighting);
     if (settings.composition) parts.push(settings.composition);
-    const studioPrompt = parts.join(", ");
+    const studioPrompt = parts.filter(Boolean).join(", ");
     if (!studioPrompt) return;
     setPromptInput((prev) => {
-      if (!prev.trim()) return studioPrompt;
-      return `${prev.trim()}\n${studioPrompt}`;
+      const cleanPrev = prev.trim();
+      if (!cleanPrev) return studioPrompt;
+      return `${cleanPrev}, ${studioPrompt}`;
     });
     setShowImageStudio(false);
   };
@@ -1885,8 +1886,9 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                     title={`Click để thêm prompt mẫu: ${p.prompt}`}
                     onClick={() => {
                       setPromptInput((prev) => {
-                        if (!prev.trim()) return p.prompt;
-                        return `${prev.trim()}\n${p.prompt}`;
+                        const cleanPrev = prev.trim();
+                        if (!cleanPrev) return p.prompt;
+                        return `${cleanPrev}, ${p.prompt}`;
                       });
                     }}
                   >
