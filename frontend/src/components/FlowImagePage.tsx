@@ -357,21 +357,21 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
           try {
             const response = await rewritePromptAi({
               prompt: keepOriginalPrompt
-                ? `Prompt gốc: "${promptText}"\nDiễn biến cảnh tiếp theo: "${trimmedAction}"`
-                : `Viết prompt tạo ảnh cho cảnh tiếp theo với diễn biến: "${trimmedAction}"`,
+                ? `Prompt của ảnh 1: "${promptText}". Viết tiếp prompt cảnh tiếp theo cho AI Image Generator (Imagen 3), GIỮ NGUYÊN 100% nhân vật, trang phục, gương mặt và phong cách nghệ thuật của ảnh 1, bổ sung diễn biến mới: "${trimmedAction}". Viết bằng tiếng Anh chuẩn.`
+                : `Viết prompt tạo ảnh cảnh tiếp theo với diễn biến: "${trimmedAction}", đảm bảo phong cách nghệ thuật đồng bộ. Viết bằng tiếng Anh chuẩn.`,
               kind: "image",
-              locale: "vi",
+              locale: "en",
             });
             if (response && response.prompt) {
               finalPrompt = response.prompt;
             } else {
               finalPrompt = keepOriginalPrompt && promptText
-                ? `${promptText}, ${trimmedAction}`
+                ? `${promptText}, continuation scene: ${trimmedAction}`
                 : trimmedAction;
             }
           } catch {
             finalPrompt = keepOriginalPrompt && promptText
-              ? `${promptText}, ${trimmedAction}`
+              ? `${promptText}, continuation scene: ${trimmedAction}`
               : trimmedAction;
           }
         } else {
@@ -379,10 +379,10 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
           try {
             const response = await rewritePromptAi({
               prompt: keepOriginalPrompt
-                ? `Prompt gốc: "${promptText}"\nViết tiếp cảnh tiếp theo (storyboard next scene)`
-                : "Gợi ý và viết một prompt tạo ảnh ngẫu nhiên hấp dẫn",
+                ? `Prompt của ảnh 1: "${promptText}". Viết tiếp cảnh 2 (next scene) giữ nguyên 100% nhân vật, gương mặt, trang phục và phong cách của ảnh 1. Viết bằng tiếng Anh chuẩn.`
+                : "Gợi ý và viết một prompt tạo ảnh nghệ thuật hấp dẫn bằng tiếng Anh",
               kind: "image",
-              locale: "vi",
+              locale: "en",
             });
             if (response && response.prompt) {
               finalPrompt = response.prompt;
@@ -399,7 +399,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
       // Gắn trực tiếp không dùng AI (Chạy ngay lập tức 0ms)
       if (trimmedAction) {
         finalPrompt = keepOriginalPrompt && promptText
-          ? `${promptText}, ${trimmedAction}`
+          ? `${promptText}, continuation scene: ${trimmedAction}`
           : trimmedAction;
       } else {
         finalPrompt = keepOriginalPrompt ? promptText : "";
@@ -691,7 +691,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
           ...(isGrok ? { mode: "t2i" } : {}),
           ...(isMeta ? { mode: "t2i" } : {}),
           ...(namedRefs.length > 0 ? { named_references: namedRefs } : {}),
-          ...(!namedRefs.length && row.referenceImage
+          ...(row.referenceImage
             ? { reference_images: [row.referenceImage] }
             : {}),
         };
