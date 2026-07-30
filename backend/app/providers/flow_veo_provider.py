@@ -33,38 +33,45 @@ class FlowVeoProvider(BaseProvider):
     async def _ensure_bridge(self) -> None:
         if not auth_bridge_access.is_bridge_running():
             raise ProviderError(
-                "Auth Bridge chưa chạy — hãy chạy ./start.sh hoặc start-backend.ps1",
+                "Auth Bridge chưa chạy — hãy chạy ./start.sh",
                 error_code=0,
             )
         if self.account:
             from app.services.browser_pool import browser_pool_manager
             inst = browser_pool_manager.get_instance(self.account.id)
-            if inst and inst.status == "running":
-                return
-            logger.info("Auto-launching background browser for account %s (%s)...", self.account.label, self.account.id)
-            try:
-                inst = await browser_pool_manager.launch(self.account.id, headless=True)
-                for _ in range(20):
-                    if inst.status == "running":
+            if not inst or inst.status not in {"running", "starting"}:
+                logger.info("Auto-launching background browser pool for account %s (%s)...", self.account.label, self.account.id)
+                try:
+                    inst = await browser_pool_manager.launch(self.account.id, headless=True)
+                except Exception as e:
+                    logger.warning("Failed to auto-launch browser for account %s: %s", self.account.id, e)
+
+            if inst:
+                for _ in range(30):
+                    if inst.status == "running" and inst.flow_tab_status == "open":
                         return
-                    if inst.status == "failed":
+                    if inst.status in {"failed", "login_required"}:
                         break
                     await asyncio.sleep(0.5)
-            except Exception as e:
-                logger.warning("Failed to auto-launch browser for account %s: %s", self.account.id, e)
 
-        if not auth_bridge_access.is_connected():
-            raise ProviderError(
-                "Chưa có trình duyệt nào kết nối cho tài khoản này. "
-                "Hệ thống đang tự động bật trình duyệt ẩn, vui lòng thử lại sau vài giây.",
-                error_code=0,
-            )
-        session = auth_bridge_access.get_primary_session()
-        if not session or session.flow_tab_status != "open":
-            raise ProviderError(
-                "Tab Flow chưa sẵn sàng. Hãy vào Cài đặt → Tài khoản → nhấn 'Bật Tất Cả' để bật trình duyệt tự động.",
-                error_code=0,
-            )
+                if inst.status == "running" and inst.flow_tab_status == "open":
+                    return
+                if inst.status == "login_required":
+                    raise ProviderError(
+                        f"Tài khoản «{self.account.label}» chưa đăng nhập Gmail. Vào Cài đặt → Tài khoản → nhấn '🔑 Đăng nhập Chrome' ở dòng tài khoản đó.",
+                        error_code=0,
+                    )
+
+        # Fallback to manual Chrome tab if connected
+        if auth_bridge_access.is_connected():
+            session = auth_bridge_access.get_primary_session()
+            if session and session.flow_tab_status == "open":
+                return
+
+        raise ProviderError(
+            "Trình duyệt tự động cho tài khoản này chưa sẵn sàng. Hãy vào Cài đặt → Tài khoản → kiểm tra trạng thái trình duyệt.",
+            error_code=0,
+        )
 
     def _clear_stale_project(self) -> None:
         if self.account:
