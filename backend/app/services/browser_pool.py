@@ -162,6 +162,8 @@ class BrowserPoolManager:
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--no-proxy-server",
+                "--proxy-bypass-list=*",
+                "--proxy-server=direct://",
             ]
 
             ext_path = EXTENSION_DIR.resolve()
@@ -188,36 +190,33 @@ class BrowserPoolManager:
 
             page = context.pages[0] if context.pages else await context.new_page()
 
-            try:
-                await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
-            except Exception as e:
-                logger.warning("Browser pool page.goto warning for account %s: %s", account.id, e)
+            inst.status = "starting"
+            inst.flow_tab_status = "closed"
 
-            curr_url = page.url or ""
-            if "accounts.google.com" in curr_url or "signin" in curr_url:
-                inst.status = "login_required"
-                inst.last_error = "Chưa đăng nhập Gmail trong profile. Nhấn nút '🔑 Đăng nhập Chrome' ở ô Cài đặt để đăng nhập 1 lần."
-                inst.flow_tab_status = "closed"
-                logger.info("Account %s requires Google login (redirected to %s)", account.label, curr_url)
-            else:
-                inst.status = "running"
-                inst.flow_tab_status = "open"
-                logger.info("Browser pool instance running for account %s (%s)", account.label, account.id)
+            while inst.status in {"starting", "running", "login_required"}:
+                curr_url = page.url or ""
 
-            while inst.status in {"running", "login_required"}:
-                await asyncio.sleep(5)
+                # If on blank/failed page, navigate to Flow
+                if not curr_url or curr_url == "about:blank" or "error" in curr_url:
+                    try:
+                        logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
+                        await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
+                        curr_url = page.url or ""
+                    except Exception as e:
+                        logger.warning("Browser pool page.goto retry warning for %s: %s", account.label, e)
+
+                if "accounts.google.com" in curr_url or "signin" in curr_url:
+                    inst.status = "login_required"
+                    inst.flow_tab_status = "closed"
+                    inst.last_error = "Chưa đăng nhập Gmail trong profile. Nhấn nút '🔑 Đăng nhập Chrome' ở ô Cài đặt để đăng nhập 1 lần."
+                elif "labs.google" in curr_url:
+                    inst.status = "running"
+                    inst.flow_tab_status = "open"
+                    inst.last_error = None
+                else:
+                    inst.flow_tab_status = "closed"
+
                 try:
-                    curr_url = page.url or ""
-                    if "labs.google" in curr_url and inst.status == "login_required":
-                        inst.status = "running"
-                        inst.flow_tab_status = "open"
-                        inst.last_error = None
-                        logger.info("Account %s login completed, switched to running", account.label)
-                    elif ("accounts.google.com" in curr_url or "signin" in curr_url) and inst.status == "running":
-                        inst.status = "login_required"
-                        inst.flow_tab_status = "closed"
-                        inst.last_error = "Session hết hạn. Nhấn nút '🔑 Đăng nhập Chrome' để đăng nhập lại."
-
                     cookies = await context.cookies()
                     session_token = None
                     for c in cookies:
@@ -241,6 +240,8 @@ class BrowserPoolManager:
                                     logger.warning("Could not exchange session token for %s: %s", account.label, err)
                 except Exception as e:
                     logger.debug("Browser loop poll error: %s", e)
+
+                await asyncio.sleep(5)
 
         except asyncio.CancelledError:
             inst.status = "stopped"
