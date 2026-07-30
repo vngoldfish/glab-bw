@@ -84,7 +84,7 @@ class FlowVeoProvider(BaseProvider):
     async def _session(self, *, force_refresh: bool = False, for_video: bool = False) -> dict[str, str]:
         if self.account is None:
             raise ProviderError("No active Flow account available", error_code=0)
-        self._ensure_bridge()
+        await self._ensure_bridge()
         return await flow_session_manager.ensure_session(
             self.account,
             google_flow_client,
