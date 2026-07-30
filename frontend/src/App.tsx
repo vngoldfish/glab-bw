@@ -328,7 +328,12 @@ export default function App() {
                 onError={setError}
               />
             </div>
-            <Suspense fallback={<div className="page-panel" style={{ display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.5 }}>Đang tải…</div>}>
+            <Suspense fallback={
+              <div className="page-panel" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "300px", gap: "14px" }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", border: "3px solid rgba(168, 85, 247, 0.2)", borderTopColor: "#a855f7", animation: "spin 0.8s linear infinite" }} />
+                <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 500 }}>Đang tải trang…</span>
+              </div>
+            }>
             <Routes>
               <Route path="/" element={<Navigate to={DEFAULT_ROUTE} replace />} />
               <Route path={NAV_ROUTES["flow-image"]} element={null} />

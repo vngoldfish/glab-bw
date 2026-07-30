@@ -214,7 +214,7 @@ class GrokProvider(BaseProvider):
         # web model names are not valid for API
         if model in {"grok-3", "grok-4"}:
             model = DEFAULT_IMAGE_MODEL
-        aspect = str(params.get("aspect_ratio") or "1:1")
+        aspect = str(params.get("aspect_ratio") or "16:9")
         n = max(1, min(int(params.get("count") or params.get("n") or 1), 10))
         resolution = str(params.get("resolution") or "1k").lower()
         if resolution not in {"1k", "2k"}:

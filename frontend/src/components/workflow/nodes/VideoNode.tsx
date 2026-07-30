@@ -387,10 +387,13 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             const startEdge = edges.find(e => e.target === id && e.targetHandle === "start_image");
             if (s.start_image) {
               if (startEdge) {
-                nodeUpdates.set(startEdge.source, {
-                  image: s.start_image,
-                  resultUrls: [s.start_image]
-                });
+                const srcNode = nodes.find(n => n.id === startEdge.source);
+                if (srcNode && srcNode.type === "reference") {
+                  nodeUpdates.set(startEdge.source, {
+                    image: s.start_image,
+                    resultUrls: [s.start_image]
+                  });
+                }
               } else {
                 const newRefId = `node_ref_start_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                 newNodesToAdd.push({
@@ -429,10 +432,13 @@ export default function VideoNode({ id, data, selected, plus = false }: NodeProp
             const endEdge = edges.find(e => e.target === id && e.targetHandle === "end_image");
             if (s.end_image) {
               if (endEdge) {
-                nodeUpdates.set(endEdge.source, {
-                  image: s.end_image,
-                  resultUrls: [s.end_image]
-                });
+                const srcNode = nodes.find(n => n.id === endEdge.source);
+                if (srcNode && srcNode.type === "reference") {
+                  nodeUpdates.set(endEdge.source, {
+                    image: s.end_image,
+                    resultUrls: [s.end_image]
+                  });
+                }
               } else {
                 const newRefId = `node_ref_end_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
                 newNodesToAdd.push({

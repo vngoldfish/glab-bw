@@ -173,6 +173,8 @@ function mergeRunResultIntoNodes(
   opts?: { keepMissing?: boolean },
 ): Node[] {
   const nr = result.node_results || {};
+  const stripCb = (url: string) => (url || "").split("?")[0];
+
   return list.map((n) => {
     const raw = nr[n.id] as NodeRunRaw | undefined;
     if (!raw) {
@@ -180,21 +182,48 @@ function mergeRunResultIntoNodes(
       return n;
     }
     const status = (raw.status || "idle") as RunStatus;
-    const cb = Date.now();
-    const urls = extractUrlsFromNodeResult(raw).map((u) => {
-      const sep = u.includes("?") ? "&" : "?";
-      return `${u}${sep}cb=${cb}`;
-    });
-    const frames = (raw.frames || []).map((f) => {
-      const u = normalizeFileUrl(f.url);
-      const sep = u.includes("?") ? "&" : "?";
-      return {
-        position: String(f.position || ""),
-        url: `${u}${sep}cb=${cb}`,
-        path: f.path,
-      };
-    });
     const prev = n.data as WNodeData;
+
+    const rawUrls = extractUrlsFromNodeResult(raw);
+    let finalUrls = prev.resultUrls;
+    if (rawUrls.length > 0) {
+      const prevBaseUrls = (prev.resultUrls || []).map(stripCb);
+      const newBaseUrls = rawUrls.map(stripCb);
+      if (
+        !prev.resultUrls ||
+        JSON.stringify(prevBaseUrls) !== JSON.stringify(newBaseUrls)
+      ) {
+        const cb = Date.now();
+        finalUrls = rawUrls.map((u) => {
+          const sep = u.includes("?") ? "&" : "?";
+          return `${u}${sep}cb=${cb}`;
+        });
+      }
+    }
+
+    let finalFrames = prev.frames;
+    if (raw.frames && raw.frames.length > 0) {
+      const prevFrameUrls = (prev.frames || []).map((f) => stripCb(f.url));
+      const newFrameUrls = (raw.frames || []).map((f) =>
+        stripCb(normalizeFileUrl(f.url)),
+      );
+      if (
+        !prev.frames ||
+        JSON.stringify(prevFrameUrls) !== JSON.stringify(newFrameUrls)
+      ) {
+        const cb = Date.now();
+        finalFrames = (raw.frames || []).map((f) => {
+          const u = normalizeFileUrl(f.url);
+          const sep = u.includes("?") ? "&" : "?";
+          return {
+            position: String(f.position || ""),
+            url: `${u}${sep}cb=${cb}`,
+            path: f.path,
+          };
+        });
+      }
+    }
+
     return {
       ...n,
       data: {
@@ -205,9 +234,9 @@ function mergeRunResultIntoNodes(
         folder: raw.folder ?? prev.folder,
         percent: (raw as any).percent,
         step: (raw as any).step,
-        ...(urls.length ? { resultUrls: urls } : {}),
-        ...(frames.length ? { frames } : {}),
-        ...(n.type === "reference" && urls[0] ? { image: urls[0] } : {}),
+        ...(finalUrls && finalUrls.length ? { resultUrls: finalUrls } : {}),
+        ...(finalFrames && finalFrames.length ? { frames: finalFrames } : {}),
+        ...(n.type === "reference" && finalUrls?.[0] ? { image: finalUrls[0] } : {}),
       },
     };
   });
@@ -265,79 +294,39 @@ function hydrateNodesFromProject(
 }
 
 /**
- * If project JSON lost previews but files still exist under Media project,
- * re-attach newest assets to nodes by type (left→right on canvas).
+ * If project JSON lost previews, safely re-attach assets ONLY if filename matches node ID or title.
+ * Never cross-assign arbitrary videos by array index position.
  */
 function recoverPreviewsFromAssets(list: Node[], assets: ProjectAsset[]): Node[] {
-  const hasAny = list.some((n) => {
-    const d = n.data as WNodeData;
-    return Boolean(d.resultUrls?.length || d.frames?.length);
-  });
-  if (hasAny || !assets.length) return list;
-
-  const byMtimeAsc = (a: ProjectAsset, b: ProjectAsset) =>
-    Number(a.mtime || 0) - Number(b.mtime || 0);
-  const isFramePath = (a: ProjectAsset) =>
-    /\/frames\//i.test(a.path || "") || /frames/i.test(a.folder || "");
-
-  const images = assets
-    .filter((a) => a.kind !== "video" && !isFramePath(a))
-    .sort(byMtimeAsc);
-  const frames = assets.filter((a) => a.kind !== "video" && isFramePath(a)).sort(byMtimeAsc);
-  const videos = assets.filter((a) => a.kind === "video").sort(byMtimeAsc);
-
-  const genNodes = list
-    .filter((n) => n.type === "generate")
-    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
-  const vidNodes = list
-    .filter((n) => n.type === "video_generate")
-    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
-  const frameNodes = list
-    .filter((n) => n.type === "frame_extract")
-    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
-  const refNodes = list
-    .filter((n) => n.type === "reference")
-    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
+  if (!assets.length) return list;
 
   const assign = new Map<string, Partial<WNodeData>>();
-  // Prefer the most recent N files for N nodes (re-runs leave older copies on disk)
-  const pickLast = <T,>(arr: T[], n: number) => (n <= 0 ? [] : arr.slice(Math.max(0, arr.length - n)));
 
-  const genImgs = pickLast(images, genNodes.length);
-  genNodes.forEach((n, i) => {
-    const a = genImgs[i];
-    if (!a) return;
-    const url = normalizeFileUrl(a.url);
-    assign.set(n.id, { resultUrls: [url], runStatus: "completed", folder: a.folder });
-  });
-  const usedImg = new Set(genImgs.map((a) => a.path));
-  const leftoverImgs = images.filter((a) => !usedImg.has(a.path));
-  refNodes.forEach((n, i) => {
+  list.forEach((n) => {
     const d = n.data as WNodeData;
-    if (d.image || d.resultUrls?.length) return;
-    const a = leftoverImgs[i];
-    if (!a) return;
-    const url = normalizeFileUrl(a.url);
-    assign.set(n.id, { image: url, resultUrls: [url], runStatus: "completed" });
-  });
-  const pickVids = pickLast(videos, vidNodes.length);
-  vidNodes.forEach((n, i) => {
-    const a = pickVids[i];
-    if (!a) return;
-    const url = normalizeFileUrl(a.url);
-    assign.set(n.id, { resultUrls: [url], runStatus: "completed", folder: a.folder });
-  });
-  const pickFrames = pickLast(frames, frameNodes.length);
-  frameNodes.forEach((n, i) => {
-    const a = pickFrames[i];
-    if (!a) return;
-    const url = normalizeFileUrl(a.url);
-    assign.set(n.id, {
-      resultUrls: [url],
-      frames: [{ position: "end", url, path: a.path }],
-      runStatus: "completed",
-      folder: a.folder,
+    // Keep existing resultUrls — never overwrite valid node results
+    if (d.resultUrls && d.resultUrls.length > 0) return;
+
+    const nid = n.id.toLowerCase();
+    const rawNid = nid.split("_").pop() || "";
+
+    // Find asset that explicitly references this node ID in filename
+    const matched = assets.find((a) => {
+      const p = (a.path || a.name || "").toLowerCase();
+      if (!p) return false;
+      if (p.includes(nid)) return true;
+      if (rawNid && rawNid.length >= 2 && p.includes(`${rawNid}_`)) return true;
+      return false;
     });
+
+    if (matched) {
+      const url = normalizeFileUrl(matched.url);
+      assign.set(n.id, {
+        resultUrls: [url],
+        runStatus: "completed",
+        folder: matched.folder,
+      });
+    }
   });
 
   if (!assign.size) return list;
@@ -1396,7 +1385,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.aspect_ratio = "16:9";
     }
     if (type === "video_generate") {
-      baseData.model = "veo_31_fast";
+      baseData.model = "veo_31_lite_relaxed";
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
     }
@@ -1408,7 +1397,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.aspect_ratio = "16:9";
     }
     if (type === "video_generate_plus") {
-      baseData.model = "veo_31_fast";
+      baseData.model = "veo_31_lite_relaxed";
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
       baseData.studioDuration = 8;
@@ -1427,10 +1416,39 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       ? rf.current.screenToFlowPosition(screenPos)
       : { x: 140 + Math.random() * 60, y: 120 + Math.random() * 60 };
 
-    setNodes((nds) => [
-      ...nds,
-      { id, type, position: pos, data: baseData },
-    ]);
+    setNodes((nds) => {
+      let targetX = pos.x;
+      let targetY = pos.y;
+
+      // Stagger offset if a node already exists near this position
+      let overlapStep = 0;
+      while (
+        nds.some(
+          (n) =>
+            Math.abs(n.position.x - (targetX + overlapStep * 50)) < 40 &&
+            Math.abs(n.position.y - (targetY + overlapStep * 50)) < 40
+        )
+      ) {
+        overlapStep++;
+      }
+
+      const finalPos = {
+        x: targetX + overlapStep * 50,
+        y: targetY + overlapStep * 50,
+      };
+
+      const maxZ = nds.reduce((max, n) => Math.max(max, (n.zIndex as number) || 0), 0);
+      const deselected = nds.map((n) => ({ ...n, selected: false }));
+      const newNode: Node = {
+        id,
+        type,
+        position: finalPos,
+        data: baseData,
+        selected: true,
+        zIndex: maxZ + 10,
+      };
+      return [...deselected, newNode];
+    });
     setDirty(true);
   }
 
@@ -1540,7 +1558,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         genData.model = "nano_banana_2_lite";
         genData.aspect_ratio = "16:9";
       } else {
-        genData.model = "veo_31_fast";
+        genData.model = "veo_31_lite_relaxed";
         genData.mode = "text_to_video"; // default: no image edge yet
         genData.aspect_ratio = "16:9";
         // hasStartImageInput NOT set here — set below when cross-box edge is created
@@ -2611,6 +2629,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
               deleteKeyCode={["Backspace", "Delete"]}
               proOptions={{ hideAttribution: true }}
               defaultEdgeOptions={edgeOptsRef.current}
+              elevateNodesOnSelect={true}
               style={{ width: "100%", height: "100%" }}
               onlyRenderVisibleElements={true}
             >

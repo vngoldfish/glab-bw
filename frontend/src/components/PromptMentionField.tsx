@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   forwardRef,
   useImperativeHandle,
   useLayoutEffect,
@@ -22,6 +23,7 @@ interface PromptMentionFieldProps {
   placeholder?: string;
   className?: string;
   menuPlacement?: "above" | "below";
+  style?: CSSProperties;
   onFocus?: () => void;
   onChange: (value: string) => void;
 }
@@ -44,6 +46,7 @@ const PromptMentionField = forwardRef<PromptMentionFieldHandle, PromptMentionFie
       placeholder,
       className = "queue-prompt-input",
       menuPlacement = "below",
+      style,
       onFocus,
       onChange,
     },
@@ -195,7 +198,7 @@ const PromptMentionField = forwardRef<PromptMentionFieldHandle, PromptMentionFie
         : "prompt-mention-menu";
 
     return (
-      <div className={`prompt-mention-field${menuPlacement === "above" ? " prompt-mention-field--above-menu" : ""}`}>
+      <div className={`prompt-mention-field${menuPlacement === "above" ? " prompt-mention-field--above-menu" : ""}`} style={style}>
         <div className="prompt-mention-input-wrap">
           <textarea
             ref={textareaRef}

@@ -15,7 +15,7 @@ class MetaProvider(BaseProvider):
         if not self.session_data:
             raise ProviderError("Chưa bật tài khoản Meta AI cho tính năng tạo ảnh", error_code=401)
         model = str(params.get("model") or "midjen-base")
-        aspect = str(params.get("aspect_ratio") or "1:1")
+        aspect = str(params.get("aspect_ratio") or "16:9")
         count = max(1, min(int(params.get("count") or 1), 4))
         return await self.client.generate_images(prompt, model=model, aspect_ratio=aspect, count=count)
 

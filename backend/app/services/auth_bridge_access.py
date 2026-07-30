@@ -23,21 +23,33 @@ class AuthBridgeAccess:
     def __init__(self, base_url: str | None = None) -> None:
         self.base_url = (base_url or settings.auth_bridge_url).rstrip("/")
 
-    def is_bridge_running(self) -> bool:
+    def _get_in_memory_status(self) -> dict | None:
         try:
-            response = httpx.get(f"{self.base_url}/", timeout=3.0)
+            from app.services.auth_bridge import auth_bridge
+            return auth_bridge.status_payload()
+        except Exception:
+            return None
+
+    def is_bridge_running(self) -> bool:
+        if self._get_in_memory_status() is not None:
+            return True
+        try:
+            response = httpx.get(f"{self.base_url}/", timeout=3.0, trust_env=False)
             return response.status_code == 200
         except Exception:
             return False
 
     def _fetch_status(self) -> dict | None:
+        mem = self._get_in_memory_status()
+        if mem is not None and mem.get("connected"):
+            return mem
         try:
-            response = httpx.get(f"{self.base_url}/", timeout=3.0)
+            response = httpx.get(f"{self.base_url}/", timeout=3.0, trust_env=False)
             if response.status_code == 200:
                 return response.json()
         except Exception:
-            return None
-        return None
+            pass
+        return mem
 
     def is_connected(self, max_age_seconds: int = 30) -> bool:
         del max_age_seconds
@@ -75,7 +87,7 @@ class AuthBridgeAccess:
         }
 
     async def queue_captcha(self, site_key: str = "", action: str = "") -> CaptchaRequest:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.post(
                 f"{self.base_url}/sync/internal/captcha",
                 json={"site_key": site_key, "action": action},
@@ -91,7 +103,7 @@ class AuthBridgeAccess:
 
     async def wait_for_captcha(self, request_id: str, timeout: float = 120.0) -> CaptchaRequest:
         deadline = time.time() + timeout
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(trust_env=False) as client:
             while time.time() < deadline:
                 response = await client.get(
                     f"{self.base_url}/sync/internal/captcha/{request_id}",

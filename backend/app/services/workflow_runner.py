@@ -217,6 +217,10 @@ def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | N
     m = re.search(r"(\d+)", title)
     prefix_num = m.group(1) if m else ""
 
+    # Unique node ID fallback so nodes with identical titles never overwrite each other's files
+    raw_nid = str(node_data.get("id") or node_data.get("workflow_node_id") or "").split("_")[-1]
+    node_tag = prefix_num if prefix_num else (raw_nid if raw_nid else secrets.token_hex(3))
+
     # 2. Get project name and sanitize it
     from app.services.project_store import get_project
     project_name = "Project"
@@ -241,10 +245,8 @@ def _build_custom_filename_prefix(node_data: dict[str, Any], project_id: str | N
     # 3. Get current date
     date_str = datetime.datetime.now().strftime("%Y%m%d")
 
-    # 4. Combine
-    if prefix_num:
-        return f"{prefix_num}_{clean_name}_{date_str}"
-    return f"{clean_name}_{date_str}"
+    # 4. Combine with unique node discriminator
+    return f"{node_tag}_{clean_name}_{date_str}"
 
 
 async def _execute_node(
@@ -384,7 +386,7 @@ async def _execute_node(
                 "midjen-base" if engine == "meta" else
                 "dall-e-3"
             ),
-            "aspect_ratio": data.get("aspect_ratio") or "1:1",
+            "aspect_ratio": data.get("aspect_ratio") or data.get("aspectRatio") or "16:9",
             "count": int(data.get("count") or 1),
             "save_mode": "flat",
             "output_folder": img_folder,
@@ -564,13 +566,23 @@ async def _execute_node(
                 "grok-3" if engine == "grok" else
                 "meta-video"
             ),
-            "aspect_ratio": data.get("aspect_ratio") or "16:9",
+            "aspect_ratio": data.get("aspect_ratio") or data.get("aspectRatio") or "16:9",
             "mode": mode,
             "save_mode": "flat",
             "output_folder": vid_folder,
             "resolution": data.get("resolution") or ["720p"],
             "custom_prefix": custom_prefix,
         }
+        if data.get("duration") or data.get("studioDuration"):
+            try:
+                params["duration"] = int(data.get("duration") or data.get("studioDuration"))
+            except Exception:
+                pass
+        if data.get("count") or data.get("concurrency"):
+            try:
+                params["count"] = int(data.get("count") or data.get("concurrency"))
+            except Exception:
+                pass
         if run_id:
             params["workflow_run_id"] = run_id
         params["workflow_node_id"] = nid
@@ -804,9 +816,8 @@ async def run_workflow(
                 if nid not in only_set:
                     if prior_nr and prior_nr.get("status") == "completed":
                         should_skip = True
-                    elif ntype in {"prompt", "reference", "video_reference", "generate_plus", "video_generate_plus"}:
+                    elif ntype in {"prompt", "reference", "video_reference"}:
                         should_skip = False
-
                     else:
                         should_skip = bool(prior_nr and prior_nr.get("status") == "completed")
             elif skip_completed and prior_nr and prior_nr.get("status") == "completed":

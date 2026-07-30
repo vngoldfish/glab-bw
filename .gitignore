@@ -87,3 +87,7 @@ scratch/
 data/credit_usage.json
 data/tasks.db-shm
 data/tasks.db-wal
+data/*.db
+data/*.json
+data/*.html
+data/image_output/

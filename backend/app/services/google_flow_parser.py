@@ -12,15 +12,18 @@ def _models_path() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d / "google_flow_models.json"
 
+DEFAULT_FLOW_MODELS = [
+    {"value": "nano_banana_2_lite", "label": "Nano Banana 2 Lite (0 credit - Miễn phí)", "credits": 0, "api_value": "NARWHAL"},
+    {"value": "nano_banana_2", "label": "Nano Banana 2 (0 credit - Miễn phí)", "credits": 0, "api_value": "GEM_PIX_2"},
+    {"value": "nano_banana_pro", "label": "Nano Banana Pro (0 credit - Miễn phí)", "credits": 0, "api_value": "GEM_PIX"},
+    {"value": "veo_31_lite_relaxed", "label": "Veo 3.1 Lite (0 credit - Miễn phí)", "credits": 0, "api_value": "veo_3_1_t2v_lite_relaxed"},
+    {"value": "omni_flash", "label": "Gemini Omni Flash (15 credits)", "credits": 15, "api_value": "omni_flash"},
+    {"value": "veo_31_fast", "label": "Veo 3.1 Fast (10 credits)", "credits": 10, "api_value": "veo_3_1_t2v_fast"},
+    {"value": "veo_31_lite", "label": "Veo 3.1 Lite (5 credits)", "credits": 5, "api_value": "veo_3_1_t2v_lite"},
+    {"value": "veo_31_quality", "label": "Veo 3.1 Quality (100 credits)", "credits": 100, "api_value": "veo_3_1_t2v_quality"},
+]
+
 def get_scraped_flow_models() -> dict:
-    from app.services.auth_bridge import auth_bridge
-    # Only return models if the Google Flow tab is active and open on browser
-    if not auth_bridge.is_flow_tab_open():
-        return {
-            "is_placeholder": True,
-            "models": []
-        }
-        
     p = _models_path()
     if p.is_file():
         try:
@@ -32,7 +35,7 @@ def get_scraped_flow_models() -> dict:
             
     return {
         "is_placeholder": True,
-        "models": []
+        "models": DEFAULT_FLOW_MODELS
     }
 
 def process_google_flow_html(data: dict) -> dict:

@@ -31,6 +31,7 @@ class FlowSessionManager:
         client: Any,
         *,
         force_refresh: bool = False,
+        for_video: bool = False,
     ) -> dict[str, str]:
         # Get or create lock for this specific account ID to prevent concurrent refreshes/project creations
         async with self._locks_lock:
@@ -69,6 +70,9 @@ class FlowSessionManager:
                 or not expires_at
                 or expires_at < time.time() + 60
             )
+            at_expires_str = creds.get("at_expires", "").strip()
+            needs_refresh = force_refresh or not access_token or self._is_at_expired(at_expires_str)
+            
             if needs_refresh:
                 try:
                     session = await client.st_to_at(session_token)
@@ -119,10 +123,17 @@ class FlowSessionManager:
                 if email and fresh_account.label != email:
                     account_store.update(fresh_account.id, label=email)
 
-            project_id = creds.get("project_id", "").strip()
+            tool_name = "VIDEO" if for_video else "PINHOLE"
+            project_id_key = "video_project_id" if for_video else "image_project_id"
+            project_id = creds.get(project_id_key, "").strip()
+            if not project_id and not for_video:
+                project_id = creds.get("project_id", "").strip()
+            
             if not project_id:
-                project_id = await client.create_project(session_token, title="G-Labs BW")
-                creds["project_id"] = project_id
+                project_id = await client.create_project(session_token, title=f"G-Labs BW {tool_name}", tool_name=tool_name)
+                creds[project_id_key] = project_id
+                if not for_video:
+                    creds["project_id"] = project_id
                 account_store.update(fresh_account.id, credentials=creds)
 
             return {

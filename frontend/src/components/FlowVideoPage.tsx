@@ -13,9 +13,9 @@ import {
   mediaUrl,
   fetchFlowModels,
   apiFetch,
+  clearDashboardHistory,
 } from "../api";
 import {
-  clearFlowVideoSnapshot,
   loadFlowVideoSnapshot,
   saveFlowVideoSnapshot,
 } from "../flowVideoStorage";
@@ -55,7 +55,7 @@ import MediaHistoryPanel from "./MediaHistoryPanel";
 
 const DEFAULT_CONFIG: VideoConfig = {
   engine: "flow",
-  model: "omni_flash",
+  model: "veo_31_lite_relaxed",
   aspectRatio: "16:9",
   mode: "start_image", // smart: T2V / I2V / FL theo ảnh trên dòng
   concurrency: 1,
@@ -402,6 +402,14 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const [customActionVal, setCustomActionVal] = useState("");
   const [modalSubmitting, setModalSubmitting] = useState(false);
 
+const DEFAULT_FLOW_VIDEO_MODELS = [
+  { value: "veo_31_lite_relaxed", label: "Veo 3.1 Lite (Miễn phí / 0 credit)", credits: 0 },
+  { value: "omni_flash", label: "Gemini Omni Flash (15 credits)", credits: 15 },
+  { value: "veo_31_fast", label: "Veo 3.1 Fast (10 credits)", credits: 10 },
+  { value: "veo_31_lite", label: "Veo 3.1 Lite (5 credits)", credits: 5 },
+  { value: "veo_31_quality", label: "Veo 3.1 Quality (100 credits)", credits: 100 },
+];
+
   const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number }>>([]);
   const [flowModelsLoaded, setFlowModelsLoaded] = useState(false);
 
@@ -409,12 +417,17 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     async function loadModels() {
       try {
         const data = await fetchFlowModels();
-        if (data && data.models) {
+        if (data && data.models && data.models.length > 0) {
           const vidModels = data.models.filter(m => m.value.includes("veo") || m.value.includes("omni_flash") || m.value.includes("abra"));
-          setFlowModels(vidModels);
+          if (vidModels.length > 0) {
+            setFlowModels(vidModels);
+            return;
+          }
         }
+        setFlowModels(DEFAULT_FLOW_VIDEO_MODELS);
       } catch (err) {
         console.error("Failed to load dynamic flow models", err);
+        setFlowModels(DEFAULT_FLOW_VIDEO_MODELS);
       } finally {
         setFlowModelsLoaded(true);
       }
@@ -565,7 +578,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   // Load recent video tasks from backend on mount if local queue is empty
   useEffect(() => {
     const localSnapshot = loadFlowVideoSnapshot();
-    if (localSnapshot && localSnapshot.rows && localSnapshot.rows.length > 0) {
+    if (localSnapshot !== null) {
       return;
     }
 
@@ -1183,13 +1196,17 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     });
     if (!ok) return;
     setRows([]);
-    clearFlowVideoSnapshot();
     saveFlowVideoSnapshot({
       config,
       rows: [],
       promptInput,
       advancedOpen,
     });
+    try {
+      await clearDashboardHistory("all");
+    } catch (err) {
+      console.error("Failed to clear backend task history", err);
+    }
   }
 
   async function openSavedFolder(row: QueueRow) {
@@ -2118,7 +2135,7 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
               ref={bulkPromptRef}
               rows={6}
               className="queue-bulk-prompt"
-              menuPlacement="top"
+              menuPlacement="above"
               placeholder={
                 frameMode
                   ? "@hoa đi dạo trên bãi biển lúc hoàng hôn\n@lieu và @hoa ngồi nói chuyện trong quán cafe\nquay đầu cinematic"

@@ -33,18 +33,18 @@ class FlowVeoProvider(BaseProvider):
     def _ensure_bridge(self) -> None:
         if not auth_bridge_access.is_bridge_running():
             raise ProviderError(
-                "Auth Bridge chưa chạy — chạy .\\start-backend.ps1 (cần port 18923 + 8765)",
+                "Auth Bridge chưa chạy — hãy chạy ./start.sh hoặc start-backend.ps1",
                 error_code=0,
             )
         if not auth_bridge_access.is_connected():
             raise ProviderError(
-                "Auth Helper chưa kết nối — mở Chrome, cài extension, tab labs.google/fx/tools/flow",
+                "Auth Helper Chrome extension chưa kết nối — hãy cài extension và mở Chrome",
                 error_code=0,
             )
         session = auth_bridge_access.get_primary_session()
         if not session or session.flow_tab_status != "open":
             raise ProviderError(
-                "Chưa mở tab labs.google/fx/tools/flow — đăng nhập Google và mở Flow Lab",
+                "Chưa mở tab Google Flow — hãy mở Chrome và truy cập labs.google/fx/tools/flow",
                 error_code=0,
             )
         # Captcha is solved in whatever Google account is logged into the tab.
@@ -56,7 +56,22 @@ class FlowVeoProvider(BaseProvider):
                 self.account.label,
             )
 
-    async def _session(self, *, force_refresh: bool = False) -> dict[str, str]:
+    def _clear_stale_project(self) -> None:
+        if self.account:
+            account = account_store.get(self.account.id)
+            if account:
+                creds = dict(account.credentials)
+                cleared = False
+                for key in ("project_id", "image_project_id", "video_project_id"):
+                    if key in creds:
+                        logger.warning("Clearing stale %s (%s) for account %s", key, creds[key], self.account.label)
+                        del creds[key]
+                        cleared = True
+                if cleared:
+                    account_store.update(account.id, credentials=creds)
+                    self.account = account_store.get(account.id) or account
+
+    async def _session(self, *, force_refresh: bool = False, for_video: bool = False) -> dict[str, str]:
         if self.account is None:
             raise ProviderError("No active Flow account available", error_code=0)
         self._ensure_bridge()
@@ -64,6 +79,7 @@ class FlowVeoProvider(BaseProvider):
             self.account,
             google_flow_client,
             force_refresh=force_refresh,
+            for_video=for_video,
         )
 
     async def _ensure_flow_media_id(
@@ -200,7 +216,7 @@ class FlowVeoProvider(BaseProvider):
     async def generate_image(self, prompt: str, params: dict[str, Any]) -> list[bytes]:
         # Fresh AT like video — stale token sometimes comes back as INTERNAL, not 401
         session = await self._session(force_refresh=True)
-        aspect_ratio = params.get("aspect_ratio", "1:1")
+        aspect_ratio = params.get("aspect_ratio") or "16:9"
         named_refs = params.get("named_references", [])
         resolved_prompt, named_items = resolve_prompt_references(prompt, named_refs)
         
@@ -225,25 +241,36 @@ class FlowVeoProvider(BaseProvider):
 
         acc_id = self.account.id if self.account else None
         acc_label = self.account.label if self.account else None
-        return await google_flow_client.generate_image(
-            access_token=session["access_token"],
-            project_id=session["project_id"],
-            prompt=prompt,
-            model=params.get("model", "nano_banana_2"),
-            aspect_ratio=aspect_ratio,
-            user_paygate_tier=session.get("user_paygate_tier", "PAYGATE_TIER_ONE"),
-            reference_images=image_inputs,
-            upscale_targets=params.get("upscale", []),
-            count=count,
-            session_token=session.get("session_token"),
-            account_id=acc_id,
-            account_label=acc_label,
-        )
+        try:
+            return await google_flow_client.generate_image(
+                access_token=session["access_token"],
+                project_id=session["project_id"],
+                prompt=prompt,
+                model=params.get("model", "nano_banana_2"),
+                aspect_ratio=aspect_ratio,
+                user_paygate_tier=session.get("user_paygate_tier", "PAYGATE_TIER_ONE"),
+                reference_images=image_inputs,
+                upscale_targets=params.get("upscale", []),
+                count=count,
+                session_token=session.get("session_token"),
+                account_id=acc_id,
+                account_label=acc_label,
+            )
+        except ProviderError as exc:
+            msg = str(exc).lower()
+            if getattr(exc, "error_code", None) == 404 or "not found" in msg or "entity was not found" in msg:
+                if not params.get("_retried_404"):
+                    logger.warning("Image failed with 404 stale project %s — clearing project_id and retrying...", session.get("project_id"))
+                    self._clear_stale_project()
+                    params_retry = dict(params)
+                    params_retry["_retried_404"] = True
+                    return await self.generate_image(prompt, params_retry)
+            raise
 
     async def generate_video(self, prompt: str, params: dict[str, Any]) -> list[bytes]:
         # Always refresh token for video — stale AT often surfaces as PERMISSION_DENIED
         # even when Flow web (browser cookies) still works.
-        session = await self._session(force_refresh=True)
+        session = await self._session(force_refresh=True, for_video=True)
         mode = str(params.get("mode", "text_to_video"))
         model = str(params.get("model", "veo_31_fast"))
         is_omni = model in {"omni_flash", "gemini_omni_flash", "omni"}
@@ -384,10 +411,18 @@ class FlowVeoProvider(BaseProvider):
             return await google_flow_client.generate_video(**video_kwargs)
         except ProviderError as exc:
             msg = str(exc).lower()
+            if getattr(exc, "error_code", None) == 404 or "not found" in msg or "entity was not found" in msg:
+                if not params.get("_retried_404"):
+                    logger.warning("Video failed with 404 stale project %s — clearing project_id and retrying...", session.get("project_id"))
+                    self._clear_stale_project()
+                    params_retry = dict(params)
+                    params_retry["_retried_404"] = True
+                    return await self.generate_video(prompt, params_retry)
+                raise
             # reCAPTCHA evaluation failed: refresh AT + retry once with brand-new captcha tokens
             if "recaptcha" in msg:
                 logger.warning("Video reCAPTCHA fail — force session refresh + retry once")
-                session = await self._session(force_refresh=True)
+                session = await self._session(force_refresh=True, for_video=True)
                 video_kwargs["access_token"] = session["access_token"]
                 video_kwargs["session_token"] = session["session_token"]
                 video_kwargs["project_id"] = session["project_id"]

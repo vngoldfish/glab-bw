@@ -25,7 +25,7 @@ const IMAGE_DEFAULTS: Record<string, string> = {
 };
 
 const VIDEO_DEFAULTS: Record<string, string> = {
-  flow: "veo_31_fast",
+  flow: "veo_31_lite_relaxed",
   grok: "grok-3",
   meta: "meta-video",
 };

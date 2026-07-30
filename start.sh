@@ -10,9 +10,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# Read AUTH_BRIDGE_PORT and API_PORT from .env dynamically, fallbacks to defaults
+# Read AUTH_BRIDGE_PORT, API_PORT, and HOST from .env dynamically, fallbacks to defaults
 AUTH_BRIDGE_PORT=18923
 API_PORT=8765
+HOST="127.0.0.1"
 if [[ -f "$ROOT/.env" ]]; then
   LINE=$(grep -E "^AUTH_BRIDGE_URL=" "$ROOT/.env" | cut -d= -f2- || true)
   if [[ -n "$LINE" ]]; then
@@ -24,6 +25,10 @@ if [[ -f "$ROOT/.env" ]]; then
   PORT_LINE=$(grep -E "^PORT=" "$ROOT/.env" | cut -d= -f2- || true)
   if [[ -n "$PORT_LINE" ]]; then
     API_PORT="$PORT_LINE"
+  fi
+  HOST_LINE=$(grep -E "^HOST=" "$ROOT/.env" | cut -d= -f2- || true)
+  if [[ -n "$HOST_LINE" ]]; then
+    HOST="$HOST_LINE"
   fi
 fi
 
@@ -96,7 +101,7 @@ start_backend_once() {
   (
     cd "$ROOT"
     export PYTHONPATH="$ROOT/backend"
-    nohup "$VENV_PY" -m uvicorn app.main:app --host 0.0.0.0 --port "$API_PORT" \
+    nohup "$VENV_PY" -m uvicorn app.main:app --host "$HOST" --port "$API_PORT" \
       >>"$BACKEND_LOG" 2>&1 &
     echo $! >"$BACKEND_PID_FILE"
   )
@@ -168,7 +173,7 @@ else
   echo "[3/4] Frontend Vite :5173..."
   (
     cd "$ROOT/frontend"
-    nohup npm run dev -- --host 0.0.0.0 --port 5173 \
+    nohup npm run dev -- --host "$HOST" --port 5173 \
       >>"$FRONTEND_LOG" 2>&1 &
     echo $! >"$FRONTEND_PID_FILE"
   )

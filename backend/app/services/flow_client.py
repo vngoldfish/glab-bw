@@ -304,12 +304,14 @@ class GoogleFlowClient:
             timeout=30.0,
         )
 
-    async def create_project(self, session_token: str, title: str) -> str:
+    async def create_project(self, session_token: str, title: str, tool_name: str = "PINHOLE") -> str:
+        # Google Flow tRPC schema accepts "PINHOLE" or "TOOL_NAME_UNSPECIFIED" only
+        t_name = "PINHOLE" if tool_name in {"PINHOLE", "VIDEO", "FLOW"} else tool_name
         result = await self._request(
             "POST",
             f"{FLOW_LABS_BASE}/trpc/project.createProject",
             headers=self._headers(session_token=session_token),
-            json_data={"json": {"projectTitle": title, "toolName": "PINHOLE"}},
+            json_data={"json": {"projectTitle": title, "toolName": t_name}},
             timeout=30.0,
         )
         project_id = (
@@ -445,7 +447,9 @@ class GoogleFlowClient:
                         await asyncio.sleep(1.2 + attempt)
                         continue
                     if model_idx + 1 < len(model_candidates) and code in {
+                        400,
                         403,
+                        404,
                         500,
                         502,
                         503,

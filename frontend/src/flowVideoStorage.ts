@@ -66,7 +66,7 @@ function migrateConfig(config: Partial<VideoConfig> | undefined): VideoConfig {
   return {
     engine,
     model: String(
-      source.model ?? (engine === "grok" ? "grok-3" : "veo_31_fast"),
+      source.model ?? (engine === "grok" ? "grok-3" : "veo_31_lite_relaxed"),
     ),
     aspectRatio: String(source.aspectRatio ?? "16:9"),
     // Default smart mode: auto T2V / I2V / FL from row images
@@ -84,7 +84,7 @@ export function loadFlowVideoSnapshot(): FlowVideoSnapshot | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as FlowVideoSnapshot;
-    if (!Array.isArray(data.rows) || data.rows.length === 0) return null;
+    if (!Array.isArray(data.rows)) return null;
     return {
       config: migrateConfig(data.config ?? {}),
       rows: normalizeRowsOnLoad(data.rows),

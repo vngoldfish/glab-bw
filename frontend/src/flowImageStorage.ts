@@ -73,7 +73,7 @@ export function loadFlowImageSnapshot(): FlowImageSnapshot | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as FlowImageSnapshot;
-    if (!Array.isArray(data.rows) || data.rows.length === 0) return null;
+    if (!Array.isArray(data.rows)) return null;
     return {
       config: migrateConfig(data.config ?? {}),
       rows: normalizeRowsOnLoad(data.rows),

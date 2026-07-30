@@ -11,9 +11,9 @@ import {
   mediaUrl,
   fetchFlowModels,
   apiFetch,
+  clearDashboardHistory,
 } from "../api";
 import {
-  clearFlowImageSnapshot,
   loadFlowImageSnapshot,
   saveFlowImageSnapshot,
 } from "../flowImageStorage";
@@ -219,6 +219,12 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [customActionVal, setCustomActionVal] = useState("");
   const [keepOriginalPrompt, setKeepOriginalPrompt] = useState(true);
 
+const DEFAULT_FLOW_IMAGE_MODELS = [
+  { value: "nano_banana_2_lite", label: "Nano Banana 2 Lite (0 credit)", credits: 0 },
+  { value: "nano_banana_2", label: "Nano Banana 2 (0 credit)", credits: 0 },
+  { value: "nano_banana_pro", label: "Nano Banana Pro (0 credit)", credits: 0 },
+];
+
   const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number }>>([]);
   const [flowModelsLoaded, setFlowModelsLoaded] = useState(false);
 
@@ -226,12 +232,17 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     async function loadModels() {
       try {
         const data = await fetchFlowModels();
-        if (data && data.models) {
-          const imgModels = data.models.filter(m => m.value.includes("nano_banana") || m.value.includes("imagen"));
-          setFlowModels(imgModels);
+        if (data && data.models && data.models.length > 0) {
+          const imgModels = data.models.filter(m => m.value.includes("nano_banana") || m.value.includes("imagen") || m.value.includes("narwhal") || m.value.includes("gem_pix"));
+          if (imgModels.length > 0) {
+            setFlowModels(imgModels);
+            return;
+          }
         }
+        setFlowModels(DEFAULT_FLOW_IMAGE_MODELS);
       } catch (err) {
         console.error("Failed to load dynamic flow models", err);
+        setFlowModels(DEFAULT_FLOW_IMAGE_MODELS);
       } finally {
         setFlowModelsLoaded(true);
       }
@@ -361,7 +372,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     const snap = loadFlowVideoSnapshot() || {
       config: {
         engine: "flow",
-        model: "veo_31_fast",
+        model: "veo_31_lite_relaxed",
         aspectRatio: "16:9",
         mode: "start_image",
         concurrency: 1,
@@ -407,7 +418,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   // Load recent image tasks from backend on mount if local queue is empty
   useEffect(() => {
     const localSnapshot = loadFlowImageSnapshot();
-    if (localSnapshot && localSnapshot.rows && localSnapshot.rows.length > 0) {
+    if (localSnapshot !== null) {
       return;
     }
 
@@ -732,7 +743,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
                 output_folder: config.outputFolder,
               },
               video_params: {
-                model: "veo_31_fast",
+                model: "veo_31_lite_relaxed",
                 aspect_ratio: "16:9",
                 mode: "start_image",
                 save_mode: "task",
@@ -986,13 +997,17 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     });
     if (!ok) return;
     setRows([]);
-    clearFlowImageSnapshot();
     saveFlowImageSnapshot({
       config,
       rows: [],
       promptInput,
       advancedOpen,
     });
+    try {
+      await clearDashboardHistory("all");
+    } catch (err) {
+      console.error("Failed to clear backend task history", err);
+    }
   }
 
   async function openSavedFolder(row: QueueRow) {
@@ -1775,7 +1790,7 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
               ref={bulkPromptRef}
               rows={6}
               className="queue-bulk-prompt"
-              menuPlacement="top"
+              menuPlacement="above"
               placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
               value={promptInput}
               library={referenceLibrary}

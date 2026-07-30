@@ -7,13 +7,15 @@ FLOW_API_KEY = os.getenv("FLOW_API_KEY", "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3p
 RECAPTCHA_SITE_KEY = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
 
 IMAGE_MODELS = {
-    "nano_banana_pro": "GEM_PIX",
-    "nano_banana_2": "GEM_PIX_2",
-    "nano_banana_2_lite": "NARWHAL",
+    "nano_banana_pro": "NARWHAL_PRO",
+    "nano_banana_2": "NARWHAL",
+    "nano_banana_2_lite": "NARWHAL_LITE",
     # Backward compatibility
-    "GEM_PIX": "GEM_PIX",
-    "GEM_PIX_2": "GEM_PIX_2",
+    "GEM_PIX": "NARWHAL_PRO",
+    "GEM_PIX_2": "NARWHAL",
     "NARWHAL": "NARWHAL",
+    "NARWHAL_PRO": "NARWHAL_PRO",
+    "NARWHAL_LITE": "NARWHAL_LITE",
 }
 
 IMAGE_ASPECTS = {
@@ -66,16 +68,16 @@ VIDEO_MODELS_I2V_START = {
         "9:16": "veo_3_1_i2v_s_fast_portrait",
     },
     "veo_31_lite": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast",
+        "9:16": "veo_3_1_i2v_s_fast_portrait",
     },
     "veo_31_quality": {
         "16:9": "veo_3_1_i2v_s_landscape",
         "9:16": "veo_3_1_i2v_s_portrait",
     },
     "veo_31_lite_relaxed": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast",
+        "9:16": "veo_3_1_i2v_s_fast_portrait",
     },
     "omni_flash": {
         "16:9": "abra_t2v_8s",
@@ -89,16 +91,16 @@ VIDEO_MODELS_I2V_START_ULTRA = {
         "9:16": "veo_3_1_i2v_s_fast_portrait_ultra",
     },
     "veo_31_lite": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_ultra",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_ultra",
     },
     "veo_31_quality": {
         "16:9": "veo_3_1_i2v_s_landscape",
         "9:16": "veo_3_1_i2v_s_portrait",
     },
     "veo_31_lite_relaxed": {
-        "16:9": "veo_3_1_i2v_lite_landscape",
-        "9:16": "veo_3_1_i2v_lite_portrait",
+        "16:9": "veo_3_1_i2v_s_fast_ultra",
+        "9:16": "veo_3_1_i2v_s_fast_portrait_ultra",
     },
     "omni_flash": {
         "16:9": "abra_t2v_8s",
@@ -209,9 +211,9 @@ def resolve_image_model(model: str) -> str:
 
 
 def resolve_image_aspect(aspect_ratio: str, *, has_references: bool = False) -> str | None:
-    if aspect_ratio == "auto" or has_references:
+    if aspect_ratio == "auto":
         return None
-    return IMAGE_ASPECTS.get(aspect_ratio, IMAGE_ASPECTS["1:1"])
+    return IMAGE_ASPECTS.get(aspect_ratio, IMAGE_ASPECTS["16:9"])
 
 
 def _is_ultra_tier(user_paygate_tier: str | None) -> bool:
