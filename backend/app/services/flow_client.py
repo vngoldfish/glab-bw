@@ -365,7 +365,7 @@ class GoogleFlowClient:
                 if name not in model_candidates:
                     model_candidates.append(name)
         else:
-            for name in (primary, "NARWHAL", "NARWHAL_PRO", "NARWHAL_LITE"):
+            for name in (primary, "NARWHAL", "GEM_PIX_2", "GEM_PIX"):
                 if name and name not in model_candidates:
                     model_candidates.append(name)
 
