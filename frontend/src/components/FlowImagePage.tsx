@@ -271,6 +271,16 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     imageUrl: string;
     promptText: string;
   } | null>(null);
+  const [editRowStudio, setEditRowStudio] = useState<{
+    rowId: string;
+    promptText: string;
+    imageUrl?: string;
+  } | null>(null);
+  const [createVideoStudio, setCreateVideoStudio] = useState<{
+    open: boolean;
+    imageUrl: string;
+    promptText: string;
+  } | null>(null);
 
   const handleApplyStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
     const parts: string[] = [];
@@ -334,6 +344,94 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
 
     setRows((prev) => [newRow, ...prev]);
     setContinueStudio(null);
+  };
+
+  const handleApplyEditRowStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string; referenceImage?: string }) => {
+    if (!editRowStudio) return;
+    const { rowId, promptText } = editRowStudio;
+
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    let studioPrompt = parts.filter(Boolean).join(", ");
+
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
+    const finalPrompt = studioPrompt || promptText;
+
+    updateRow(rowId, {
+      prompt: finalPrompt,
+      ...(settings.referenceImage !== undefined ? { referenceImage: settings.referenceImage, referenceName: settings.referenceImage ? "style_ref" : null } : {}),
+      status: "idle",
+      error: null,
+    });
+    setEditRowStudio(null);
+  };
+
+  const handleApplyCreateVideoStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
+    if (!createVideoStudio) return;
+    const { imageUrl, promptText } = createVideoStudio;
+
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    let studioPrompt = parts.filter(Boolean).join(", ");
+
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
+    const finalPrompt = studioPrompt || promptText;
+
+    const snap = loadFlowVideoSnapshot() || {
+      config: {
+        engine: "flow",
+        model: "veo_31_lite_relaxed",
+        aspectRatio: "16:9",
+        mode: "start_image",
+        concurrency: 1,
+        saveMode: "task",
+        outputFolder: "G-Labs BW/media_output",
+        resolution: [],
+        duration: 8,
+      },
+      rows: [],
+      promptInput: "",
+      advancedOpen: false,
+    };
+
+    const newRow: QueueRow = {
+      id: createId(),
+      selected: true,
+      prompt: finalPrompt,
+      referenceImage: null,
+      referenceName: null,
+      startFrameName: "image_input.png",
+      startFrameImage: imageUrl,
+      endFrameName: null,
+      endFrameImage: null,
+      results: [],
+      status: "idle",
+      error: null,
+      savedFolder: null,
+    };
+
+    snap.config.mode = "start_image";
+    snap.rows = [newRow, ...snap.rows];
+
+    saveFlowVideoSnapshot(snap);
+    setCreateVideoStudio(null);
+    navigate(NAV_ROUTES["flow-video"] || "/flow-video");
   };
 
 const DEFAULT_FLOW_IMAGE_MODELS = [
@@ -487,44 +585,12 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
 
 
   const handleCreateVideoFromImage = (imageUrl: string, promptText: string) => {
-    const snap = loadFlowVideoSnapshot() || {
-      config: {
-        engine: "flow",
-        model: "veo_31_lite_relaxed",
-        aspectRatio: "16:9",
-        mode: "start_image",
-        concurrency: 1,
-        saveMode: "task",
-        outputFolder: "G-Labs BW/media_output",
-        resolution: [],
-        duration: 8,
-      },
-      rows: [],
-      promptInput: "",
-      advancedOpen: false,
-    };
-
-    const newRow: QueueRow = {
-      id: createId(),
-      selected: true,
-      prompt: promptText,
-      referenceImage: null,
-      referenceName: null,
-      startFrameName: "image_input.png",
-      startFrameImage: imageUrl,
-      endFrameName: null,
-      endFrameImage: null,
-      results: [],
-      status: "idle",
-      error: null,
-      savedFolder: null,
-    };
-
-    snap.config.mode = "start_image";
-    snap.rows = [newRow, ...snap.rows];
-
-    saveFlowVideoSnapshot(snap);
-    navigate(NAV_ROUTES["flow-video"] || "/flow-video");
+    setShowImageStudio(false);
+    setCreateVideoStudio({
+      open: true,
+      imageUrl,
+      promptText,
+    });
   };
 
 
@@ -1664,6 +1730,23 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                             </button>
                             <button
                               type="button"
+                              className="row-action-btn"
+                              aria-label="Mở Studio 3D"
+                              title="Mở Studio 3D để tinh chỉnh góc máy, ánh sáng, phong cách cho dòng này"
+                              style={{ color: "#4ade80", fontWeight: 700 }}
+                              onClick={() =>
+                                setEditRowStudio({
+                                  rowId: row.id,
+                                  promptText: row.prompt,
+                                  imageUrl: row.referenceImage || undefined,
+                                })
+                              }
+                              disabled={row.status === "running" || row.status === "queued"}
+                            >
+                              📷
+                            </button>
+                            <button
+                              type="button"
                               className="row-action-btn row-action-btn--retry"
                               aria-label="Chạy lại"
                               title={
@@ -2384,6 +2467,24 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
           initialReferenceImage={continueStudio.imageUrl}
           onClose={() => setContinueStudio(null)}
           onConfirm={handleApplyContinueStudio}
+        />
+      )}
+
+      {editRowStudio && (
+        <ImageStudioModal
+          initialSubject={editRowStudio.promptText}
+          initialReferenceImage={editRowStudio.imageUrl}
+          onClose={() => setEditRowStudio(null)}
+          onConfirm={handleApplyEditRowStudio}
+        />
+      )}
+
+      {createVideoStudio && (
+        <ImageStudioModal
+          initialSubject={createVideoStudio.promptText}
+          initialReferenceImage={createVideoStudio.imageUrl}
+          onClose={() => setCreateVideoStudio(null)}
+          onConfirm={handleApplyCreateVideoStudio}
         />
       )}
     </div>
