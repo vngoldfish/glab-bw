@@ -79,10 +79,8 @@ class FlowSessionManager:
                 except ProviderError as exc:
                     # Most common when cookie is stale / wrong account paste / not labs.google
                     raise ProviderError(
-                        f"Session Flow không hợp lệ cho «{fresh_account.label}». "
-                        "Lấy lại cookie __Secure-next-auth.session-token khi ĐÃ login "
-                        "đúng account đó trên labs.google (profile Chrome riêng). "
-                        f"Chi tiết: {exc}",
+                        f"Session Flow đã hết hạn cho «{fresh_account.label}». "
+                        "Vào Cài đặt → Tài khoản → nhấn '🔑 Đăng nhập Chrome' ở dòng tài khoản đó để tự động đồng bộ lại.",
                         error_code=getattr(exc, "error_code", 403) or 403,
                     ) from exc
                 access_token = str(session.get("access_token", "")).strip()

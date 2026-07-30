@@ -229,18 +229,26 @@ class GoogleFlowClient:
         return f";{int(time.time() * 1000)}"
 
     async def _solve_recaptcha(self, action: str, account_id: str | None = None) -> str:
-        if not auth_bridge_access.is_connected():
-            raise ProviderError(
-                "Auth Helper chưa kết nối — mở tab labs.google/fx/tools/flow và bật extension",
-                error_code=0,
-            )
-        bridge_session = auth_bridge_access.get_primary_session()
-        if not bridge_session or bridge_session.flow_tab_status != "open":
-            raise ProviderError(
-                "Tab Flow chưa mở trong Chrome — mở https://labs.google/fx/tools/flow "
-                "(login đúng tài khoản cookie trong Settings), đợi Auth = OK / Flow: open",
-                error_code=0,
-            )
+        pool_active = False
+        if account_id:
+            from app.services.browser_pool import browser_pool_manager
+            inst = browser_pool_manager.get_instance(account_id)
+            if inst and inst.status == "running":
+                pool_active = True
+
+        if not pool_active:
+            if not auth_bridge_access.is_connected():
+                raise ProviderError(
+                    "Auth Helper chưa kết nối — mở tab labs.google/fx/tools/flow và bật extension",
+                    error_code=0,
+                )
+            bridge_session = auth_bridge_access.get_primary_session()
+            if not bridge_session or bridge_session.flow_tab_status != "open":
+                raise ProviderError(
+                    "Tab Flow chưa mở trong Chrome — mở https://labs.google/fx/tools/flow "
+                    "(login đúng tài khoản cookie trong Settings), đợi Auth = OK / Flow: open",
+                    error_code=0,
+                )
 
         last_err: str | None = None
         # Fresh token each try — reused/stale tokens → "reCAPTCHA evaluation failed"
@@ -368,7 +376,7 @@ class GoogleFlowClient:
         for model_idx, model_name in enumerate(model_candidates):
             for attempt in range(attempts_per_model):
                 try:
-                    recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION")
+                    recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION", account_id=account_id)
                     session_id = self._session_id()
                     client_context = self._client_context(
                         project_id=project_id,
@@ -506,8 +514,9 @@ class GoogleFlowClient:
         media_id: str,
         target: str,
         user_paygate_tier: str,
+        account_id: str | None = None,
     ) -> bytes:
-        recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION")
+        recaptcha_token = await self._solve_recaptcha("IMAGE_GENERATION", account_id=account_id)
         payload = {
             "mediaId": media_id,
             "targetResolution": target,
@@ -658,7 +667,7 @@ class GoogleFlowClient:
             browser_like: bool,
             use_v2_config: bool = True,
         ) -> dict[str, Any]:
-            recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
+            recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION", account_id=account_id)
             if not recaptcha_token or len(recaptcha_token) < 20:
                 raise ProviderError("reCAPTCHA token rỗng/không hợp lệ — reload tab Flow", error_code=403)
 
@@ -1161,8 +1170,9 @@ class GoogleFlowClient:
         aspect_ratio: str,
         user_paygate_tier: str,
         session_token: str | None = None,
+        account_id: str | None = None,
     ) -> bytes:
-        recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION")
+        recaptcha_token = await self._solve_recaptcha("VIDEO_GENERATION", account_id=account_id)
         payload = {
             "clientContext": self._client_context(
                 project_id=project_id,
