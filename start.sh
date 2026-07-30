@@ -180,12 +180,10 @@ else
   wait_http "http://127.0.0.1:5173/" "Frontend" 30
 fi
 
-echo "[4/4] Open browser..."
-if command -v open >/dev/null 2>&1; then
-  open "$UI_URL" || true
-elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$UI_URL" || true
-fi
+# echo "[4/4] Open browser..."
+# if command -v open >/dev/null 2>&1; then
+#   open "$UI_URL" || true
+# fi
 
 echo ""
 echo "========================================"
