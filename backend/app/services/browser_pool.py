@@ -161,6 +161,7 @@ class BrowserPoolManager:
                 "--disable-blink-features=AutomationControlled",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--no-proxy-server",
             ]
 
             ext_path = EXTENSION_DIR.resolve()

@@ -82,7 +82,7 @@ class LoginBrowserService:
                 context = await p.chromium.launch_persistent_context(
                     user_data_dir=str(profile_dir),
                     headless=headless,
-                    args=["--disable-blink-features=AutomationControlled"],
+                    args=["--disable-blink-features=AutomationControlled", "--no-proxy-server"],
                     viewport={"width": 1280, "height": 900},
                 )
                 page = context.pages[0] if context.pages else await context.new_page()
