@@ -1315,34 +1315,7 @@ async function _resolveWidget(request, _retried = false) {
                 tabId = await _findCanvas();
             }
         } else {
-            
-            try {
-                _lastPrefetch = Date.now();
-                const tab = await chrome.tabs.create({
-                    url: "https://labs.google/flow",
-                    active: false,
-                });
-                _prefetchTab = tab.id;
-
-                
-                await new Promise((resolve) => {
-                    const listener = (id, info) => {
-                        if (id === tab.id && info.status === "complete") {
-                            chrome.tabs.onUpdated.removeListener(listener);
-                            resolve();
-                        }
-                    };
-                    chrome.tabs.onUpdated.addListener(listener);
-                    setTimeout(() => {
-                        chrome.tabs.onUpdated.removeListener(listener);
-                        resolve();
-                    }, 15000);
-                });
-
-                const redirected = await _checkCanvasRedirect();
-                await _animDelay(redirected ? 5000 : 3000);
-                tabId = await _findCanvas();
-            } catch (e) {  }
+            return { error: "No Flow tab open in this browser instance" };
         }
     }
 
@@ -1458,10 +1431,7 @@ async function _relayoutCanvas() {
     } catch (e) {  }
 
     if (!tab) {
-        
-        try {
-            tab = await chrome.tabs.create({ url: "https://labs.google/flow", active: false });
-        } catch (e) { return; }
+        return;
     }
     _prefetchTab = tab.id;
 
