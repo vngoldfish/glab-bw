@@ -356,17 +356,15 @@ function sortIndicator(active: boolean, direction: SortDirection): string {
   return direction === "asc" ? " ↑" : " ↓";
 }
 
-function getRowActionState(row: QueueRow, batchRunning: boolean) {
+function getRowActionState(row: QueueRow, _batchRunning: boolean) {
   const hasPrompt = Boolean(row.prompt.trim());
   const isBusy = row.status === "running" || row.status === "queued";
 
   return {
-    canRun: hasPrompt && !batchRunning && !isBusy && row.status === "idle",
-    canRetry:
-      hasPrompt && !batchRunning && !isBusy &&
-      (row.status === "completed" || row.status === "failed"),
-    canOpenFolder: Boolean(row.savedFolder) && !batchRunning,
-    canDelete: !batchRunning && !isBusy,
+    canRun: hasPrompt && !isBusy,
+    canRetry: hasPrompt && !isBusy && (row.status === "completed" || row.status === "failed"),
+    canOpenFolder: Boolean(row.savedFolder),
+    canDelete: !isBusy,
   };
 }
 
@@ -1656,7 +1654,6 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                     onClick={() => {
                       setRows((prev) => [{ ...emptyRow() }, ...prev]);
                     }}
-                    disabled={running}
                     title="Thêm một dòng trống mới vào hàng chờ"
                   >
                     + Thêm dòng
@@ -1665,9 +1662,9 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={runSelected}
-                    disabled={running || selectedCount === 0 || config.model === "none"}
+                    disabled={selectedCount === 0 || config.model === "none"}
                   >
-                    {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
+                    ▶ Chạy ({selectedCount})
                   </button>
                   <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer", margin: 0 }}>
                     Import CSV
@@ -1675,7 +1672,6 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                       type="file"
                       accept=".csv,.tsv,.txt,text/csv,text/plain"
                       hidden
-                      disabled={running}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         e.target.value = "";
@@ -1689,7 +1685,6 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                       type="file"
                       accept="video/mp4,video/*,.mp4"
                       hidden
-                      disabled={running}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         e.target.value = "";
@@ -1700,7 +1695,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    disabled={running || selectedCount === 0}
+                    disabled={selectedCount === 0}
                     title="Tách frame từ video kết quả của dòng đã chọn"
                     onClick={() => {
                       const selected = rows.filter((r) => r.selected && r.results.length);
@@ -1721,7 +1716,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => void aiRewriteSelected()}
-                    disabled={running || aiBulkBusy || selectedCount === 0}
+                    disabled={aiBulkBusy || selectedCount === 0}
                     title="AI làm lại prompt chuyên nghiệp cho các dòng đã chọn (cần API AI trong Cài đặt)"
                   >
                     {aiBulkBusy ? "…" : `✦ ${selectedCount}`}
@@ -1730,7 +1725,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={clearAllSelections}
-                    disabled={running || selectedCount === 0}
+                    disabled={selectedCount === 0}
                   >
                     Bỏ chọn
                   </button>
@@ -1738,7 +1733,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                     type="button"
                     className="btn btn-ghost btn-sm btn-ghost-danger"
                     onClick={clearQueueTable}
-                    disabled={running || rows.length === 0}
+                    disabled={rows.length === 0}
                   >
                     Xóa bảng
                   </button>

@@ -172,17 +172,15 @@ function sortIndicator(active: boolean, direction: SortDirection): string {
   return direction === "asc" ? " ↑" : " ↓";
 }
 
-function getRowActionState(row: QueueRow, batchRunning: boolean) {
+function getRowActionState(row: QueueRow, _batchRunning: boolean) {
   const hasPrompt = Boolean(row.prompt.trim());
   const isBusy = row.status === "running" || row.status === "queued";
 
   return {
-    canRun: hasPrompt && !batchRunning && !isBusy && row.status === "idle",
-    canRetry:
-      hasPrompt && !batchRunning && !isBusy &&
-      (row.status === "completed" || row.status === "failed"),
-    canOpenFolder: Boolean(row.savedFolder) && !batchRunning,
-    canDelete: !batchRunning && !isBusy,
+    canRun: hasPrompt && !isBusy,
+    canRetry: hasPrompt && !isBusy && (row.status === "completed" || row.status === "failed"),
+    canOpenFolder: Boolean(row.savedFolder),
+    canDelete: !isBusy,
   };
 }
 
@@ -1469,7 +1467,6 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                     onClick={() => {
                       setRows((prev) => [{ ...emptyRow() }, ...prev]);
                     }}
-                    disabled={running}
                     title="Thêm một dòng trống mới vào hàng chờ"
                   >
                     + Thêm dòng
@@ -1478,15 +1475,15 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={runSelected}
-                    disabled={running || selectedCount === 0 || config.model === "none"}
+                    disabled={selectedCount === 0 || config.model === "none"}
                   >
-                    {running ? "Đang chạy..." : `▶ Chạy (${selectedCount})`}
+                    ▶ Chạy ({selectedCount})
                   </button>
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => void runPipelineSelected()}
-                    disabled={running || selectedCount === 0 || config.engine !== "flow" || config.model === "none"}
+                    disabled={selectedCount === 0 || config.engine !== "flow" || config.model === "none"}
                     title="Pipeline G-Labs: gen ảnh rồi video (start frame = ảnh vừa tạo)"
                   >
                     Ảnh→Video
@@ -1497,7 +1494,6 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                       type="file"
                       accept=".csv,.tsv,.txt,text/csv,text/plain"
                       hidden
-                      disabled={running}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         e.target.value = "";
