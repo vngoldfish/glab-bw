@@ -613,16 +613,12 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                 };
               }
             } else {
-              // If not found in the recent tasks list from the backend, and the list has tasks,
-              // it means the task is either too old or has been cleared/aborted by backend restart.
-              if (tasks.length > 0) {
-                changed = true;
-                return {
-                  ...r,
-                  status: "failed" as const,
-                  error: "Tác vụ không còn tồn tại trên máy chủ (mất kết nối hoặc đã restart)",
-                };
-              }
+              changed = true;
+              return {
+                ...r,
+                status: "failed" as const,
+                error: "Tác vụ đã dừng (mất kết nối hoặc server restart) — hãy bấm ↻ để chạy lại",
+              };
             }
             return r;
           });
