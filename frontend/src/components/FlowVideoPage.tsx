@@ -52,6 +52,40 @@ import {
 } from "../types";
 import { createId, readFileAsDataUrl, runWithConcurrency } from "../utils";
 import MediaHistoryPanel from "./MediaHistoryPanel";
+import ImageStudioModal from "./ImageStudioModal";
+
+const PRESET_STUDIO_VIDEO_PROMPTS = [
+  {
+    icon: "🎥",
+    label: "Zoom-in Điện ảnh",
+    prompt: "[Gõ nội dung video ở đây], Slow cinematic camera zoom-in, 35mm lens, atmospheric volumetric lighting, 4k 60fps",
+  },
+  {
+    icon: "🚁",
+    label: "FPV Drone Bay",
+    prompt: "[Gõ nội dung video ở đây], Dynamic FPV drone flythrough, fast smooth camera movement, cinematic wide angle, 4k",
+  },
+  {
+    icon: "🏃",
+    label: "Tracking Dẫn dắt",
+    prompt: "[Gõ nội dung video ở đây], Smooth gimbal tracking camera movement following subject, 50mm lens, 4k",
+  },
+  {
+    icon: "📐",
+    label: "Lia Máy Ngang",
+    prompt: "[Gõ nội dung video ở đây], Slow horizontal camera pan from left to right, high production value, 4k",
+  },
+  {
+    icon: "🔄",
+    label: "Orbit 360 Xoay",
+    prompt: "[Gõ nội dung video ở đây], Smooth 360 orbit camera rotation around subject, cinematic 85mm lens, 4k",
+  },
+  {
+    icon: "🌅",
+    label: "Slow Motion Sunset",
+    prompt: "[Gõ nội dung video ở đây], Ultra slow motion 120fps, golden hour sunset rim light, cinematic anamorphic lens flare",
+  },
+];
 
 const DEFAULT_CONFIG: VideoConfig = {
   engine: "flow",
@@ -392,6 +426,78 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
   const [showHistory, setShowHistory] = useState(() => localStorage.getItem("vid_show_history") === "true");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const directImageInputRef = useRef<HTMLInputElement>(null);
+  const [directInputImage, setDirectInputImage] = useState<string | null>(null);
+
+  function handleDirectImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDirectInputImage(String(reader.result ?? ""));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
+  const [showVideoStudio, setShowVideoStudio] = useState(false);
+  const [editRowStudio, setEditRowStudio] = useState<{
+    rowId: string;
+    promptText: string;
+    imageUrl?: string;
+  } | null>(null);
+
+  const handleApplyStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    let studioPrompt = parts.filter(Boolean).join(", ");
+    if (!studioPrompt) return;
+
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
+    setPromptInput((prev) => {
+      const cleanPrev = prev.trim();
+      if (!cleanPrev) return studioPrompt;
+      if (!studioPrompt) return cleanPrev;
+      return `${cleanPrev}, ${studioPrompt}`;
+    });
+    setShowVideoStudio(false);
+  };
+
+  const handleApplyEditRowStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string; referenceImage?: string }) => {
+    if (!editRowStudio) return;
+    const { rowId, promptText } = editRowStudio;
+
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    let studioPrompt = parts.filter(Boolean).join(", ");
+
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
+    const finalPrompt = studioPrompt || promptText;
+
+    updateRow(rowId, {
+      prompt: finalPrompt,
+      ...(settings.referenceImage !== undefined ? { startFrameImage: settings.referenceImage, startFrameName: settings.referenceImage ? "image_input.png" : null } : {}),
+      status: "idle",
+      error: null,
+    });
+    setEditRowStudio(null);
+  };
 
   const [continueModal, setContinueModal] = useState<{
     open: boolean;
@@ -733,7 +839,45 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) return;
-    const newRows = lines.map((prompt) => ({ ...emptyRow(), prompt }));
+    const newRows = lines.map((prompt) => ({
+      ...emptyRow(),
+      prompt,
+      ...(directInputImage ? { startFrameImage: directInputImage, startFrameName: "user_upload.png" } : {}),
+    }));
+    setRows((prev) => [...newRows, ...prev]);
+    setPromptInput("");
+  }
+
+  function create4StudioVariantRows() {
+    let base = promptInput.trim();
+    if (!base) {
+      base = "Chân dung điện ảnh nghệ thuật 8k, ánh sáng softbox, camera chuyển động nhẹ nhàng";
+    }
+    // Clean old camera phrases
+    base = base
+      .replace(/Close-up shot[^\,]*/gi, "")
+      .replace(/Medium shot[^\,]*/gi, "")
+      .replace(/Wide establishing shot[^\,]*/gi, "")
+      .replace(/Low angle looking up[^\,]*/gi, "")
+      .replace(/,\s*,/g, ",")
+      .replace(/^,\s*/, "")
+      .replace(/,\s*$/, "")
+      .trim();
+
+    const variants = [
+      `Slow cinematic camera zoom-in, Close-up shot, 85mm f/1.4 lens, ${base}, studio 3-point lighting, 4k 60fps`,
+      `Smooth gimbal tracking camera movement, Medium waist-up shot, 50mm f/1.8 lens, ${base}, Rembrandt lighting`,
+      `Dynamic FPV drone flythrough, Wide establishing shot, 24mm wide lens, ${base}, expansive spatial lighting`,
+      `Low angle looking up, dramatic camera pan, 35mm cine lens, ${base}, golden hour rim light`,
+    ];
+
+    const newRows: QueueRow[] = variants.map((p) => ({
+      ...emptyRow(),
+      prompt: p,
+      selected: true,
+      ...(directInputImage ? { startFrameImage: directInputImage, startFrameName: "user_upload.png" } : {}),
+    }));
+
     setRows((prev) => [...newRows, ...prev]);
     setPromptInput("");
   }
@@ -1786,6 +1930,23 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                             </button>
                             <button
                               type="button"
+                              className="row-action-btn"
+                              aria-label="Mở Studio 3D"
+                              title="Mở Studio 3D để tinh chỉnh góc máy, ống kính, ánh sáng cho dòng này"
+                              style={{ color: "#4ade80", fontWeight: 700 }}
+                              onClick={() =>
+                                setEditRowStudio({
+                                  rowId: row.id,
+                                  promptText: row.prompt,
+                                  imageUrl: row.startFrameImage || undefined,
+                                })
+                              }
+                              disabled={row.status === "running" || row.status === "queued"}
+                            >
+                              📷
+                            </button>
+                            <button
+                              type="button"
                               className="row-action-btn row-action-btn--retry"
                               aria-label="Chạy lại"
                               title={
@@ -2029,7 +2190,24 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
             <div className="flow-input-card-head" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 className="flow-section-title">Nhập prompt</h3>
-                <div className="flow-input-card-actions">
+                <div className="flow-input-card-actions" style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => directImageInputRef.current?.click()}
+                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto", color: "#4ade80", fontWeight: 700, borderColor: "rgba(34,197,94,0.3)" }}
+                    title="Tải ảnh tham chiếu / ảnh mẫu trực tiếp từ máy tính (Image-to-Video)"
+                  >
+                    📷 Đính ảnh mẫu
+                  </button>
+                  <input
+                    ref={directImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={handleDirectImageUpload}
+                  />
+
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -2042,12 +2220,30 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
               </div>
               <p className="flow-section-desc" style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
                 {frameMode
-                  ? "Prompt + @nhân_vật · hoặc Ảnh đầu/cuối trên bảng"
-                  : config.mode === "components"
-                    ? "Mỗi dòng một prompt · gõ @ten_anh"
-                    : "Mỗi dòng một prompt · nhập TXT"}
+                  ? "Prompt + @nhân_vật · hoặc Tải ảnh mẫu / chọn từ máy"
+                  : "Mỗi dòng một prompt · gõ @ten_anh hoặc chọn Studio bên dưới"}
               </p>
             </div>
+
+            {directInputImage && (
+              <div style={{ padding: "6px 10px", background: "rgba(34, 197, 94, 0.1)", borderRadius: "8px", border: "1px solid rgba(34, 197, 94, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <img src={mediaUrl(directInputImage)} alt="Input reference" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#4ade80" }}>📷 Đã đính kèm ảnh mẫu máy tính</div>
+                    <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.5)" }}>Dùng làm ảnh tham chiếu (Start Frame / Image-to-Video)</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: "14px", cursor: "pointer", padding: "2px 6px" }}
+                  onClick={() => setDirectInputImage(null)}
+                  title="Gỡ ảnh mẫu này"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             <div className="flow-ref-strip" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, padding: "8px 10px", margin: "4px 0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2130,6 +2326,93 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                 </div>
               </div>
             )}
+
+            {/* Studio 3D Pro Launcher & Presets Bar */}
+            <div style={{ margin: "6px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setShowVideoStudio(true)}
+                  style={{
+                    flex: 1,
+                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "12px",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                    cursor: "pointer",
+                  }}
+                  title="Mở Studio 3D để thiết lập góc máy, ống kính và ánh sáng cho Video"
+                >
+                  🎬 Studio 3D Pro (Góc quay Video)
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={create4StudioVariantRows}
+                  style={{
+                    background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "11px",
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  title="Tự động tạo 4 dòng prompt với 4 góc quay & ống kính video khác nhau"
+                >
+                  ⚡ Bộ 4 Góc Video
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {PRESET_STUDIO_VIDEO_PROMPTS.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: "12px",
+                      background: "rgba(16, 185, 129, 0.12)",
+                      border: "1px solid rgba(16, 185, 129, 0.25)",
+                      color: "#34d399",
+                      fontSize: "10px",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                    onClick={() => {
+                      setPromptInput((prev) => {
+                        const cleanPrev = prev.trim();
+                        if (!cleanPrev) return preset.prompt.replace("[Gõ nội dung video ở đây], ", "");
+                        return `${cleanPrev}, ${preset.prompt.replace("[Gõ nội dung video ở đây], ", "")}`;
+                      });
+                    }}
+                    title={`Thêm thông số ${preset.label}`}
+                  >
+                    <span>{preset.icon}</span>
+                    <span>{preset.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <PromptMentionField
               ref={bulkPromptRef}
@@ -2423,6 +2706,29 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
             )}
           </div>
         </div>
+      )}
+
+      {showVideoStudio && (
+        <ImageStudioModal
+          initialSubject={promptInput.trim()}
+          initialReferenceImage={directInputImage || undefined}
+          onClose={() => setShowVideoStudio(false)}
+          onConfirm={(settings) => {
+            if (settings.referenceImage) {
+              setDirectInputImage(settings.referenceImage);
+            }
+            handleApplyStudio(settings);
+          }}
+        />
+      )}
+
+      {editRowStudio && (
+        <ImageStudioModal
+          initialSubject={editRowStudio.promptText}
+          initialReferenceImage={editRowStudio.imageUrl}
+          onClose={() => setEditRowStudio(null)}
+          onConfirm={handleApplyEditRowStudio}
+        />
       )}
     </div>
   );
