@@ -2262,7 +2262,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                       style={{ padding: "2px 6px", fontSize: 10 }}
                       onClick={() => insertMentionFromLibrary(item.name)}
                     >
-                      <img src={item.image} alt={item.name} style={{ width: 14, height: 14, borderRadius: 50 }} />
+                      <img src={mediaUrl(item.image)} alt={item.name} style={{ width: 14, height: 14, borderRadius: 50 }} />
                       <span>@{item.name}</span>
                     </button>
                   ))}

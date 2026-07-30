@@ -1723,9 +1723,10 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                                 title="Ảnh style reference (Ảnh tham chiếu phong cách)"
                               >
                                 <img
-                                  src={row.referenceImage}
+                                  src={mediaUrl(row.referenceImage)}
                                   alt="Style Ref"
                                   style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                                 />
                                 <button
                                   type="button"
@@ -2017,7 +2018,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                       style={{ padding: "2px 6px", fontSize: 10 }}
                       onClick={() => insertMentionFromLibrary(item.name)}
                     >
-                      <img src={item.image} alt={item.name} style={{ width: 14, height: 14, borderRadius: 50 }} />
+                      <img src={mediaUrl(item.image)} alt={item.name} style={{ width: 14, height: 14, borderRadius: 50 }} />
                       <span>@{item.name}</span>
                     </button>
                   ))}
