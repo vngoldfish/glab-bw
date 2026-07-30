@@ -256,6 +256,29 @@ function findIdByPrompt(items: { id: string; en: string }[], prompt: string): st
   return item?.id || "";
 }
 
+function cleanSubjectPrompt(raw: string): string {
+  if (!raw) return "";
+  let clean = raw;
+  const phrasesToRemove = [
+    /Close-up shot[^\,]*/gi,
+    /Medium shot[^\,]*/gi,
+    /Wide establishing shot[^\,]*/gi,
+    /High angle looking down[^\,]*/gi,
+    /Low angle looking up[^\,]*/gi,
+    /Eye-level shot[^\,]*/gi,
+    /Aerial drone[^\,]*/gi,
+    /Dutch angle[^\,]*/gi,
+    /Macro extreme close-up[^\,]*/gi,
+    /Over the shoulder shot[^\,]*/gi,
+    /Cinematic ultra-wide shot[^\,]*/gi,
+    /First person POV shot[^\,]*/gi,
+  ];
+  for (const regex of phrasesToRemove) {
+    clean = clean.replace(regex, "");
+  }
+  return clean.replace(/,\s*,/g, ",").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
+}
+
 export default function ImageStudioModal({
   initialSubject = "",
   initialReferenceImage = "",
@@ -263,7 +286,7 @@ export default function ImageStudioModal({
   onConfirm,
   onClose,
 }: Props) {
-  const [subject, setSubject] = useState(initialSubject);
+  const [subject, setSubject] = useState(() => cleanSubjectPrompt(initialSubject));
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
   const [styleId, setStyleId] = useState(() => findIdByPrompt(ART_STYLES, initial.style));
   const [lightId, setLightId] = useState(() => findIdByPrompt(LIGHTING_PRESETS, initial.lighting));
@@ -276,15 +299,22 @@ export default function ImageStudioModal({
 
   const summary = useMemo(() => {
     const parts: string[] = [];
-    if (subject.trim()) {
-      parts.push(subject.trim());
+    // 1. Camera Angle FIRST (High priority for AI generator)
+    if (selAngle) parts.push(selAngle.en);
+    
+    // 2. Subject second
+    const cleanSub = cleanSubjectPrompt(subject);
+    if (cleanSub) {
+      parts.push(cleanSub);
     } else {
       parts.push("[Chủ thể của bạn]");
     }
-    if (selAngle) parts.push(selAngle.en);
-    if (selStyle) parts.push(selStyle.en);
+
+    // 3. Lighting, Composition, Style
     if (selLight) parts.push(selLight.en);
     if (selComp) parts.push(selComp.en);
+    if (selStyle) parts.push(selStyle.en);
+
     return parts.join(", ");
   }, [subject, selAngle, selStyle, selLight, selComp]);
 
