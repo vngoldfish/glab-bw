@@ -92,7 +92,7 @@ const DEFAULT_CONFIG: VideoConfig = {
   model: "veo_31_lite_relaxed",
   aspectRatio: "16:9",
   mode: "start_image", // smart: T2V / I2V / FL theo ảnh trên dòng
-  concurrency: 1,
+  concurrency: 3,
   saveMode: "task",
   outputFolder: "G-Labs BW/media_output",
   resolution: [],

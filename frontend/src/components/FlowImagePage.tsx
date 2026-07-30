@@ -86,7 +86,7 @@ const DEFAULT_CONFIG: ImageConfig = {
   engine: "flow",
   model: "nano_banana_2_lite",
   aspectRatio: "1:1",
-  concurrency: 1,
+  concurrency: 3,
   imagesPerPrompt: 1,
   saveMode: "task",
   outputFolder: "G-Labs BW/media_output",
