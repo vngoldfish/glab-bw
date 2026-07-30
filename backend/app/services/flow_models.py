@@ -8,7 +8,7 @@ RECAPTCHA_SITE_KEY = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
 
 IMAGE_MODELS = {
     "nano_banana_pro": "GEM_PIX",
-    "nano_banana_2": "NARWHAL",
+    "nano_banana_2": "GEM_PIX_2",
     "nano_banana_2_lite": "NARWHAL",
     # Backward compatibility
     "GEM_PIX": "GEM_PIX",
