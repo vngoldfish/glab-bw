@@ -30,7 +30,7 @@ class FlowVeoProvider(BaseProvider):
     def __init__(self, account: Account | None = None) -> None:
         self.account = account
 
-    def _ensure_bridge(self) -> None:
+    async def _ensure_bridge(self) -> None:
         if not auth_bridge_access.is_bridge_running():
             raise ProviderError(
                 "Auth Bridge chưa chạy — hãy chạy ./start.sh hoặc start-backend.ps1",
@@ -41,15 +41,28 @@ class FlowVeoProvider(BaseProvider):
             inst = browser_pool_manager.get_instance(self.account.id)
             if inst and inst.status == "running":
                 return
+            logger.info("Auto-launching background browser for account %s (%s)...", self.account.label, self.account.id)
+            try:
+                inst = await browser_pool_manager.launch(self.account.id, headless=True)
+                for _ in range(20):
+                    if inst.status == "running":
+                        return
+                    if inst.status == "failed":
+                        break
+                    await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.warning("Failed to auto-launch browser for account %s: %s", self.account.id, e)
+
         if not auth_bridge_access.is_connected():
             raise ProviderError(
-                "Auth Helper Chrome extension chưa kết nối — hãy cài extension và mở Chrome",
+                "Chưa có trình duyệt nào kết nối cho tài khoản này. "
+                "Hệ thống đang tự động bật trình duyệt ẩn, vui lòng thử lại sau vài giây.",
                 error_code=0,
             )
         session = auth_bridge_access.get_primary_session()
         if not session or session.flow_tab_status != "open":
             raise ProviderError(
-                "Chưa mở tab Google Flow — hãy mở Chrome và truy cập labs.google/fx/tools/flow",
+                "Tab Flow chưa sẵn sàng. Hãy vào Cài đặt → Tài khoản → nhấn 'Bật Tất Cả' để bật trình duyệt tự động.",
                 error_code=0,
             )
 

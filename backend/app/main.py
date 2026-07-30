@@ -173,6 +173,14 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Failed to run startup frames cleanup")
 
+    # Auto-launch background browser pool for enabled Flow accounts
+    try:
+        from app.services.browser_pool import browser_pool_manager
+        asyncio.create_task(browser_pool_manager.launch_all(headless=True))
+        logger.info("Auto-launched browser pool for all enabled Flow accounts")
+    except Exception:
+        logger.exception("Failed to auto-launch browser pool on startup")
+
     try:
         yield
     finally:
