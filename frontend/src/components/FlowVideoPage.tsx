@@ -1771,7 +1771,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                         STT{sortIndicator(true, sortDirection)}
                       </button>
                     </th>
-                    <th className="col-control">Thao tác</th>
+                    <th className="col-control" style={{ width: 195, minWidth: 195 }}>Thao tác</th>
                     {frameMode && (
                       <>
                         <th className="col-frame">Ảnh đầu</th>
@@ -1832,7 +1832,7 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
                       <td className="col-stt" title={`Thứ tự gốc: ${originalIndex + 1}`}>
                         {pageStart + index}
                       </td>
-                      <td className="col-control">
+                      <td className="col-control" style={{ width: 195, minWidth: 195 }}>
                         <div className="row-action-toolbar" role="group" aria-label="Thao tác dòng">
                             <button
                               type="button"

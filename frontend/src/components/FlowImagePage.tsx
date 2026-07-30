@@ -1559,7 +1559,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                       STT{sortIndicator(true, sortDirection)}
                     </button>
                   </th>
-                  <th className="col-control">Thao tác</th>
+                  <th className="col-control" style={{ width: 195, minWidth: 195 }}>Thao tác</th>
                   <th className="col-prompt">Prompt</th>
                   <th className="col-status">Tiến độ</th>
                   <th className="col-result">Kết quả</th>
@@ -1604,7 +1604,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                       <td className="col-stt" title={`Thứ tự gốc: ${originalIndex + 1}`}>
                         {pageStart + index}
                       </td>
-                      <td className="col-control">
+                      <td className="col-control" style={{ width: 195, minWidth: 195 }}>
                         <div className="row-action-toolbar" role="group" aria-label="Thao tác dòng">
                             <button
                               type="button"
