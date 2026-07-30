@@ -179,8 +179,9 @@ class BrowserPoolManager:
 
             context = await pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir),
-                headless=False if not headless else False,
+                headless=headless,
                 args=args,
+                extra_http_headers={"X-Account-Id": account.id},
                 viewport={"width": 1280, "height": 900},
             )
             inst._context = context

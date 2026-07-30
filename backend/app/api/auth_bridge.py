@@ -23,6 +23,7 @@ async def sync_theme(
     x_ext_id: str | None = Header(default=None, alias="X-Ext-Id"),
     x_tab_status: str | None = Header(default=None, alias="X-Tab-Status"),
     x_grok_tab_status: str | None = Header(default=None, alias="X-Grok-Tab-Status"),
+    x_account_id: str | None = Header(default=None, alias="X-Account-Id"),
 ) -> JSONResponse:
     """Auth Helper polls this every ~1.5s.
 
@@ -33,8 +34,9 @@ async def sync_theme(
             x_ext_id,
             flow_tab=x_tab_status or "closed",
             grok_tab=x_grok_tab_status or "closed",
+            account_id=x_account_id,
         )
-    return JSONResponse(auth_bridge.theme_response())
+    return JSONResponse(auth_bridge.theme_response(x_ext_id))
 
 
 @router.post("/render")

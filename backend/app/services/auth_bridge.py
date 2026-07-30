@@ -41,6 +41,7 @@ class CaptchaRequest:
 @dataclass
 class ExtensionSession:
     ext_id: str
+    account_id: str | None = None
     last_seen: float = field(default_factory=time.time)
     flow_tab_status: str = "closed"
     grok_tab_status: str = "closed"
@@ -80,6 +81,7 @@ class AuthBridge:
         ext_id: str,
         flow_tab: str | None = None,
         grok_tab: str | None = None,
+        account_id: str | None = None,
     ) -> ExtensionSession:
         session = self._sessions.get(ext_id)
         if session is None:
@@ -90,6 +92,8 @@ class AuthBridge:
             session.flow_tab_status = flow_tab
         if grok_tab:
             session.grok_tab_status = grok_tab
+        if account_id:
+            session.account_id = account_id
         return session
 
     def get_primary_session(self) -> ExtensionSession | None:
@@ -355,20 +359,28 @@ class AuthBridge:
         self._captcha_pending[request.request_id] = request
         return request
 
-    def get_pending_captcha(self) -> CaptchaRequest | None:
+    def get_pending_captcha(self, ext_id: str | None = None) -> CaptchaRequest | None:
+        target_account_id = None
+        if ext_id and ext_id in self._sessions:
+            target_account_id = self._sessions[ext_id].account_id
+
         for request in self._captcha_pending.values():
             if not request.resolved:
-                return request
+                if target_account_id and request.account_id:
+                    if request.account_id == target_account_id:
+                        return request
+                else:
+                    return request
         return None
 
-    def theme_response(self) -> dict[str, Any]:
+    def theme_response(self, ext_id: str | None = None) -> dict[str, Any]:
         """Payload for Auth Helper /sync/theme (XOR encrypted).
 
         Captcha: r/s/a (Flow reCAPTCHA)
         Grok: g=1 signals extension to drain /sync/grok-poll-task
         """
         payload: dict[str, Any] = {}
-        pending = self.get_pending_captcha()
+        pending = self.get_pending_captcha(ext_id)
         if pending is not None:
             payload["r"] = pending.request_id
             payload["s"] = pending.site_key
