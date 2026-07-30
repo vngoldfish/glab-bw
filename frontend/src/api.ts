@@ -1589,3 +1589,61 @@ export async function stopAllBrowsers(): Promise<void> {
   const res = await apiFetch("/api/browser-pool/stop-all", { method: "POST" });
   await ensureOk(res, "Lỗi tắt tất cả trình duyệt");
 }
+
+// ── Public API Key Management ────────────────────────────────────────────────
+
+export interface ApiKeyInfo {
+  key_id: string;
+  name: string;
+  created_at: number;
+  expires_at: number | null;
+  is_active: boolean;
+  rate_limit: number;
+  daily_quota: number;
+  permissions: string[];
+}
+
+export interface ApiKeyCreateResponse {
+  key_id: string;
+  raw_key: string;
+  name: string;
+  rate_limit: number;
+  daily_quota: number;
+  permissions: string[];
+  warning: string;
+}
+
+export interface ApiKeyUsage {
+  key_id: string;
+  used_today: number;
+  daily_summary: Array<{ day: string; total: number; completed: number; failed: number }>;
+  recent_requests: Array<{ endpoint: string; provider: string; status: string; prompt: string; created_at: number }>;
+}
+
+export async function listApiKeys(): Promise<{ keys: ApiKeyInfo[] }> {
+  return apiFetch('/v1/admin/keys').then(r => r.json());
+}
+
+export async function createApiKey(name: string, config: { rate_limit?: number; daily_quota?: number; permissions?: string[] } = {}): Promise<ApiKeyCreateResponse> {
+  return apiFetch('/v1/admin/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, rate_limit: config.rate_limit ?? 30, daily_quota: config.daily_quota ?? 500, permissions: config.permissions ?? ['image', 'video'] }),
+  }).then(r => r.json());
+}
+
+export async function updateApiKey(keyId: string, updates: { name?: string; rate_limit?: number; daily_quota?: number; permissions?: string[]; is_active?: boolean }): Promise<{ ok: boolean }> {
+  return apiFetch(`/v1/admin/keys/${keyId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  }).then(r => r.json());
+}
+
+export async function deleteApiKey(keyId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/v1/admin/keys/${keyId}`, { method: 'DELETE' }).then(r => r.json());
+}
+
+export async function getApiKeyUsage(keyId: string, days: number = 30): Promise<ApiKeyUsage> {
+  return apiFetch(`/v1/admin/keys/${keyId}/usage?days=${days}`).then(r => r.json());
+}

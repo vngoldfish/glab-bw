@@ -26,6 +26,7 @@ from app.api import (
     projects,
     prompts,
     references,
+    v1,
     video_editor,
     webhook,
     workflows,
@@ -225,6 +226,10 @@ app.include_router(browser_pool.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 # Also expose /sync/* on :8765 (same in-memory state as :18923)
 app.include_router(auth_bridge.router)
+
+# ── Public API v1 ─────────────────────────────────────────────────────────────
+app.include_router(v1.router)
+app.include_router(v1.admin_router)
 
 
 # Production UI: frontend/dist (vite build). Dev still uses Vite :5173.

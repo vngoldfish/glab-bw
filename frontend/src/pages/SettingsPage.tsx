@@ -33,6 +33,12 @@ import {
   type CreditUsageConfig,
   type TestRunResult,
   type TestSuite,
+  listApiKeys,
+  createApiKey,
+  updateApiKey,
+  deleteApiKey,
+  type ApiKeyInfo,
+  type ApiKeyCreateResponse,
 } from "../api";
 import { useUiDialog } from "../components/UiDialog";
 import { parseFlowCookieInput, parseMetaCookieInput } from "../cookie";
@@ -194,10 +200,81 @@ function formatCooldown(sec?: number): string {
 
 export default function SettingsPage({ accounts, onRefresh, onError }: SettingsPageProps) {
   const dialog = useUiDialog();
-  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog" | "models" | "gdrive">("accounts");
+  const [activeTab, setActiveTab] = useState<"accounts" | "ai" | "ports" | "system" | "changelog" | "models" | "gdrive" | "apikeys">("accounts");
   const [showGuide, setShowGuide] = useState(false);
   const [flowModels, setFlowModels] = useState<Array<{ value: string; label: string; credits: number; api_value?: string }>>([]);
   const [flowModelsLoading, setFlowModelsLoading] = useState(false);
+
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([]);
+  const [keysLoading, setKeysLoading] = useState(false);
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyRateLimit, setNewKeyRateLimit] = useState(30);
+  const [newKeyDailyQuota, setNewKeyDailyQuota] = useState(500);
+  const [newKeyCreated, setNewKeyCreated] = useState<ApiKeyCreateResponse | null>(null);
+
+  const loadApiKeys = useCallback(async () => {
+    setKeysLoading(true);
+    try {
+      const data = await listApiKeys();
+      setApiKeys(data.keys);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setKeysLoading(false);
+    }
+  }, [onError]);
+
+  useEffect(() => {
+    if (activeTab === "apikeys") {
+      loadApiKeys();
+    }
+  }, [activeTab, loadApiKeys]);
+
+  const handleCreateKey = async () => {
+    if (!newKeyName.trim()) {
+      onError("Vui lòng nhập tên API Key");
+      return;
+    }
+    setKeysLoading(true);
+    try {
+      const result = await createApiKey(newKeyName.trim(), {
+        rate_limit: newKeyRateLimit,
+        daily_quota: newKeyDailyQuota
+      });
+      setNewKeyCreated(result);
+      setShowKeyForm(false);
+      setNewKeyName("");
+      loadApiKeys();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+      setKeysLoading(false);
+    }
+  };
+  
+  const handleToggleKey = async (key: ApiKeyInfo) => {
+    setKeysLoading(true);
+    try {
+      await updateApiKey(key.key_id, { is_active: !key.is_active });
+      loadApiKeys();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+      setKeysLoading(false);
+    }
+  };
+
+  const handleDeleteKey = async (keyId: string) => {
+    if (!await dialog.confirm({ title: "Xác nhận xóa", message: "Bạn có chắc muốn xóa API key này?", tone: "danger" })) return;
+    setKeysLoading(true);
+    try {
+      await deleteApiKey(keyId);
+      loadApiKeys();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+      setKeysLoading(false);
+    }
+  };
 
   // Google Drive Configuration State
   const [gdriveEnabled, setGdriveEnabled] = useState(false);
@@ -893,6 +970,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
           >
             <Cloud size={16} />
             <span>Google Drive</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-sidebar-tab ${activeTab === "apikeys" ? "active" : ""}`}
+            onClick={() => setActiveTab("apikeys")}
+          >
+            <Key size={16} />
+            <span>API Keys</span>
           </button>
         </aside>
 
@@ -2373,6 +2458,173 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                 </div>
               </div>
             )}
+          </section>
+        </div>
+      )}
+      {/* TAB: API KEYS */}
+      {activeTab === "apikeys" && (
+        <div className="settings-tab-content">
+          <section className="panel-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                  <Key size={18} style={{ color: "var(--purple-bright)" }} />
+                  Quản lý API Keys
+                </h2>
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: "13.5px" }}>
+                  Quản lý các khóa API để cấp quyền truy cập từ bên ngoài vào hệ thống.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+                onClick={() => setShowKeyForm(!showKeyForm)}
+              >
+                {showKeyForm ? "Đóng form" : "Tạo API Key mới"}
+              </button>
+            </div>
+
+            {newKeyCreated && (
+              <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: 10, padding: 18, marginBottom: 18 }}>
+                <strong style={{ color: "#4ade80", display: "block", marginBottom: 8 }}>✓ Tạo API Key thành công!</strong>
+                <p style={{ margin: "0 0 10px", fontSize: "13.5px", color: "var(--text-secondary)" }}>
+                  Vui lòng copy khóa dưới đây và lưu trữ an toàn. Bạn sẽ <strong>không thể xem lại</strong> khóa này.
+                </p>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", background: "rgba(0,0,0,0.3)", padding: "10px 14px", borderRadius: 6 }}>
+                  <code style={{ flex: 1, fontSize: "14px", color: "#fff", userSelect: "all", wordBreak: "break-all" }}>
+                    {newKeyCreated.raw_key}
+                  </code>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(newKeyCreated.raw_key);
+                      dialog.alert({ title: "Đã copy", message: "Đã copy API Key vào clipboard.", tone: "success" });
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ marginTop: 10, color: "var(--text-muted)" }}
+                  onClick={() => setNewKeyCreated(null)}
+                >
+                  Đã lưu, đóng cảnh báo
+                </button>
+              </div>
+            )}
+
+            {showKeyForm && !newKeyCreated && (
+              <div style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 10, padding: 18, marginBottom: 18 }}>
+                <h3 style={{ margin: "0 0 14px", fontSize: "14px" }}>Tạo API Key mới</h3>
+                <div className="form-grid" style={{ gap: "10px 14px", marginBottom: 14 }}>
+                  <label className="span-2">
+                    Tên gợi nhớ
+                    <input
+                      value={newKeyName}
+                      onChange={(e) => setNewKeyName(e.target.value)}
+                      placeholder="vd: Bot Telegram, Web App..."
+                    />
+                  </label>
+                  <label>
+                    Rate Limit (req/phút)
+                    <input
+                      type="number"
+                      value={newKeyRateLimit}
+                      onChange={(e) => setNewKeyRateLimit(Number(e.target.value))}
+                      min={1}
+                    />
+                  </label>
+                  <label>
+                    Daily Quota (req/ngày)
+                    <input
+                      type="number"
+                      value={newKeyDailyQuota}
+                      onChange={(e) => setNewKeyDailyQuota(Number(e.target.value))}
+                      min={1}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowKeyForm(false)}>
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleCreateKey}
+                    disabled={keysLoading}
+                  >
+                    {keysLoading ? "Đang tạo..." : "Tạo API Key"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ overflowX: "auto" }}>
+              <table className="data-table" style={{ width: "100%", fontSize: "13px" }}>
+                <thead>
+                  <tr>
+                    <th>Tên Key</th>
+                    <th>Key ID</th>
+                    <th>Trạng thái</th>
+                    <th>Hạn mức</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apiKeys.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: "center", padding: "16px", color: "var(--text-muted)" }}>
+                        Chưa có API Key nào.
+                      </td>
+                    </tr>
+                  ) : (
+                    apiKeys.map((k) => (
+                      <tr key={k.key_id} style={{ opacity: k.is_active ? 1 : 0.6 }}>
+                        <td style={{ fontWeight: 600 }}>{k.name}</td>
+                        <td style={{ fontFamily: "monospace", color: "var(--text-secondary)" }}>{k.key_id.substring(0, 12)}...</td>
+                        <td>
+                          {k.is_active ? (
+                            <span style={{ color: "#4ade80", fontSize: "12px", background: "rgba(74, 222, 128, 0.1)", padding: "2px 6px", borderRadius: 4 }}>Hoạt động</span>
+                          ) : (
+                            <span style={{ color: "#f87171", fontSize: "12px", background: "rgba(248, 113, 113, 0.1)", padding: "2px 6px", borderRadius: 4 }}>Đã thu hồi</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                          {k.rate_limit} req/m<br/>{k.daily_quota} req/d
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-xs"
+                              onClick={() => handleToggleKey(k)}
+                              disabled={keysLoading}
+                              style={{ padding: "3px 8px" }}
+                            >
+                              {k.is_active ? "Thu hồi" : "Bật lại"}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost danger btn-xs"
+                              onClick={() => handleDeleteKey(k.key_id)}
+                              disabled={keysLoading}
+                              style={{ padding: "3px 8px" }}
+                            >
+                              Xóa
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       )}
