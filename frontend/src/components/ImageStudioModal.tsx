@@ -244,8 +244,9 @@ export interface ImageStudioSettings {
 
 interface Props {
   initialSubject?: string;
+  initialReferenceImage?: string;
   initial?: ImageStudioSettings;
-  onConfirm: (s: ImageStudioSettings) => void;
+  onConfirm: (s: ImageStudioSettings & { referenceImage?: string }) => void;
   onClose: () => void;
 }
 
@@ -257,6 +258,7 @@ function findIdByPrompt(items: { id: string; en: string }[], prompt: string): st
 
 export default function ImageStudioModal({
   initialSubject = "",
+  initialReferenceImage = "",
   initial = { cameraAngle: "", style: "", lighting: "", composition: "" },
   onConfirm,
   onClose,
@@ -346,6 +348,19 @@ export default function ImageStudioModal({
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           {/* Left: Viewport */}
           <div style={{ width: "40%", minWidth: 320, padding: 16, display: "flex", flexDirection: "column", borderRight: "1px solid rgba(255,255,255,0.05)" }}>
+            {initialReferenceImage ? (
+              <div style={{ padding: 10, background: "rgba(34, 197, 94, 0.08)", borderRadius: 12, border: "1px solid rgba(34, 197, 94, 0.25)", marginBottom: 12, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#4ade80", marginBottom: 6 }}>
+                  🎨 Ảnh tham chiếu gốc (Đồng bộ Style & Nhân vật)
+                </span>
+                <img
+                  src={initialReferenceImage}
+                  alt="Reference Image"
+                  style={{ maxHeight: 130, maxWidth: "100%", borderRadius: 8, objectFit: "contain", border: "1px solid rgba(255,255,255,0.15)" }}
+                />
+              </div>
+            ) : null}
+
             <div style={{ flex: 1, background: "rgba(0,0,0,0.4)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.04)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <StudioViewport angle={selAngle} />
             </div>

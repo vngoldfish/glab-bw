@@ -253,6 +253,11 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [customActionVal, setCustomActionVal] = useState("");
   const [keepOriginalPrompt, setKeepOriginalPrompt] = useState(true);
   const [showImageStudio, setShowImageStudio] = useState(false);
+  const [continueStudio, setContinueStudio] = useState<{
+    open: boolean;
+    imageUrl: string;
+    promptText: string;
+  } | null>(null);
 
   const handleApplyStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
     const parts: string[] = [];
@@ -277,6 +282,45 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
       return `${cleanPrev}, ${studioPrompt}`;
     });
     setShowImageStudio(false);
+  };
+
+  const handleApplyContinueStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
+    if (!continueStudio) return;
+    const { imageUrl, promptText } = continueStudio;
+
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    let studioPrompt = parts.filter(Boolean).join(", ");
+
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
+    const finalPrompt = studioPrompt || promptText;
+
+    const newRow: QueueRow = {
+      id: createId(),
+      selected: true,
+      prompt: finalPrompt,
+      referenceImage: imageUrl,
+      referenceName: "style_ref",
+      startFrameName: null,
+      startFrameImage: null,
+      endFrameName: null,
+      endFrameImage: null,
+      results: [],
+      status: "idle",
+      error: null,
+      savedFolder: null,
+    };
+
+    setRows((prev) => [newRow, ...prev]);
+    setContinueStudio(null);
   };
 
 const DEFAULT_FLOW_IMAGE_MODELS = [
@@ -336,7 +380,8 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
   }, [flowModels, flowModelsLoaded, config.engine, config.model]);
 
   const handleContinueImage = (imageUrl: string, promptText: string) => {
-    setContinueModal({
+    setShowImageStudio(false);
+    setContinueStudio({
       open: true,
       imageUrl,
       promptText,
@@ -2214,6 +2259,15 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
           initialSubject={promptInput.trim()}
           onClose={() => setShowImageStudio(false)}
           onConfirm={handleApplyStudio}
+        />
+      )}
+
+      {continueStudio && (
+        <ImageStudioModal
+          initialSubject={continueStudio.promptText}
+          initialReferenceImage={continueStudio.imageUrl}
+          onClose={() => setContinueStudio(null)}
+          onConfirm={handleApplyContinueStudio}
         />
       )}
     </div>
