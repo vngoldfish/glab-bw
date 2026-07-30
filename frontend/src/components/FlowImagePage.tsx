@@ -1969,193 +1969,165 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
         </section>
 
         {showInputPanel && (
-          <aside className="prompt-input-panel">
-            <div className="flow-input-card-head" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h3 className="flow-section-title">Nhập prompt</h3>
-                <div className="flow-input-card-actions" style={{ display: "flex", gap: 6 }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => directImageInputRef.current?.click()}
-                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto", color: "#4ade80", fontWeight: 700, borderColor: "rgba(34,197,94,0.3)" }}
-                    title="Tải ảnh tham chiếu / ảnh mẫu trực tiếp từ máy tính (Image-to-Image)"
-                  >
-                    📷 Đính ảnh mẫu
-                  </button>
-                  <input
-                    ref={directImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    onChange={handleDirectImageUpload}
-                  />
-
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => importInputRef.current?.click()}
-                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto" }}
-                  >
-                    Nhập TXT
-                  </button>
-                </div>
-              </div>
-              <p className="flow-section-desc" style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
-                Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc tải ảnh mẫu ở trên
-              </p>
-            </div>
-
-            {directInputImage && (
-              <div style={{ padding: "6px 10px", background: "rgba(34, 197, 94, 0.1)", borderRadius: "8px", border: "1px solid rgba(34, 197, 94, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 0" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <img src={directInputImage} alt="Input reference" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
-                  <div>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#4ade80" }}>📷 Đã đính kèm ảnh mẫu máy tính</div>
-                    <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.5)" }}>Dùng làm ảnh tham chiếu (Image-to-Image)</div>
-                  </div>
-                </div>
+          <aside className="prompt-input-panel" style={{ width: 330, padding: 14, gap: 10, background: "rgba(15, 23, 42, 0.95)", backdropFilter: "blur(16px)", borderRadius: 14, border: "1px solid rgba(255, 255, 255, 0.08)" }}>
+            {/* Header + Import TXT + Image Upload */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 6, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#f8fafc" }}>✍️ Tạo & Nhập Prompt</span>
+              <div style={{ display: "flex", gap: 6 }}>
                 <button
                   type="button"
-                  style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: "14px", cursor: "pointer", padding: "2px 6px" }}
-                  onClick={() => setDirectInputImage(null)}
-                  title="Gỡ ảnh mẫu này"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => directImageInputRef.current?.click()}
+                  style={{ padding: "3px 8px", fontSize: "11px", height: "auto", color: "#4ade80", fontWeight: 700, border: "1px solid rgba(34,197,94,0.3)" }}
+                  title="Tải ảnh tham chiếu từ máy tính (Image-to-Image)"
                 >
-                  ✕
+                  📷 Đính ảnh
                 </button>
+                <input ref={directImageInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDirectImageUpload} />
+
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => importInputRef.current?.click()}
+                  style={{ padding: "3px 8px", fontSize: "11px", height: "auto", color: "#94a3b8" }}
+                >
+                  Nhập TXT
+                </button>
+              </div>
+            </div>
+
+            {/* Attached Input Image Badge */}
+            {directInputImage && (
+              <div style={{ padding: "6px 10px", background: "rgba(34, 197, 94, 0.12)", borderRadius: "8px", border: "1px solid rgba(34, 197, 94, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <img src={mediaUrl(directInputImage)} alt="Attached reference" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#4ade80" }}>📷 Ảnh mẫu đính kèm</div>
+                    <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.5)" }}>Dùng làm ảnh tham chiếu khi tạo</div>
+                  </div>
+                </div>
+                <button type="button" style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: "14px", cursor: "pointer" }} onClick={() => setDirectInputImage(null)}>✕</button>
               </div>
             )}
 
-            <div className="flow-ref-strip" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, padding: "8px 10px", margin: "4px 0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span className="flow-ref-strip-label" style={{ fontSize: "11px", fontWeight: 600 }}>Tham chiếu ({referenceLibrary.length})</span>
+            {/* Studio 3D Main Buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowImageStudio(true)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 11,
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(16, 185, 129, 0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 4,
+                }}
+                title="Mở Giả Lập Studio 3D (Góc máy, Bố cục, Ánh sáng, Phong cách)"
+              >
+                🎬 Studio 3D Pro
+              </button>
+
+              <button
+                type="button"
+                onClick={create4StudioVariantRows}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 11,
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(139, 92, 246, 0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 4,
+                }}
+                title="Tự động sinh bộ 4 góc chụp Studio"
+              >
+                ⚡ Bộ 4 Góc Studio
+              </button>
+            </div>
+
+            {/* Preset Chips (Single horizontal scrollable row!) */}
+            <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4, scrollbarWidth: "none" }}>
+              {PRESET_STUDIO_PROMPTS.map((p, idx) => (
                 <button
+                  key={idx}
                   type="button"
-                  className="flow-ref-strip-link"
-                  style={{ padding: 0, fontSize: "11px" }}
-                  onClick={() => navigate(NAV_ROUTES.references)}
+                  style={{
+                    flexShrink: 0,
+                    background: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid rgba(255, 255, 255, 0.08)",
+                    color: "#cbd5e1",
+                    fontSize: "10px",
+                    padding: "3px 8px",
+                    borderRadius: "12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    fontWeight: 500,
+                  }}
+                  onClick={() => {
+                    setPromptInput((prev) => {
+                      const cleanPrev = prev.trim();
+                      if (!cleanPrev) return p.prompt;
+                      return `${cleanPrev}, ${p.prompt}`;
+                    });
+                  }}
                 >
-                  Quản lý
+                  <span>{p.icon}</span>
+                  <span>{p.label}</span>
                 </button>
-              </div>
-              {referenceLibrary.length > 0 ? (
-                <div className="flow-ref-strip-chips" style={{ maxHeight: 110, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 4, padding: "4px 0" }}>
+              ))}
+            </div>
+
+            {/* Reference Mentions Strip */}
+            {referenceLibrary.length > 0 && (
+              <div style={{ padding: "6px 8px", background: "rgba(0,0,0,0.3)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.05)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>Nhân vật (@mentions)</span>
+                  <button type="button" style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 10, cursor: "pointer", padding: 0 }} onClick={() => navigate(NAV_ROUTES.references)}>Quản lý</button>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 60, overflowY: "auto" }}>
                   {referenceLibrary.map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       className="ref-global-chip"
-                      title={`Chèn @${item.name}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        bulkPromptRef.current?.saveSelection();
-                      }}
+                      style={{ padding: "2px 6px", fontSize: 10 }}
                       onClick={() => insertMentionFromLibrary(item.name)}
                     >
-                      <img src={item.image} alt={item.name} />
+                      <img src={item.image} alt={item.name} style={{ width: 14, height: 14, borderRadius: 50 }} />
                       <span>@{item.name}</span>
                     </button>
                   ))}
                 </div>
-              ) : (
-                <span className="flow-ref-strip-empty" style={{ fontSize: "11px" }}>Chưa có ảnh</span>
-              )}
-            </div>
-
-            {/* Studio Photography Preset Bar & Modal Launcher */}
-            <div style={{ margin: "6px 0", display: "flex", flexDirection: "column", gap: 6, padding: "8px 10px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.05)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
-                  <span>📷 Studio Nhiếp ảnh Professional</span>
-                </span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={create4StudioVariantRows}
-                    style={{
-                      padding: "4px 10px",
-                      fontSize: "11px",
-                      borderRadius: "8px",
-                      background: "linear-gradient(135deg, #a855f7, #6366f1)",
-                      color: "#fff",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: "pointer",
-                      boxShadow: "0 2px 10px rgba(168, 85, 247, 0.3)",
-                      transition: "all 0.2s ease",
-                    }}
-                    title="Tự động sinh bộ 4 góc chụp Studio (Cận cảnh, Trung cảnh, Toàn cảnh, Góc thấp)"
-                  >
-                    ⚡ Bộ 4 Góc Studio
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowImageStudio(true)}
-                    style={{
-                      padding: "4px 10px",
-                      fontSize: "11px",
-                      borderRadius: "8px",
-                      background: "linear-gradient(135deg, #22c55e, #14b8a6)",
-                      color: "#fff",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: "pointer",
-                      boxShadow: "0 2px 10px rgba(34, 197, 94, 0.3)",
-                      transition: "all 0.2s ease",
-                    }}
-                    title="Mở Giả Lập Studio 3D (Góc máy, Bố cục, Ánh sáng, Phong cách)"
-                  >
-                    🎬 Studio 3D Pro
-                  </button>
-                </div>
               </div>
+            )}
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 95, overflowY: "auto", padding: "2px 0" }}>
-                {PRESET_STUDIO_PROMPTS.map((p, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    style={{
-                      background: "rgba(34, 197, 94, 0.08)",
-                      border: "1px solid rgba(34, 197, 94, 0.2)",
-                      color: "#4ade80",
-                      fontSize: "10px",
-                      padding: "4px 9px",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      fontWeight: 500,
-                      transition: "all 0.15s ease",
-                    }}
-                    title={`Click để thêm prompt mẫu: ${p.prompt}`}
-                    onClick={() => {
-                      setPromptInput((prev) => {
-                        const cleanPrev = prev.trim();
-                        if (!cleanPrev) return p.prompt;
-                        return `${cleanPrev}, ${p.prompt}`;
-                      });
-                    }}
-                  >
-                    <span>{p.icon}</span>
-                    <span>{p.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
+            {/* Prompt Textarea */}
             <PromptMentionField
               ref={bulkPromptRef}
-              rows={6}
+              rows={5}
               className="queue-bulk-prompt"
               menuPlacement="above"
-              placeholder={"@hoa đứng giữa cánh đồng\n@lieu nhìn ra biển lúc hoàng hôn\nMột con mèo ngủ trên ghế sofa"}
+              placeholder={"Mỗi dòng 1 prompt · gõ @tên nhân vật\nVí dụ:\n@hoa đứng giữa cánh đồng hoa cúc\n@lieu đi dạo bãi biển lúc hoàng hôn"}
               value={promptInput}
               library={referenceLibrary}
               onChange={setPromptInput}
-              style={{ flex: 1, minHeight: 150, fontSize: "13px" }}
+              style={{ minHeight: 120, fontSize: "12px", background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
             />
 
             <button
