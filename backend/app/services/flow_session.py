@@ -138,7 +138,7 @@ class FlowSessionManager:
                 "session_token": session_token,
                 "access_token": access_token,
                 "project_id": project_id,
-                "user_paygate_tier": creds.get("user_paygate_tier", "PAYGATE_TIER_ONE"),
+                "user_paygate_tier": creds.get("user_paygate_tier") or tier or "PAYGATE_TIER_TWO",
             }
 
 

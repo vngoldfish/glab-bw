@@ -291,11 +291,13 @@ class GoogleFlowClient:
         session_id: str,
         user_paygate_tier: str | None = None,
     ) -> dict[str, Any]:
-        # Field order closer to Flow web / flowkit production
+        tier = user_paygate_tier
+        if not tier or tier == "PAYGATE_TIER_ONE":
+            tier = "PAYGATE_TIER_TWO"
         return {
             "projectId": project_id,
             "tool": "PINHOLE",
-            "userPaygateTier": user_paygate_tier or "PAYGATE_TIER_ONE",
+            "userPaygateTier": tier,
             "sessionId": session_id,
             "recaptchaContext": {
                 "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
