@@ -162,6 +162,7 @@ async def grok_event(
 class CaptchaQueueRequest(BaseModel):
     site_key: str = ""
     action: str = ""
+    account_id: str | None = None
 
 
 class GrokTaskQueueRequest(BaseModel):
@@ -205,7 +206,7 @@ async def push_statsig(
 
 @router.post("/internal/captcha")
 async def queue_internal_captcha(body: CaptchaQueueRequest) -> dict:
-    request = auth_bridge.queue_captcha(site_key=body.site_key, action=body.action)
+    request = auth_bridge.queue_captcha(site_key=body.site_key, action=body.action, account_id=body.account_id)
     return {"request_id": request.request_id}
 
 

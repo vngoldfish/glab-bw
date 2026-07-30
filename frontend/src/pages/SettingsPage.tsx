@@ -24,6 +24,12 @@ import {
   saveGoogleDriveSettings,
   testGoogleDriveConnection,
   authGoogleDrive,
+  fetchBrowserPoolStatus,
+  launchBrowserInstance,
+  stopBrowserInstance,
+  launchAllBrowsers,
+  stopAllBrowsers,
+  type BrowserPoolInstance,
   type CreditUsageConfig,
   type TestRunResult,
   type TestSuite,
@@ -40,6 +46,9 @@ import {
   Upload,
   Trash2,
   Play,
+  Square,
+  Monitor,
+  RefreshCw,
   HelpCircle,
   ChevronDown,
   ChevronUp,
@@ -222,6 +231,67 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
   const [editSessionToken, setEditSessionToken] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
 
+  // Browser Pool State
+  const [browserPool, setBrowserPool] = useState<BrowserPoolInstance[]>([]);
+  const [poolLoading, setPoolLoading] = useState(false);
+
+  const refreshBrowserPool = useCallback(async () => {
+    try {
+      const data = await fetchBrowserPoolStatus();
+      setBrowserPool(data);
+    } catch (e) {
+      console.error("Failed to fetch browser pool status", e);
+    }
+  }, []);
+
+  const handleLaunchBrowser = async (accountId: string) => {
+    setPoolLoading(true);
+    try {
+      await launchBrowserInstance(accountId);
+      await refreshBrowserPool();
+    } catch (e: any) {
+      onError(e.message || String(e));
+    } finally {
+      setPoolLoading(false);
+    }
+  };
+
+  const handleStopBrowser = async (accountId: string) => {
+    setPoolLoading(true);
+    try {
+      await stopBrowserInstance(accountId);
+      await refreshBrowserPool();
+    } catch (e: any) {
+      onError(e.message || String(e));
+    } finally {
+      setPoolLoading(false);
+    }
+  };
+
+  const handleLaunchAllBrowsers = async () => {
+    setPoolLoading(true);
+    try {
+      await launchAllBrowsers();
+      await refreshBrowserPool();
+    } catch (e: any) {
+      onError(e.message || String(e));
+    } finally {
+      setPoolLoading(false);
+    }
+  };
+
+  const handleStopAllBrowsers = async () => {
+    setPoolLoading(true);
+    try {
+      await stopAllBrowsers();
+      await refreshBrowserPool();
+    } catch (e: any) {
+      onError(e.message || String(e));
+    } finally {
+      setPoolLoading(false);
+    }
+  };
+
   const [creditsUsage, setCreditsUsage] = useState<CreditUsageConfig | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(false);
 
@@ -314,6 +384,14 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
       setCreditsLoading(false);
     }
   }, [onError]);
+
+  useEffect(() => {
+    if (activeTab === "accounts") {
+      refreshBrowserPool();
+      const interval = setInterval(refreshBrowserPool, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, refreshBrowserPool]);
 
   useEffect(() => {
     if (activeTab === "models") {
@@ -877,6 +955,152 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                 </div>
               </div>
             )}
+          </section>
+
+          {/* Multi-Browser Pool Panel */}
+          <section className="panel-card" style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "15px", display: "flex", alignItems: "center", gap: 8 }}>
+                  <Monitor size={18} style={{ color: "#38bdf8" }} />
+                  Quản lý Trình Duyệt Ẩn Tự Động (Multi-Browser Pool)
+                </h3>
+                <p className="muted" style={{ margin: "4px 0 0 0", fontSize: "12.5px" }}>
+                  Tự động mở các trình duyệt Chromium chạy ẩn trong nền cho từng tài khoản Google Flow để giải captcha tự động khi chạy đa luồng.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleLaunchAllBrowsers}
+                  disabled={poolLoading}
+                  style={{ display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <Play size={13} style={{ color: "#4ade80" }} />
+                  Bật Tất Cả
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleStopAllBrowsers}
+                  disabled={poolLoading}
+                  style={{ display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <Square size={13} style={{ color: "#f87171" }} />
+                  Tắt Tất Cả
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={refreshBrowserPool}
+                  disabled={poolLoading}
+                  title="Làm mới trạng thái"
+                >
+                  <RefreshCw size={14} className={poolLoading ? "spin" : ""} />
+                </button>
+              </div>
+            </div>
+
+            {/* Browser pool list table */}
+            <div style={{ overflowX: "auto" }}>
+              <table className="data-table" style={{ width: "100%", fontSize: "13px" }}>
+                <thead>
+                  <tr>
+                    <th>Tài khoản</th>
+                    <th>Trạng thái Browser</th>
+                    <th>Tab Flow</th>
+                    <th>Captcha đã giải</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {browserPool.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: "center", padding: "16px", color: "var(--text-muted)" }}>
+                        Chưa có tài khoản Google Flow nào trong hệ thống.
+                      </td>
+                    </tr>
+                  ) : (
+                    browserPool.map((inst) => {
+                      const isRunning = inst.status === "running";
+                      const isStarting = inst.status === "starting";
+                      return (
+                        <tr key={inst.account_id}>
+                          <td style={{ fontWeight: 600 }}>{inst.account_label || inst.account_id}</td>
+                          <td>
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "2px 8px",
+                                borderRadius: 12,
+                                fontSize: "12px",
+                                fontWeight: 500,
+                                background: isRunning
+                                  ? "rgba(74, 222, 128, 0.12)"
+                                  : isStarting
+                                  ? "rgba(251, 191, 36, 0.12)"
+                                  : "rgba(148, 163, 184, 0.12)",
+                                color: isRunning ? "#4ade80" : isStarting ? "#fbbf24" : "#94a3b8",
+                                border: `1px solid ${
+                                  isRunning ? "rgba(74, 222, 128, 0.3)" : isStarting ? "rgba(251, 191, 36, 0.3)" : "rgba(148, 163, 184, 0.2)"
+                                }`,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: "50%",
+                                  background: isRunning ? "#4ade80" : isStarting ? "#fbbf24" : "#94a3b8",
+                                }}
+                              />
+                              {isRunning ? "🟢 Đang chạy" : isStarting ? "🟡 Đang khởi động..." : "⚪ Đã tắt"}
+                            </span>
+                            {inst.last_error && (
+                              <div style={{ fontSize: "11px", color: "#f87171", marginTop: 4 }}>
+                                {inst.last_error}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span style={{ color: inst.flow_tab_status === "open" ? "#38bdf8" : "var(--text-muted)" }}>
+                              {inst.flow_tab_status === "open" ? "🌐 Mở (labs.google)" : "🔴 Đóng"}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{inst.token_count || 0}</td>
+                          <td>
+                            {isRunning ? (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-xs"
+                                onClick={() => handleStopBrowser(inst.account_id)}
+                                disabled={poolLoading}
+                                style={{ padding: "3px 10px", fontSize: "11.5px" }}
+                              >
+                                <Square size={11} /> Tắt
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-xs"
+                                onClick={() => handleLaunchBrowser(inst.account_id)}
+                                disabled={poolLoading || isStarting}
+                                style={{ padding: "3px 10px", fontSize: "11.5px" }}
+                              >
+                                <Play size={11} style={{ color: "#4ade80" }} /> Bật Browser
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           {/* Account Lists */}

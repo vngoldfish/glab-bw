@@ -1544,3 +1544,48 @@ export async function authGoogleDrive(): Promise<{ success: boolean; message: st
   await ensureOk(res, "Lỗi liên kết tài khoản Google Drive");
   return readJson<{ success: boolean; message: string }>(res);
 }
+
+export interface BrowserPoolInstance {
+  account_id: string;
+  account_label: string;
+  status: "stopped" | "starting" | "running" | "failed" | "login_required" | string;
+  started_at: number | null;
+  flow_tab_status: string;
+  token_count: number;
+  last_error: string | null;
+  ext_id?: string | null;
+}
+
+export async function fetchBrowserPoolStatus(): Promise<BrowserPoolInstance[]> {
+  const res = await apiFetch("/api/browser-pool/status");
+  const data = await readJson<{ ok: boolean; instances: BrowserPoolInstance[] }>(res);
+  return data.instances || [];
+}
+
+export async function launchBrowserInstance(accountId: string, headless = true): Promise<void> {
+  const res = await apiFetch(`/api/browser-pool/launch/${accountId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ headless }),
+  });
+  await ensureOk(res, "Lỗi bật trình duyệt");
+}
+
+export async function stopBrowserInstance(accountId: string): Promise<void> {
+  const res = await apiFetch(`/api/browser-pool/stop/${accountId}`, { method: "POST" });
+  await ensureOk(res, "Lỗi tắt trình duyệt");
+}
+
+export async function launchAllBrowsers(headless = true): Promise<void> {
+  const res = await apiFetch("/api/browser-pool/launch-all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ headless }),
+  });
+  await ensureOk(res, "Lỗi bật tất cả trình duyệt");
+}
+
+export async function stopAllBrowsers(): Promise<void> {
+  const res = await apiFetch("/api/browser-pool/stop-all", { method: "POST" });
+  await ensureOk(res, "Lỗi tắt tất cả trình duyệt");
+}

@@ -228,7 +228,7 @@ class GoogleFlowClient:
     def _session_id(self) -> str:
         return f";{int(time.time() * 1000)}"
 
-    async def _solve_recaptcha(self, action: str) -> str:
+    async def _solve_recaptcha(self, action: str, account_id: str | None = None) -> str:
         if not auth_bridge_access.is_connected():
             raise ProviderError(
                 "Auth Helper chưa kết nối — mở tab labs.google/fx/tools/flow và bật extension",
@@ -248,6 +248,7 @@ class GoogleFlowClient:
             request = await auth_bridge_access.queue_captcha(
                 site_key=RECAPTCHA_SITE_KEY,
                 action=action,
+                account_id=account_id,
             )
             try:
                 solved = await auth_bridge_access.wait_for_captcha(

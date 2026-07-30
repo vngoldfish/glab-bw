@@ -31,6 +31,7 @@ class CaptchaRequest:
     request_id: str
     site_key: str = ""
     action: str = ""
+    account_id: str | None = None
     created_at: float = field(default_factory=time.time)
     resolved: bool = False
     token: str | None = None
@@ -344,11 +345,12 @@ class AuthBridge:
             self._grok_waiters.pop(task_id, None)
             self._grok_pending.pop(task_id, None)
 
-    def queue_captcha(self, site_key: str = "", action: str = "") -> CaptchaRequest:
+    def queue_captcha(self, site_key: str = "", action: str = "", account_id: str | None = None) -> CaptchaRequest:
         request = CaptchaRequest(
             request_id=secrets.token_hex(8),
             site_key=site_key,
             action=action,
+            account_id=account_id,
         )
         self._captcha_pending[request.request_id] = request
         return request

@@ -86,11 +86,11 @@ class AuthBridgeAccess:
             "pending_captcha": 0,
         }
 
-    async def queue_captcha(self, site_key: str = "", action: str = "") -> CaptchaRequest:
+    async def queue_captcha(self, site_key: str = "", action: str = "", account_id: str | None = None) -> CaptchaRequest:
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.post(
                 f"{self.base_url}/sync/internal/captcha",
-                json={"site_key": site_key, "action": action},
+                json={"site_key": site_key, "action": action, "account_id": account_id},
                 timeout=10.0,
             )
             response.raise_for_status()

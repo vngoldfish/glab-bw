@@ -36,6 +36,11 @@ class FlowVeoProvider(BaseProvider):
                 "Auth Bridge chưa chạy — hãy chạy ./start.sh hoặc start-backend.ps1",
                 error_code=0,
             )
+        if self.account:
+            from app.services.browser_pool import browser_pool_manager
+            inst = browser_pool_manager.get_instance(self.account.id)
+            if inst and inst.status == "running":
+                return
         if not auth_bridge_access.is_connected():
             raise ProviderError(
                 "Auth Helper Chrome extension chưa kết nối — hãy cài extension và mở Chrome",
@@ -46,14 +51,6 @@ class FlowVeoProvider(BaseProvider):
             raise ProviderError(
                 "Chưa mở tab Google Flow — hãy mở Chrome và truy cập labs.google/fx/tools/flow",
                 error_code=0,
-            )
-        # Captcha is solved in whatever Google account is logged into the tab.
-        # Cookie/token for API comes from the selected app account — they must match.
-        if self.account and self.account.label:
-            logger.debug(
-                "Flow gen with app account=%s — tab Google must be the SAME gmail "
-                "(Auth Helper captcha is tab session)",
-                self.account.label,
             )
 
     def _clear_stale_project(self) -> None:
