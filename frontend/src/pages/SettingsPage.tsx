@@ -244,10 +244,10 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
     }
   }, []);
 
-  const handleLaunchBrowser = async (accountId: string) => {
+  const handleLaunchBrowser = async (accountId: string, headless = true) => {
     setPoolLoading(true);
     try {
-      await launchBrowserInstance(accountId);
+      await launchBrowserInstance(accountId, headless);
       await refreshBrowserPool();
     } catch (e: any) {
       onError(e.message || String(e));
@@ -1072,27 +1072,39 @@ export default function SettingsPage({ accounts, onRefresh, onError }: SettingsP
                           </td>
                           <td style={{ fontWeight: 600 }}>{inst.token_count || 0}</td>
                           <td>
-                            {isRunning ? (
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              {isRunning ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-xs"
+                                  onClick={() => handleStopBrowser(inst.account_id)}
+                                  disabled={poolLoading}
+                                  style={{ padding: "3px 10px", fontSize: "11.5px" }}
+                                >
+                                  <Square size={11} /> Tắt
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-xs"
+                                  onClick={() => handleLaunchBrowser(inst.account_id, true)}
+                                  disabled={poolLoading || isStarting}
+                                  style={{ padding: "3px 10px", fontSize: "11.5px" }}
+                                >
+                                  <Play size={11} style={{ color: "#4ade80" }} /> Bật Browser
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                className="btn btn-danger btn-xs"
-                                onClick={() => handleStopBrowser(inst.account_id)}
-                                disabled={poolLoading}
-                                style={{ padding: "3px 10px", fontSize: "11.5px" }}
-                              >
-                                <Square size={11} /> Tắt
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-xs"
-                                onClick={() => handleLaunchBrowser(inst.account_id)}
+                                className="btn btn-ghost btn-xs"
+                                onClick={() => handleLaunchBrowser(inst.account_id, false)}
                                 disabled={poolLoading || isStarting}
-                                style={{ padding: "3px 10px", fontSize: "11.5px" }}
+                                title="Mở cửa sổ Chrome hiển thị để đăng nhập lại Gmail/cookie nếu bị hết hạn"
+                                style={{ padding: "3px 8px", fontSize: "11.5px", color: "var(--purple-bright)" }}
                               >
-                                <Play size={11} style={{ color: "#4ade80" }} /> Bật Browser
+                                🔑 Đăng nhập Chrome
                               </button>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       );

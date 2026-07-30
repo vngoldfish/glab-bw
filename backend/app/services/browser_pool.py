@@ -207,10 +207,16 @@ class BrowserPoolManager:
                         curr_acc = account_store.get(account.id)
                         if curr_acc:
                             creds = dict(curr_acc.credentials)
-                            if creds.get("session_token") != session_token:
+                            if creds.get("session_token") != session_token or not creds.get("access_token"):
                                 creds["session_token"] = session_token
                                 account_store.update(account.id, credentials=creds)
-                                logger.info("Auto-refreshed session_token for account %s", account.label)
+                                try:
+                                    from app.services.flow_client import google_flow_client
+                                    from app.services.flow_session import flow_session_manager
+                                    await flow_session_manager.ensure_session(curr_acc, google_flow_client, force_refresh=True)
+                                    logger.info("Auto-synced fresh Flow session token & access token for account %s", account.label)
+                                except Exception as err:
+                                    logger.warning("Could not exchange session token for %s: %s", account.label, err)
                 except Exception as e:
                     logger.debug("Browser loop poll error: %s", e)
 
