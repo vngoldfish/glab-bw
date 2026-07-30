@@ -65,6 +65,25 @@ const COMPOSITIONS = [
   { id: "depth", label: "Lớp chiều sâu", en: "Layered depth composition, foreground middle-ground background separation, bokeh", accent: "#06b6d4", icon: "🔭" },
 ];
 
+/* ───── DATA: Camera Lenses ───── */
+const CAMERA_LENSES = [
+  { id: "lens_85", label: "85mm F/1.4 (Chân dung)", en: "shot on 85mm f/1.4 prime lens, shallow depth of field, creamy background bokeh", accent: "#ec4899", icon: "📷", desc: "Chân dung xóa phông nhung mượt" },
+  { id: "lens_35", label: "35mm F/1.8 (Điện ảnh)", en: "shot on 35mm f/1.8 cine lens, cinematic perspective, subtle bokeh", accent: "#f59e0b", icon: "🎬", desc: "Điện ảnh góc nhìn tự nhiên" },
+  { id: "lens_50", label: "50mm F/1.2 (Tiêu chuẩn)", en: "shot on 50mm f/1.2 lens, ultra-sharp subject focus, natural human field of view", accent: "#22c55e", icon: "👁️", desc: "Góc nhìn tự nhiên nét căng" },
+  { id: "lens_14", label: "14mm Ultra-Wide", en: "shot on 14mm ultra-wide angle lens, dramatic spatial distortion, expansive field of view", accent: "#8b5cf6", icon: "🌐", desc: "Góc siêu rộng kịch tính" },
+  { id: "lens_macro", label: "100mm Macro (Sản phẩm)", en: "shot on 100mm f/2.8 macro lens, crisp micro-details, extreme close-up texture", accent: "#06b6d4", icon: "🔬", desc: "Siêu cận chi tiết sản phẩm" },
+  { id: "lens_200", label: "200mm F/2.8 Telephoto", en: "shot on 200mm f/2.8 telephoto lens, extreme background compression, isolated subject", accent: "#eab308", icon: "🔭", desc: "Nén phông nền cực đại" },
+];
+
+/* ───── DATA: Film Stocks & Color Grading ───── */
+const FILM_STOCKS = [
+  { id: "portra", label: "Kodak Portra 400", en: "Kodak Portra 400 film grain, warm skin tones, gentle highlight roll-off, analog color palette", accent: "#f59e0b", icon: "🎞️" },
+  { id: "velvia", label: "Fujifilm Velvia 50", en: "Fujifilm Velvia 50 color profile, rich saturated colors, high contrast landscape photography", accent: "#10b981", icon: "📸" },
+  { id: "teal_orange", label: "Cinematic Teal & Orange", en: "Cinematic teal and orange color grade, Hollywood blockbuster color palette, high production value", accent: "#06b6d4", icon: "🎨" },
+  { id: "monochrome", label: "B&W Leica Monochrom", en: "Leica Monochrom black and white film style, deep black shadows, silvery highlights, high micro-contrast", accent: "#94a3b8", icon: "🖤" },
+  { id: "cinestill", label: "CineStill 800T", en: "CineStill 800T tungsten film, red halation around highlights, atmospheric night mood", accent: "#ef4444", icon: "🌃" },
+];
+
 /* ───── SVG VIEWPORT ───── */
 function StudioViewport({ angle }: { angle: typeof CAMERA_ANGLES[0] | null }) {
   const isDrone = angle?.id === "drone";
@@ -288,20 +307,25 @@ export default function ImageStudioModal({
 }: Props) {
   const [subject, setSubject] = useState(() => cleanSubjectPrompt(initialSubject));
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
+  const [lensId, setLensId] = useState("");
+  const [filmId, setFilmId] = useState("");
   const [styleId, setStyleId] = useState(() => findIdByPrompt(ART_STYLES, initial.style));
   const [lightId, setLightId] = useState(() => findIdByPrompt(LIGHTING_PRESETS, initial.lighting));
   const [compId, setCompId] = useState(() => findIdByPrompt(COMPOSITIONS, initial.composition));
 
   const selAngle = CAMERA_ANGLES.find(a => a.id === angleId) || null;
+  const selLens = CAMERA_LENSES.find(l => l.id === lensId) || null;
+  const selFilm = FILM_STOCKS.find(f => f.id === filmId) || null;
   const selStyle = ART_STYLES.find(s => s.id === styleId) || null;
   const selLight = LIGHTING_PRESETS.find(l => l.id === lightId) || null;
   const selComp = COMPOSITIONS.find(c => c.id === compId) || null;
 
   const summary = useMemo(() => {
     const parts: string[] = [];
-    // 1. Camera Angle FIRST (High priority for AI generator)
+    // 1. Camera Angle & Lens FIRST (High priority for AI generator)
     if (selAngle) parts.push(selAngle.en);
-    
+    if (selLens) parts.push(selLens.en);
+
     // 2. Subject second
     const cleanSub = cleanSubjectPrompt(subject);
     if (cleanSub) {
@@ -310,15 +334,16 @@ export default function ImageStudioModal({
       parts.push("[Chủ thể của bạn]");
     }
 
-    // 3. Lighting, Composition, Style
+    // 3. Lighting, Composition, Film Stock, Style
     if (selLight) parts.push(selLight.en);
     if (selComp) parts.push(selComp.en);
+    if (selFilm) parts.push(selFilm.en);
     if (selStyle) parts.push(selStyle.en);
 
     return parts.join(", ");
-  }, [subject, selAngle, selStyle, selLight, selComp]);
+  }, [subject, selAngle, selLens, selFilm, selStyle, selLight, selComp]);
 
-  const count = [selAngle, selStyle, selLight, selComp].filter(Boolean).length;
+  const count = [selAngle, selLens, selFilm, selStyle, selLight, selComp].filter(Boolean).length;
 
   function handleConfirm() {
     onConfirm({
@@ -444,13 +469,24 @@ export default function ImageStudioModal({
             <Section icon="📷" title="Góc Chụp / Camera Angle">
               <CardGrid items={CAMERA_ANGLES} selected={angleId} onSelect={setAngleId} cols={4} />
             </Section>
+
+            <Section icon="🔍" title="Ống Kính & Khẩu Độ / Lens & Aperture">
+              <CardGrid items={CAMERA_LENSES} selected={lensId} onSelect={setLensId} cols={3} />
+            </Section>
+
             <Section icon="🎨" title="Phong Cách Nghệ Thuật / Art Style">
               <CardGrid items={ART_STYLES} selected={styleId} onSelect={setStyleId} cols={4} />
             </Section>
-            <Section icon="💡" title="Ánh Sáng / Lighting">
+
+            <Section icon="🎞️" title="Màu Phim & Color Grading / Film Stock">
+              <CardGrid items={FILM_STOCKS} selected={filmId} onSelect={setFilmId} cols={3} />
+            </Section>
+
+            <Section icon="💡" title="Ánh Sáng Studio / Studio Lighting">
               <CardGrid items={LIGHTING_PRESETS} selected={lightId} onSelect={setLightId} cols={4} />
             </Section>
-            <Section icon="▦" title="Bố Cục / Composition">
+
+            <Section icon="▦" title="Bố Cục Ảnh / Composition">
               <CardGrid items={COMPOSITIONS} selected={compId} onSelect={setCompId} cols={4} />
             </Section>
           </div>

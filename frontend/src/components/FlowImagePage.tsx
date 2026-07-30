@@ -683,6 +683,39 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
     setPromptInput("");
   }
 
+  function create4StudioVariantRows() {
+    let base = promptInput.trim();
+    if (!base) {
+      base = "Chân dung nghệ thuật studio sắc nét, thần thái tự nhiên 8k, ánh sáng softbox";
+    }
+    // Clean old camera phrases
+    base = base
+      .replace(/Close-up shot[^\,]*/gi, "")
+      .replace(/Medium shot[^\,]*/gi, "")
+      .replace(/Wide establishing shot[^\,]*/gi, "")
+      .replace(/Low angle looking up[^\,]*/gi, "")
+      .replace(/,\s*,/g, ",")
+      .replace(/^,\s*/, "")
+      .replace(/,\s*$/, "")
+      .trim();
+
+    const variants = [
+      `Close-up shot, 85mm f/1.4 lens, shallow depth of field, ${base}, studio 3-point lighting`,
+      `Medium waist-up shot, 50mm f/1.8 lens, ${base}, Rembrandt studio lighting`,
+      `Wide establishing shot, 24mm wide lens, ${base}, expansive spatial lighting`,
+      `Low angle looking up, dramatic perspective, 35mm cine lens, ${base}, golden hour rim light`,
+    ];
+
+    const newRows: QueueRow[] = variants.map((p) => ({
+      ...emptyRow(),
+      prompt: p,
+      selected: true,
+    }));
+
+    setRows((prev) => [...newRows, ...prev]);
+    setPromptInput("");
+  }
+
   function handleImportTxt(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -1897,25 +1930,47 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                 <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
                   <span>📷 Studio Nhiếp ảnh Professional</span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowImageStudio(true)}
-                  style={{
-                    padding: "4px 12px",
-                    fontSize: "11px",
-                    borderRadius: "8px",
-                    background: "linear-gradient(135deg, #22c55e, #14b8a6)",
-                    color: "#fff",
-                    fontWeight: 700,
-                    border: "none",
-                    cursor: "pointer",
-                    boxShadow: "0 2px 10px rgba(34, 197, 94, 0.3)",
-                    transition: "all 0.2s ease",
-                  }}
-                  title="Mở Giả Lập Studio 3D (Góc máy, Bố cục, Ánh sáng, Phong cách)"
-                >
-                  🎬 Giả Lập Studio 3D
-                </button>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={create4StudioVariantRows}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: "11px",
+                      borderRadius: "8px",
+                      background: "linear-gradient(135deg, #a855f7, #6366f1)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: "pointer",
+                      boxShadow: "0 2px 10px rgba(168, 85, 247, 0.3)",
+                      transition: "all 0.2s ease",
+                    }}
+                    title="Tự động sinh bộ 4 góc chụp Studio (Cận cảnh, Trung cảnh, Toàn cảnh, Góc thấp)"
+                  >
+                    ⚡ Bộ 4 Góc Studio
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowImageStudio(true)}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: "11px",
+                      borderRadius: "8px",
+                      background: "linear-gradient(135deg, #22c55e, #14b8a6)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: "pointer",
+                      boxShadow: "0 2px 10px rgba(34, 197, 94, 0.3)",
+                      transition: "all 0.2s ease",
+                    }}
+                    title="Mở Giả Lập Studio 3D (Góc máy, Bố cục, Ánh sáng, Phong cách)"
+                  >
+                    🎬 Studio 3D Pro
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 95, overflowY: "auto", padding: "2px 0" }}>
