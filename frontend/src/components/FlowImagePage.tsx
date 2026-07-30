@@ -242,6 +242,19 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [showHistory, setShowHistory] = useState(() => localStorage.getItem("img_show_history") === "true");
   const bulkPromptRef = useRef<PromptMentionFieldHandle>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const directImageInputRef = useRef<HTMLInputElement>(null);
+  const [directInputImage, setDirectInputImage] = useState<string | null>(null);
+
+  function handleDirectImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDirectInputImage(String(reader.result ?? ""));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
 
   const [continueModal, setContinueModal] = useState<{
     open: boolean;
@@ -678,7 +691,11 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) return;
-    const newRows = lines.map((prompt) => ({ ...emptyRow(), prompt }));
+    const newRows = lines.map((prompt) => ({
+      ...emptyRow(),
+      prompt,
+      ...(directInputImage ? { referenceImage: directInputImage, referenceName: "user_upload" } : {}),
+    }));
     setRows((prev) => [...newRows, ...prev]);
     setPromptInput("");
   }
@@ -710,6 +727,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
       ...emptyRow(),
       prompt: p,
       selected: true,
+      ...(directInputImage ? { referenceImage: directInputImage, referenceName: "user_upload" } : {}),
     }));
 
     setRows((prev) => [...newRows, ...prev]);
@@ -1872,7 +1890,24 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
             <div className="flow-input-card-head" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "stretch" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 className="flow-section-title">Nhập prompt</h3>
-                <div className="flow-input-card-actions">
+                <div className="flow-input-card-actions" style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => directImageInputRef.current?.click()}
+                    style={{ padding: "4px 8px", fontSize: "11px", height: "auto", color: "#4ade80", fontWeight: 700, borderColor: "rgba(34,197,94,0.3)" }}
+                    title="Tải ảnh tham chiếu / ảnh mẫu trực tiếp từ máy tính (Image-to-Image)"
+                  >
+                    📷 Đính ảnh mẫu
+                  </button>
+                  <input
+                    ref={directImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={handleDirectImageUpload}
+                  />
+
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
@@ -1884,9 +1919,29 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
                 </div>
               </div>
               <p className="flow-section-desc" style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
-                Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc chọn chip bên dưới
+                Mỗi dòng một prompt · gõ <code>@ten_anh</code> hoặc tải ảnh mẫu ở trên
               </p>
             </div>
+
+            {directInputImage && (
+              <div style={{ padding: "6px 10px", background: "rgba(34, 197, 94, 0.1)", borderRadius: "8px", border: "1px solid rgba(34, 197, 94, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <img src={directInputImage} alt="Input reference" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#4ade80" }}>📷 Đã đính kèm ảnh mẫu máy tính</div>
+                    <div style={{ fontSize: "9px", color: "rgba(255,255,255,0.5)" }}>Dùng làm ảnh tham chiếu (Image-to-Image)</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  style={{ background: "transparent", border: "none", color: "#ef4444", fontSize: "14px", cursor: "pointer", padding: "2px 6px" }}
+                  onClick={() => setDirectInputImage(null)}
+                  title="Gỡ ảnh mẫu này"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             <div className="flow-ref-strip" style={{ flexDirection: "column", alignItems: "stretch", gap: 6, padding: "8px 10px", margin: "4px 0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2312,8 +2367,14 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
       {showImageStudio && (
         <ImageStudioModal
           initialSubject={promptInput.trim()}
+          initialReferenceImage={directInputImage || undefined}
           onClose={() => setShowImageStudio(false)}
-          onConfirm={handleApplyStudio}
+          onConfirm={(settings) => {
+            if (settings.referenceImage) {
+              setDirectInputImage(settings.referenceImage);
+            }
+            handleApplyStudio(settings);
+          }}
         />
       )}
 

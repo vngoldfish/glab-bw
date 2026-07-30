@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 /* ───── DATA: Camera Angles ───── */
@@ -306,12 +306,25 @@ export default function ImageStudioModal({
   onClose,
 }: Props) {
   const [subject, setSubject] = useState(() => cleanSubjectPrompt(initialSubject));
+  const [refImage, setRefImage] = useState(initialReferenceImage);
+  const studioFileRef = useRef<HTMLInputElement>(null);
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
   const [lensId, setLensId] = useState("");
   const [filmId, setFilmId] = useState("");
   const [styleId, setStyleId] = useState(() => findIdByPrompt(ART_STYLES, initial.style));
   const [lightId, setLightId] = useState(() => findIdByPrompt(LIGHTING_PRESETS, initial.lighting));
   const [compId, setCompId] = useState(() => findIdByPrompt(COMPOSITIONS, initial.composition));
+
+  const handleStudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setRefImage(String(reader.result ?? ""));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const selAngle = CAMERA_ANGLES.find(a => a.id === angleId) || null;
   const selLens = CAMERA_LENSES.find(l => l.id === lensId) || null;
@@ -351,6 +364,7 @@ export default function ImageStudioModal({
       style: "",
       lighting: "",
       composition: "",
+      referenceImage: refImage,
     });
   }
 
@@ -439,9 +453,26 @@ export default function ImageStudioModal({
             <div style={{ marginBottom: 20, padding: 14, background: "linear-gradient(135deg, rgba(34,197,94,0.1), rgba(20,184,166,0.05))", borderRadius: 12, border: "1px solid rgba(34,197,94,0.25)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <label style={{ fontSize: 12, fontWeight: 800, color: "#4ade80", letterSpacing: 0.5 }}>
-                  🎯 1. NHẬP CHỦ THỂ ẢNH CỦA BẠN (TỰ DO HÓA HÌNH ẢNH)
+                  🎯 1. NHẬP CHỦ THỂ & ẢNH ĐẦU VÀO (IMAGE-TO-IMAGE)
                 </label>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Ví dụ: @ngoc đứng giữa phố hoa, Con mèo ngủ...</span>
+                <button
+                  type="button"
+                  onClick={() => studioFileRef.current?.click()}
+                  style={{
+                    padding: "3px 10px",
+                    fontSize: "10px",
+                    borderRadius: "6px",
+                    background: "rgba(34,197,94,0.2)",
+                    border: "1px solid rgba(34,197,94,0.4)",
+                    color: "#4ade80",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                  title="Tải ảnh mẫu từ máy tính để làm ảnh tham chiếu (Image-to-Image)"
+                >
+                  📷 Tải Ảnh Mẫu Máy Tính
+                </button>
+                <input ref={studioFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleStudioFileUpload} />
               </div>
               <input
                 type="text"
@@ -461,6 +492,15 @@ export default function ImageStudioModal({
                   boxShadow: "inset 0 2px 4px rgba(0,0,0,0.4)",
                 }}
               />
+              {refImage && (
+                <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(0,0,0,0.4)", borderRadius: 8, border: "1px solid rgba(34,197,94,0.3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <img src={refImage} alt="Reference thumbnail" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: "1px solid rgba(255,255,255,0.2)" }} />
+                    <span style={{ fontSize: 11, color: "#4ade80", fontWeight: 600 }}>📷 Ảnh mẫu tham chiếu (Image-to-Image) đã đính kèm</span>
+                  </div>
+                  <button type="button" onClick={() => setRefImage("")} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 14, cursor: "pointer", padding: "2px 6px" }}>✕</button>
+                </div>
+              )}
               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 6 }}>
                 💡 <em>Hệ thống sẽ tự động ghép Chủ thể của bạn đứng ở đầu câu, theo sau bởi các thông số Studio bạn chọn bên dưới!</em>
               </div>
