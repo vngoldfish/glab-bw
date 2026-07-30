@@ -195,7 +195,7 @@ class BrowserPoolManager:
 
             try:
                 logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
-                await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
+                await page.goto("https://labs.google/fx/tools/flow", wait_until="commit", timeout=15000)
             except Exception as e:
                 logger.warning("Browser pool initial page.goto warning for %s: %s", account.label, e)
 

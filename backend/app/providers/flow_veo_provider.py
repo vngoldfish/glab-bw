@@ -47,20 +47,13 @@ class FlowVeoProvider(BaseProvider):
                     logger.warning("Failed to auto-launch browser for account %s: %s", self.account.id, e)
 
             if inst:
-                for _ in range(30):
-                    if inst.status == "running" and inst.flow_tab_status == "open":
-                        return
-                    if inst.status in {"failed", "login_required"}:
-                        break
-                    await asyncio.sleep(0.5)
-
-                if inst.status == "running" and inst.flow_tab_status == "open":
-                    return
                 if inst.status == "login_required":
                     raise ProviderError(
                         f"Tài khoản «{self.account.label}» chưa đăng nhập Gmail. Vào Cài đặt → Tài khoản → nhấn '🔑 Đăng nhập Chrome' ở dòng tài khoản đó.",
                         error_code=0,
                     )
+                if inst.status in {"running", "starting"}:
+                    return
 
         # Fallback to manual Chrome tab if connected
         if auth_bridge_access.is_connected():
