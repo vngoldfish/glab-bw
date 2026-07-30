@@ -188,15 +188,36 @@ class BrowserPoolManager:
 
             page = context.pages[0] if context.pages else await context.new_page()
 
-            await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
+            try:
+                await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                logger.warning("Browser pool page.goto warning for account %s: %s", account.id, e)
 
-            inst.status = "running"
-            inst.flow_tab_status = "open"
-            logger.info("Browser pool instance started for account %s (%s)", account.label, account.id)
+            curr_url = page.url or ""
+            if "accounts.google.com" in curr_url or "signin" in curr_url:
+                inst.status = "login_required"
+                inst.last_error = "Chưa đăng nhập Gmail trong profile. Nhấn nút '🔑 Đăng nhập Chrome' ở ô Cài đặt để đăng nhập 1 lần."
+                inst.flow_tab_status = "closed"
+                logger.info("Account %s requires Google login (redirected to %s)", account.label, curr_url)
+            else:
+                inst.status = "running"
+                inst.flow_tab_status = "open"
+                logger.info("Browser pool instance running for account %s (%s)", account.label, account.id)
 
-            while inst.status == "running":
+            while inst.status in {"running", "login_required"}:
                 await asyncio.sleep(5)
                 try:
+                    curr_url = page.url or ""
+                    if "labs.google" in curr_url and inst.status == "login_required":
+                        inst.status = "running"
+                        inst.flow_tab_status = "open"
+                        inst.last_error = None
+                        logger.info("Account %s login completed, switched to running", account.label)
+                    elif ("accounts.google.com" in curr_url or "signin" in curr_url) and inst.status == "running":
+                        inst.status = "login_required"
+                        inst.flow_tab_status = "closed"
+                        inst.last_error = "Session hết hạn. Nhấn nút '🔑 Đăng nhập Chrome' để đăng nhập lại."
+
                     cookies = await context.cookies()
                     session_token = None
                     for c in cookies:

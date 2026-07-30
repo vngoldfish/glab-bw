@@ -233,22 +233,20 @@ class GoogleFlowClient:
         if account_id:
             from app.services.browser_pool import browser_pool_manager
             inst = browser_pool_manager.get_instance(account_id)
-            if inst and inst.status == "running":
+            if inst and inst.status == "running" and inst.flow_tab_status == "open":
                 pool_active = True
 
         if not pool_active:
-            if not auth_bridge_access.is_connected():
-                raise ProviderError(
-                    "Auth Helper chưa kết nối — mở tab labs.google/fx/tools/flow và bật extension",
-                    error_code=0,
-                )
-            bridge_session = auth_bridge_access.get_primary_session()
-            if not bridge_session or bridge_session.flow_tab_status != "open":
-                raise ProviderError(
-                    "Tab Flow chưa mở trong Chrome — mở https://labs.google/fx/tools/flow "
-                    "(login đúng tài khoản cookie trong Settings), đợi Auth = OK / Flow: open",
-                    error_code=0,
-                )
+            if auth_bridge_access.is_connected():
+                bridge_session = auth_bridge_access.get_primary_session()
+                if bridge_session and bridge_session.flow_tab_status == "open":
+                    pool_active = True
+
+        if not pool_active:
+            raise ProviderError(
+                "Tab Flow chưa sẵn sàng — hãy mở Cài đặt → Tài khoản → nhấn '🔑 Đăng nhập Chrome' ở dòng tài khoản đó để đăng nhập 1 lần (hoặc mở tab labs.google/fx/tools/flow trong Chrome).",
+                error_code=0,
+            )
 
         last_err: str | None = None
         # Fresh token each try — reused/stale tokens → "reCAPTCHA evaluation failed"
