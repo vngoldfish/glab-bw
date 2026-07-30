@@ -53,32 +53,32 @@ const PRESET_STUDIO_PROMPTS = [
   {
     icon: "📸",
     label: "Sản phẩm Studio",
-    prompt: "Product photography on a polished marble surface, studio softbox lighting, clean shadow, 8k resolution, crisp detail, commercial style",
+    prompt: "[Gõ chủ thể của bạn ở đây], Product photography on a polished marble surface, studio softbox lighting, clean shadow, 8k resolution, crisp detail, commercial style",
   },
   {
     icon: "👤",
     label: "Chân dung Nghệ thuật",
-    prompt: "Professional studio portrait photography, Rembrandt lighting, 85mm lens, f/1.8 aperture, natural skin texture, soft bokeh background, 8k",
+    prompt: "[Gõ chủ thể của bạn ở đây], Professional studio portrait photography, Rembrandt lighting, 85mm lens, f/1.8 aperture, natural skin texture, soft bokeh background, 8k",
   },
   {
     icon: "🏙️",
     label: "Kiến trúc / Nội thất",
-    prompt: "Modern architectural interior design, archviz, natural sunlight streaming through floor-to-ceiling windows, photorealistic, 8k",
+    prompt: "[Gõ chủ thể của bạn ở đây], Modern architectural interior design, archviz, natural sunlight streaming through floor-to-ceiling windows, photorealistic, 8k",
   },
   {
     icon: "🍔",
     label: "Ẩm thực Quảng cáo",
-    prompt: "Gourmet food photography, commercial style, shallow depth of field, steam rising, warm appetizing lighting, macro lens",
+    prompt: "[Gõ chủ thể của bạn ở đây], Gourmet food photography, commercial style, shallow depth of field, steam rising, warm appetizing lighting, macro lens",
   },
   {
     icon: "🎬",
     label: "Điện ảnh Cinematic",
-    prompt: "Cinematic film still, 35mm lens, volumetric light rays, atmospheric haze, shallow depth of field, anamorphic lens flare, film grain",
+    prompt: "[Gõ chủ thể của bạn ở đây], Cinematic film still, 35mm lens, volumetric light rays, atmospheric haze, shallow depth of field, anamorphic lens flare, film grain",
   },
   {
     icon: "🚗",
     label: "Xe hơi / Ô tô",
-    prompt: "Automotive commercial photography, motion blur background, glossy metallic reflections, cinematic dusk lighting, low angle shot",
+    prompt: "[Gõ chủ thể của bạn ở đây], Automotive commercial photography, motion blur background, glossy metallic reflections, cinematic dusk lighting, low angle shot",
   },
 ];
 

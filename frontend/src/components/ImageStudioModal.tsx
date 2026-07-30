@@ -259,6 +259,7 @@ export default function ImageStudioModal({
   onConfirm,
   onClose,
 }: Props) {
+  const [subject, setSubject] = useState("");
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
   const [styleId, setStyleId] = useState(() => findIdByPrompt(ART_STYLES, initial.style));
   const [lightId, setLightId] = useState(() => findIdByPrompt(LIGHTING_PRESETS, initial.lighting));
@@ -271,21 +272,26 @@ export default function ImageStudioModal({
 
   const summary = useMemo(() => {
     const parts: string[] = [];
+    if (subject.trim()) {
+      parts.push(subject.trim());
+    } else {
+      parts.push("[Chủ thể của bạn]");
+    }
     if (selAngle) parts.push(selAngle.en);
     if (selStyle) parts.push(selStyle.en);
     if (selLight) parts.push(selLight.en);
     if (selComp) parts.push(selComp.en);
     return parts.join(", ");
-  }, [selAngle, selStyle, selLight, selComp]);
+  }, [subject, selAngle, selStyle, selLight, selComp]);
 
   const count = [selAngle, selStyle, selLight, selComp].filter(Boolean).length;
 
   function handleConfirm() {
     onConfirm({
-      cameraAngle: selAngle?.en || "",
-      style: selStyle?.en || "",
-      lighting: selLight?.en || "",
-      composition: selComp?.en || "",
+      cameraAngle: summary,
+      style: "",
+      lighting: "",
+      composition: "",
     });
   }
 
@@ -357,6 +363,37 @@ export default function ImageStudioModal({
 
           {/* Right: Controls */}
           <div style={{ flex: 1, padding: "16px 20px", overflowY: "auto" }}>
+            {/* 🎯 Subject Input Area */}
+            <div style={{ marginBottom: 20, padding: 14, background: "linear-gradient(135deg, rgba(34,197,94,0.1), rgba(20,184,166,0.05))", borderRadius: 12, border: "1px solid rgba(34,197,94,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 800, color: "#4ade80", letterSpacing: 0.5 }}>
+                  🎯 1. NHẬP CHỦ THỂ ẢNH CỦA BẠN (TỰ DO HÓA HÌNH ẢNH)
+                </label>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Ví dụ: @ngoc đứng giữa phố hoa, Con mèo ngủ...</span>
+              </div>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Nhập nội dung/chủ thể bức ảnh bạn muốn tạo ở đây (bạn có thể gõ tiếng Việt hoặc @tên)..."
+                style={{
+                  width: "100%",
+                  padding: "11px 14px",
+                  borderRadius: 8,
+                  background: "rgba(0,0,0,0.55)",
+                  border: "1px solid rgba(34,197,94,0.3)",
+                  color: "#ffffff",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  boxShadow: "inset 0 2px 4px rgba(0,0,0,0.4)",
+                }}
+              />
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 6 }}>
+                💡 <em>Hệ thống sẽ tự động ghép Chủ thể của bạn đứng ở đầu câu, theo sau bởi các thông số Studio bạn chọn bên dưới!</em>
+              </div>
+            </div>
+
             <Section icon="📷" title="Góc Chụp / Camera Angle">
               <CardGrid items={CAMERA_ANGLES} selected={angleId} onSelect={setAngleId} cols={4} />
             </Section>
