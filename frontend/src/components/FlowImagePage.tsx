@@ -47,6 +47,40 @@ import {
 } from "../types";
 import { createId, runWithConcurrency } from "../utils";
 import MediaHistoryPanel from "./MediaHistoryPanel";
+import ImageStudioModal from "./ImageStudioModal";
+
+const PRESET_STUDIO_PROMPTS = [
+  {
+    icon: "📸",
+    label: "Sản phẩm Studio",
+    prompt: "Product photography on a polished marble surface, studio softbox lighting, clean shadow, 8k resolution, crisp detail, commercial style",
+  },
+  {
+    icon: "👤",
+    label: "Chân dung Nghệ thuật",
+    prompt: "Professional studio portrait photography, Rembrandt lighting, 85mm lens, f/1.8 aperture, natural skin texture, soft bokeh background, 8k",
+  },
+  {
+    icon: "🏙️",
+    label: "Kiến trúc / Nội thất",
+    prompt: "Modern architectural interior design, archviz, natural sunlight streaming through floor-to-ceiling windows, photorealistic, 8k",
+  },
+  {
+    icon: "🍔",
+    label: "Ẩm thực Quảng cáo",
+    prompt: "Gourmet food photography, commercial style, shallow depth of field, steam rising, warm appetizing lighting, macro lens",
+  },
+  {
+    icon: "🎬",
+    label: "Điện ảnh Cinematic",
+    prompt: "Cinematic film still, 35mm lens, volumetric light rays, atmospheric haze, shallow depth of field, anamorphic lens flare, film grain",
+  },
+  {
+    icon: "🚗",
+    label: "Xe hơi / Ô tô",
+    prompt: "Automotive commercial photography, motion blur background, glossy metallic reflections, cinematic dusk lighting, low angle shot",
+  },
+];
 
 const DEFAULT_CONFIG: ImageConfig = {
   engine: "flow",
@@ -218,6 +252,22 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [customActionVal, setCustomActionVal] = useState("");
   const [keepOriginalPrompt, setKeepOriginalPrompt] = useState(true);
+  const [showImageStudio, setShowImageStudio] = useState(false);
+
+  const handleApplyStudio = (settings: { cameraAngle: string; style: string; lighting: string; composition: string }) => {
+    const parts: string[] = [];
+    if (settings.cameraAngle) parts.push(settings.cameraAngle);
+    if (settings.style) parts.push(settings.style);
+    if (settings.lighting) parts.push(settings.lighting);
+    if (settings.composition) parts.push(settings.composition);
+    const studioPrompt = parts.join(", ");
+    if (!studioPrompt) return;
+    setPromptInput((prev) => {
+      if (!prev.trim()) return studioPrompt;
+      return `${prev.trim()}\n${studioPrompt}`;
+    });
+    setShowImageStudio(false);
+  };
 
 const DEFAULT_FLOW_IMAGE_MODELS = [
   { value: "nano_banana_2_lite", label: "Nano Banana 2 Lite (0 credit)", credits: 0 },
@@ -1786,6 +1836,67 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
               )}
             </div>
 
+            {/* Studio Photography Preset Bar & Modal Launcher */}
+            <div style={{ margin: "6px 0", display: "flex", flexDirection: "column", gap: 6, padding: "8px 10px", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.05)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
+                  <span>📷 Studio Nhiếp ảnh Professional</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowImageStudio(true)}
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    borderRadius: "8px",
+                    background: "linear-gradient(135deg, #22c55e, #14b8a6)",
+                    color: "#fff",
+                    fontWeight: 700,
+                    border: "none",
+                    cursor: "pointer",
+                    boxShadow: "0 2px 10px rgba(34, 197, 94, 0.3)",
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Mở Giả Lập Studio 3D (Góc máy, Bố cục, Ánh sáng, Phong cách)"
+                >
+                  🎬 Giả Lập Studio 3D
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 95, overflowY: "auto", padding: "2px 0" }}>
+                {PRESET_STUDIO_PROMPTS.map((p, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    style={{
+                      background: "rgba(34, 197, 94, 0.08)",
+                      border: "1px solid rgba(34, 197, 94, 0.2)",
+                      color: "#4ade80",
+                      fontSize: "10px",
+                      padding: "4px 9px",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontWeight: 500,
+                      transition: "all 0.15s ease",
+                    }}
+                    title={`Click để thêm prompt mẫu: ${p.prompt}`}
+                    onClick={() => {
+                      setPromptInput((prev) => {
+                        if (!prev.trim()) return p.prompt;
+                        return `${prev.trim()}\n${p.prompt}`;
+                      });
+                    }}
+                  >
+                    <span>{p.icon}</span>
+                    <span>{p.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <PromptMentionField
               ref={bulkPromptRef}
               rows={6}
@@ -2085,6 +2196,13 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
             )}
           </div>
         </div>
+      )}
+
+      {showImageStudio && (
+        <ImageStudioModal
+          onClose={() => setShowImageStudio(false)}
+          onConfirm={handleApplyStudio}
+        />
       )}
     </div>
   );
