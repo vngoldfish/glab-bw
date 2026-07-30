@@ -2623,7 +2623,8 @@ textarea {
   text-align: center;
 }
 .queue-table .col-control {
-  width: 170px;
+  width: 195px;
+  min-width: 195px;
   white-space: nowrap;
   overflow: visible;
 }
