@@ -260,11 +260,20 @@ export default function FlowImagePage({ activeCount, onError }: FlowImagePagePro
     if (settings.style) parts.push(settings.style);
     if (settings.lighting) parts.push(settings.lighting);
     if (settings.composition) parts.push(settings.composition);
-    const studioPrompt = parts.filter(Boolean).join(", ");
+    let studioPrompt = parts.filter(Boolean).join(", ");
     if (!studioPrompt) return;
+
+    // Clean out placeholder strings
+    studioPrompt = studioPrompt
+      .replace(/^\[Chủ thể của bạn\],\s*/i, "")
+      .replace(/^\[Chủ thể của bạn\]\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\],\s*/i, "")
+      .replace(/^\[Gõ chủ thể của bạn ở đây\]\s*/i, "");
+
     setPromptInput((prev) => {
       const cleanPrev = prev.trim();
       if (!cleanPrev) return studioPrompt;
+      if (!studioPrompt) return cleanPrev;
       return `${cleanPrev}, ${studioPrompt}`;
     });
     setShowImageStudio(false);
@@ -2202,6 +2211,7 @@ const DEFAULT_FLOW_IMAGE_MODELS = [
 
       {showImageStudio && (
         <ImageStudioModal
+          initialSubject={promptInput.trim()}
           onClose={() => setShowImageStudio(false)}
           onConfirm={handleApplyStudio}
         />

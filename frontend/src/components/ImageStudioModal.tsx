@@ -243,6 +243,7 @@ export interface ImageStudioSettings {
 }
 
 interface Props {
+  initialSubject?: string;
   initial?: ImageStudioSettings;
   onConfirm: (s: ImageStudioSettings) => void;
   onClose: () => void;
@@ -255,11 +256,12 @@ function findIdByPrompt(items: { id: string; en: string }[], prompt: string): st
 }
 
 export default function ImageStudioModal({
+  initialSubject = "",
   initial = { cameraAngle: "", style: "", lighting: "", composition: "" },
   onConfirm,
   onClose,
 }: Props) {
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(initialSubject);
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
   const [styleId, setStyleId] = useState(() => findIdByPrompt(ART_STYLES, initial.style));
   const [lightId, setLightId] = useState(() => findIdByPrompt(LIGHTING_PRESETS, initial.lighting));
