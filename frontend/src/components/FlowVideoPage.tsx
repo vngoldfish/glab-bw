@@ -499,15 +499,6 @@ export default function FlowVideoPage({ activeCount, onError }: FlowVideoPagePro
     setEditRowStudio(null);
   };
 
-  const [continueModal, setContinueModal] = useState<{
-    open: boolean;
-    videoUrl: string;
-    promptText: string;
-  } | null>(null);
-
-  const [customActionVal, setCustomActionVal] = useState("");
-  const [modalSubmitting, setModalSubmitting] = useState(false);
-
 const DEFAULT_FLOW_VIDEO_MODELS = [
   { value: "veo_31_lite_relaxed", label: "Veo 3.1 Lite (Miễn phí / 0 credit)", credits: 0 },
   { value: "omni_flash", label: "Gemini Omni Flash (15 credits)", credits: 15 },
@@ -566,74 +557,15 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
     }
   }, [flowModels, flowModelsLoaded, config.engine, config.model]);
 
-  const handleContinueVideo = (videoUrl: string, originalPrompt: string) => {
-    setContinueModal({
-      open: true,
-      videoUrl,
-      promptText: originalPrompt,
-    });
-  };
-
-  const submitContinueVideo = async (actionText: string, useAi: boolean) => {
-    if (!continueModal) return;
-    const { videoUrl, promptText } = continueModal;
-
-    let finalPrompt = promptText;
-    const trimmedAction = actionText.trim();
-
-    if (useAi) {
-      setModalSubmitting(true);
-      try {
-        if (trimmedAction) {
-          try {
-            const response = await rewritePromptAi({
-              prompt: `Prompt gốc: "${promptText}"\nDiễn biến cảnh tiếp theo: "${trimmedAction}"`,
-              kind: "video",
-              locale: "vi",
-            });
-            if (response && response.prompt) {
-              finalPrompt = response.prompt;
-            } else {
-              finalPrompt = `${promptText}, ${trimmedAction}`;
-            }
-          } catch {
-            finalPrompt = `${promptText}, ${trimmedAction}`;
-          }
-        } else {
-          // AI automatic suggestion
-          try {
-            const response = await rewritePromptAi({
-              prompt: `Prompt gốc: "${promptText}"\nViết tiếp cảnh tiếp theo (storyboard next scene)`,
-              kind: "video",
-              locale: "vi",
-            });
-            if (response && response.prompt) {
-              finalPrompt = response.prompt;
-            }
-          } catch {
-            // fallback to original
-          }
-        }
-      } finally {
-        setContinueModal(null);
-        setModalSubmitting(false);
-      }
-    } else {
-      // Gắn trực tiếp không dùng AI (Chạy ngay lập tức 0ms)
-      if (trimmedAction) {
-        finalPrompt = `${promptText}, ${trimmedAction}`;
-      }
-      setContinueModal(null);
-    }
-
+  const handleContinueVideo = async (videoUrl: string, originalPrompt: string) => {
     const newId = createId();
     const newRow: QueueRow = {
       id: newId,
       selected: true,
-      prompt: finalPrompt,
+      prompt: originalPrompt,
       referenceImage: null,
       referenceName: null,
-      startFrameName: "Đang trích xuất frame...",
+      startFrameName: "frame_cuoi.png",
       startFrameImage: "loading",
       endFrameName: null,
       endFrameImage: null,
@@ -643,11 +575,9 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
       savedFolder: null,
     };
 
-    // Thêm dòng mới lên đầu bảng hàng chờ
     setRows((prev) => [newRow, ...prev]);
 
     try {
-      // Gọi API trích xuất khung hình cuối (end)
       const frames = await extractFramesFromPath(videoUrl, ["end"]);
       const endFrame = frames.find((f) => f.position === "end") || frames[0];
       if (endFrame && endFrame.url) {
@@ -659,6 +589,12 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
         setRows((prev) =>
           prev.map((r) => (r.id === newId ? updatedRow : r))
         );
+        // Open Studio 3D for user to tune camera motion
+        setEditRowStudio({
+          rowId: newId,
+          promptText: originalPrompt,
+          imageUrl: endFrame.url,
+        });
       } else {
         throw new Error("Không lấy được khung hình cuối");
       }
@@ -2483,115 +2419,6 @@ const DEFAULT_FLOW_VIDEO_MODELS = [
         </div>
       )}
 
-      {/* ─── Custom Modal Tạo Cảnh Tiếp Theo (Storyboard) ─── */}
-      {continueModal && continueModal.open && (
-        <div className="ui-lightbox node-picker-overlay" onClick={() => setContinueModal(null)}>
-          <div
-            className="node-picker-modal continue-storyboard-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 460, background: "#0f172a", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.5)" }}
-          >
-            <div className="node-picker-head" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 10 }}>
-              <strong style={{ color: "#c4b5fd" }}>Tạo cảnh tiếp theo (Storyboard)</strong>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setContinueModal(null)}>
-                Đóng
-              </button>
-            </div>
-            <p className="muted" style={{ fontSize: 12.5, margin: "12px 0 16px" }}>
-              Chọn một hành động hoặc góc máy gợi ý bên dưới (click là chạy ngay) để tạo tiếp cảnh mới cho nhân vật:
-            </p>
-
-            {modalSubmitting ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 12 }}>
-                <span className="mhp-spinner" style={{ width: 32, height: 32 }} />
-                <span style={{ fontSize: 13, color: "#a78bfa", fontWeight: 600 }}>🌀 Đang kết nối AI để tối ưu prompt...</span>
-                <span style={{ fontSize: 11, color: "#64748b" }}>Hàng chờ sẽ tự động chạy khi hoàn tất</span>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>TÙY CHỌN TỰ ĐỘNG:</div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ width: "100%", justifyContent: "center", background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", border: "none", fontWeight: 700 }}
-                    onClick={() => void submitContinueVideo("", true)}
-                  >
-                    ✦ AI tự động gợi ý diễn biến tiếp theo
-                  </button>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>GÓC MÁY & HÀNH ĐỘNG GỢI Ý (CLICK LÀ CHẠY NGAY):</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {[
-                      { label: "📸 Cận cảnh mặt", action: "close-up portrait" },
-                      { label: "📐 Góc nghiêng 3/4", action: "3/4 view" },
-                      { label: "👤 Nghiêng hoàn toàn", action: "side profile" },
-                      { label: "🏃 Chạy bộ", action: "running" },
-                      { label: "🚶 Đi bộ thong thả", action: "walking slowly" },
-                      { label: "😊 Mỉm cười", action: "smiling happily" },
-                      { label: "😢 Đang khóc", action: "crying with tears" },
-                      { label: "☕ Ngồi suy tư", action: "sitting thoughtfully" },
-                      { label: "🌅 Đứng nhìn hoàng hôn", action: "standing and looking at sunset" },
-                    ].map((item, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ fontSize: 11, padding: "4px 8px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)", color: "#cbd5e1" }}
-                        onClick={() => void submitContinueVideo(item.action, false)}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 14 }}>
-                  <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, fontWeight: 700, letterSpacing: "0.05em" }}>TỰ NHẬP HÀNH ĐỘNG TÙY CHỈNH:</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <input
-                      name="customAction"
-                      type="text"
-                      placeholder="Ví dụ: đang cười lớn, nhảy múa..."
-                      className="form-control"
-                      value={customActionVal}
-                      onChange={(e) => setCustomActionVal(e.target.value)}
-                      style={{ height: 32, fontSize: 12, background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "#fff", padding: "0 10px", width: "100%" }}
-                      autoFocus
-                    />
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        style={{ height: 30, padding: "0 12px", fontSize: 11, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
-                        onClick={() => {
-                          void submitContinueVideo(customActionVal, false);
-                          setCustomActionVal("");
-                        }}
-                      >
-                        Gắn trực tiếp (Không AI)
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{ height: 30, padding: "0 12px", fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", border: "none" }}
-                        onClick={() => {
-                          void submitContinueVideo(customActionVal, true);
-                          setCustomActionVal("");
-                        }}
-                      >
-                        ✦ Trợ lý AI tối ưu
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
       {activeMedia && (
         <div
           className="ui-lightbox"
