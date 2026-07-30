@@ -384,22 +384,32 @@
     _throttleMedia();   
     setInterval(() => { try { _throttleMedia(); } catch (e) {  } }, 2000);
 
-    // Sync Google Flow Page HTML when user visits labs.google Flow page
+    // Sync Google Flow Page HTML & OAuth2 Access Token when user visits labs.google Flow page
     if (window.location.href.includes("labs.google") && window.location.href.includes("/flow")) {
         const runSync = async () => {
             try {
                 const html = document.documentElement.outerHTML;
+                let access_token = null;
+                try {
+                    const sessRes = await fetch("/fx/api/auth/session", { credentials: "include" });
+                    if (sessRes.ok) {
+                        const sessJson = await sessRes.json();
+                        access_token = sessJson.access_token || null;
+                    }
+                } catch (e) {}
+
                 await fetch("http://127.0.0.1:18923/sync/google-flow-page", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ html })
+                    body: JSON.stringify({ html, access_token })
                 });
             } catch (e) {  }
         };
-        // Run after load and also after a short delay to capture dynamic state
+        // Run after load and also periodically every 10s to keep access token fresh
         window.addEventListener("load", () => {
-            setTimeout(runSync, 3000);
+            setTimeout(runSync, 2000);
         });
-        setTimeout(runSync, 5000);
+        setTimeout(runSync, 3000);
+        setInterval(runSync, 10000);
     }
 })();
