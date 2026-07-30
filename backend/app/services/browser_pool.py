@@ -193,17 +193,14 @@ class BrowserPoolManager:
             inst.status = "starting"
             inst.flow_tab_status = "closed"
 
+            try:
+                logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
+                await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                logger.warning("Browser pool initial page.goto warning for %s: %s", account.label, e)
+
             while inst.status in {"starting", "running", "login_required"}:
                 curr_url = page.url or ""
-
-                # If on blank/failed page, navigate to Flow
-                if not curr_url or curr_url == "about:blank" or "error" in curr_url:
-                    try:
-                        logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
-                        await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=60000)
-                        curr_url = page.url or ""
-                    except Exception as e:
-                        logger.warning("Browser pool page.goto retry warning for %s: %s", account.label, e)
 
                 if "accounts.google.com" in curr_url or "signin" in curr_url:
                     inst.status = "login_required"
@@ -214,7 +211,8 @@ class BrowserPoolManager:
                     inst.flow_tab_status = "open"
                     inst.last_error = None
                 else:
-                    inst.flow_tab_status = "closed"
+                    inst.status = "running"
+                    inst.flow_tab_status = "open"
 
                 try:
                     cookies = await context.cookies()
