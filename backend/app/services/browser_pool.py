@@ -299,33 +299,54 @@ class BrowserPoolManager:
             )
             inst._context = context
 
-            # Close extra pages — persistent context + extension may create multiple
-            # Keep only the first non-extension page for Flow navigation
-            page = None
+            # Persistent context restores old tabs from profile.
+            # Find existing Flow tab or pick one page to navigate.
+            # Close ALL extra non-extension pages to prevent duplicates.
+            flow_page = None
+            other_pages = []
+
             for p in context.pages:
                 p_url = p.url or ""
                 if "chrome-extension://" in p_url:
-                    continue  # Skip extension pages
-                if page is None:
-                    page = p
+                    continue  # Skip extension background pages
+                if flow_page is None and "labs.google" in p_url:
+                    flow_page = p  # Reuse existing Flow tab
                 else:
-                    # Close duplicate blank/extra pages
+                    other_pages.append(p)
+
+            if flow_page:
+                # Already have a Flow tab from profile — reuse it, close extras
+                page = flow_page
+                for p in other_pages:
                     try:
                         await p.close()
                     except Exception:
                         pass
-            if page is None:
-                page = context.pages[0] if context.pages else await context.new_page()
+                logger.info("Reusing existing Flow tab from profile for %s", account.label)
+            else:
+                # No Flow tab found — pick first normal page or create one
+                if other_pages:
+                    page = other_pages[0]
+                    for p in other_pages[1:]:
+                        try:
+                            await p.close()
+                        except Exception:
+                            pass
+                else:
+                    page = context.pages[0] if context.pages else await context.new_page()
 
             async with self._lock:
                 inst.status = "starting"
                 inst.flow_tab_status = "closed"
 
-            try:
-                logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
-                await page.goto("https://labs.google/fx/tools/flow", wait_until="commit", timeout=15000)
-            except Exception as e:
-                logger.warning("Browser pool initial page.goto warning for %s: %s", account.label, e)
+            # Only navigate if not already on Flow
+            curr_url = page.url or ""
+            if "labs.google" not in curr_url:
+                try:
+                    logger.info("Navigating browser pool page for %s to labs.google/fx/tools/flow", account.label)
+                    await page.goto("https://labs.google/fx/tools/flow", wait_until="commit", timeout=15000)
+                except Exception as e:
+                    logger.warning("Browser pool initial page.goto warning for %s: %s", account.label, e)
 
             while inst.status in {"starting", "running", "login_required"}:
                 curr_url = page.url or ""
