@@ -166,7 +166,9 @@ class GrokProvider(BaseProvider):
             res.raise_for_status()
             return res.content
 
-    def _format_error(self, status: int, body: Any) -> str:
+    def _format_error(self, status: int, body: Any, *, path: str = "") -> str:
+        ctx = f" [Grok API: {path}]" if path else ""
+        msg = ""
         if isinstance(body, dict):
             err = body.get("error")
             if isinstance(err, dict):
@@ -176,12 +178,30 @@ class GrokProvider(BaseProvider):
         else:
             msg = str(body)[:400]
         if status == 401:
-            return f"xAI API key không hợp lệ (401). {msg}"
+            return (
+                f"🔑 xAI API key không hợp lệ hoặc hết hạn.{ctx}\n"
+                f"Cách sửa: Vào Settings → nhập lại xAI API key.\n"
+                f"[HTTP 401] {msg}"
+            )
         if status == 403:
-            return f"xAI từ chối quyền (403). {msg}"
+            return (
+                f"🚫 xAI từ chối quyền truy cập.{ctx}\n"
+                f"Nguyên nhân: API key không có quyền sử dụng model này.\n"
+                f"[HTTP 403] {msg}"
+            )
         if status == 429:
-            return f"xAI rate limit / hết credit (429). {msg}"
-        return f"xAI HTTP {status}: {msg}"
+            return (
+                f"📊 xAI rate limit hoặc hết credit.{ctx}\n"
+                f"Cách sửa: (1) Đợi vài phút, (2) Kiểm tra credit tại console.x.ai.\n"
+                f"[HTTP 429] {msg}"
+            )
+        if status == 400:
+            return (
+                f"❌ xAI: Tham số không hợp lệ.{ctx}\n"
+                f"Nguyên nhân: Prompt, model, hoặc cấu hình sai.\n"
+                f"[HTTP 400] {msg}"
+            )
+        return f"⚠️ xAI lỗi.{ctx}\n[HTTP {status}] {msg}"
 
     async def _request_json(
         self,
@@ -204,7 +224,7 @@ class GrokProvider(BaseProvider):
         except Exception:
             body = res.text[:500]
         if res.status_code >= 400:
-            raise ProviderError(self._format_error(res.status_code, body), error_code=res.status_code)
+            raise ProviderError(self._format_error(res.status_code, body, path=path), error_code=res.status_code)
         if not isinstance(body, dict):
             raise ProviderError(f"xAI trả về không phải JSON: {body!r}"[:300], error_code=502)
         return body

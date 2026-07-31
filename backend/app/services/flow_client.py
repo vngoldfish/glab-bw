@@ -30,7 +30,13 @@ from app.services.flow_models import (
 logger = logging.getLogger(__name__)
 
 
-def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
+def _format_api_error(status_code: int, payload: Any, raw_text: str, *, endpoint: str = "") -> str:
+    """Format Google Flow API errors into detailed, actionable Vietnamese messages.
+
+    Includes: HTTP status, error code, Google's message, and specific fix guidance.
+    """
+    ctx = f" [API: {endpoint}]" if endpoint else ""
+
     if isinstance(payload, dict):
         message = str(payload.get("message") or payload.get("error", {}).get("message") or "")
         status = str(payload.get("status") or payload.get("error", {}).get("status") or "")
@@ -44,30 +50,43 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
                         reasons.append(str(reason))
 
         joined = " ".join(reasons)
+        detail_str = f" | reasons: {joined}" if joined else ""
+        error_id = f"[HTTP {status_code} / {status}]" if status else f"[HTTP {status_code}]"
+
         if "UNSAFE_GENERATION" in joined or "UNSAFE" in status:
-            return "Prompt bị Google chặn (nội dung không an toàn) — hãy sửa lại prompt"
+            return (
+                f"⛔ Prompt bị Google chặn vì nội dung không an toàn (UNSAFE_GENERATION).{ctx}\n"
+                f"Cách sửa: Chỉnh lại prompt bỏ nội dung nhạy cảm (bạo lực, khiêu dâm, v.v.).\n"
+                f"{error_id} {message}"
+            )
         if (
             "recaptcha evaluation failed" in message.lower()
             or ("recaptcha" in message.lower() and "fail" in message.lower())
         ):
             return (
-                "reCAPTCHA bị Google từ chối (evaluation failed). "
-                "Làm lần lượt: (1) Focus tab labs.google/fx/tools/flow (đang login đúng tài khoản), "
-                "(2) Auth Helper extension xanh + tab Flow = open, "
-                "(3) Settings → dán lại cookie __Secure-next-auth.session-token mới từ ĐÚNG tab đó, "
-                "(4) F5 tab Flow, đợi 5s, chạy lại 1 video. "
-                "Cookie app và tab extension phải cùng 1 tài khoản Google."
+                f"🔒 reCAPTCHA bị Google từ chối.{ctx}\n"
+                f"Cách sửa: (1) Focus tab labs.google/fx/tools/flow (đúng tài khoản), "
+                f"(2) Extension xanh + tab Flow = open, "
+                f"(3) Settings → dán lại cookie session mới, "
+                f"(4) F5 tab Flow, đợi 5s.\n"
+                f"{error_id} {message}"
             )
         if status == "PERMISSION_DENIED" or "does not have permission" in message.lower():
             return (
-                "Google từ chối quyền tạo video (PERMISSION_DENIED). "
-                "Nếu Flow web vẫn tạo được: cookie/session trong app có thể cũ hoặc khác tab browser — "
-                "mở Settings → dán lại cookie __Secure-next-auth.session-token mới từ labs.google, "
-                "giữ tab Flow mở + extension xanh. "
-                "Cũng thử model Veo 3.1 Fast + Văn bản→Video trước để kiểm tra auth. "
-                f"({message or status})"
+                f"🚫 Google từ chối quyền truy cập (PERMISSION_DENIED).{ctx}\n"
+                f"Nguyên nhân: Cookie/session hết hạn hoặc không khớp tab browser.\n"
+                f"Cách sửa: Settings → dán lại cookie __Secure-next-auth.session-token mới từ labs.google, "
+                f"giữ tab Flow mở + extension xanh.\n"
+                f"{error_id} {message}"
             )
-        # 429 / quota must be checked BEFORE generic INTERNAL (Google sometimes wraps)
+        if status == "UNAUTHENTICATED" or status_code == 401:
+            return (
+                f"🔑 Chưa xác thực hoặc token hết hạn (UNAUTHENTICATED).{ctx}\n"
+                f"Nguyên nhân: Access token/cookie đã hết hạn.\n"
+                f"Cách sửa: Vào Settings → Tài khoản → nhấn '🔑 Đăng nhập Chrome' hoặc dán lại cookie.\n"
+                f"{error_id} {message}"
+            )
+        # 429 / quota
         quota_hit = (
             status_code == 429
             or status == "RESOURCE_EXHAUSTED"
@@ -77,29 +96,72 @@ def _format_api_error(status_code: int, payload: Any, raw_text: str) -> str:
         )
         if quota_hit:
             return (
-                "Hết quota Google Flow trên account này (USER_QUOTA_REACHED). "
-                "Video/model Pro đã dùng hết lượt free trong ngày hoặc gói. "
-                "Cách xử lý: (1) thêm account Flow khác trong Cài đặt, "
-                "(2) đợi reset quota (thường ~24h), "
-                "(3) ảnh: dùng Nano Banana 2 / Lite (Pro hay fail trên free tier). "
-                f"({message or status or status_code})"
+                f"📊 Hết quota Google Flow trên account này.{ctx}\n"
+                f"Nguyên nhân: Đã dùng hết lượt free trong ngày (video/Pro thường hết sớm).\n"
+                f"Cách sửa: (1) Thêm account Flow khác trong Cài đặt, "
+                f"(2) Đợi reset quota (~24h), "
+                f"(3) Ảnh: dùng model Nano Banana 2 / Lite (ít tốn quota hơn).\n"
+                f"{error_id} {message}{detail_str}"
             )
         if status == "INTERNAL" or (status_code >= 500 and status_code != 503):
             return (
-                "Google Flow INTERNAL (model không hỗ trợ account này, payload lệch, hoặc Google lỗi). "
-                "Ảnh: chọn Nano Banana 2 / Lite (Pro hay fail free tier). "
-                "Video: thử Omni Flash + Văn bản→Video; reload tab Flow + Auth OK; "
-                "hoặc thêm account khác nếu hết lượt. "
-                f"({message or status or status_code})"
+                f"💥 Google Flow lỗi nội bộ (INTERNAL).{ctx}\n"
+                f"Nguyên nhân: Model không hỗ trợ account, payload lệch, hoặc Google gặp sự cố.\n"
+                f"Cách sửa: (1) Ảnh: đổi model sang Nano Banana 2 / Lite, "
+                f"(2) Video: thử Omni Flash + mode Văn bản→Video, "
+                f"(3) Reload tab Flow.\n"
+                f"{error_id} {message}{detail_str}"
             )
         if status_code == 503 or status == "UNAVAILABLE":
             return (
-                "Google Flow đang bận (503 UNAVAILABLE) — đợi 30–60 giây rồi thử lại"
+                f"⏳ Google Flow đang bận (503 UNAVAILABLE).{ctx}\n"
+                f"Cách sửa: Đợi 30-60 giây rồi thử lại.\n"
+                f"{error_id} {message}"
             )
         if status == "INVALID_ARGUMENT":
-            return f"Tham số không hợp lệ — thử model khác hoặc tỷ lệ khác. {message}".strip()
+            # Provide specific guidance based on which API call failed
+            if "uploadImage" in endpoint or "upload" in endpoint.lower():
+                return (
+                    f"❌ Upload ảnh tham chiếu thất bại (INVALID_ARGUMENT).{ctx}\n"
+                    f"Nguyên nhân: Ảnh bị lỗi format, quá nhỏ, hoặc project Flow đã hết hạn.\n"
+                    f"Cách sửa: (1) Upload lại ảnh reference mới (PNG/JPG, <10MB), "
+                    f"(2) Xóa reference cũ và thêm lại, "
+                    f"(3) Reload tab Flow + đăng nhập lại.\n"
+                    f"{error_id} {message}"
+                )
+            if "generate" in endpoint.lower() or "imagen" in endpoint.lower():
+                return (
+                    f"❌ Tham số tạo ảnh không hợp lệ (INVALID_ARGUMENT).{ctx}\n"
+                    f"Nguyên nhân: Model hoặc aspect ratio không được hỗ trợ.\n"
+                    f"Cách sửa: (1) Đổi model (ví dụ: imagen_3 → nano_banana_2_lite), "
+                    f"(2) Đổi tỷ lệ (16:9, 9:16, 1:1), "
+                    f"(3) Rút ngắn prompt nếu quá dài.\n"
+                    f"{error_id} {message}"
+                )
+            if "video" in endpoint.lower() or "veo" in endpoint.lower():
+                return (
+                    f"❌ Tham số tạo video không hợp lệ (INVALID_ARGUMENT).{ctx}\n"
+                    f"Nguyên nhân: Model video, ảnh đầu/cuối, hoặc mode không hỗ trợ.\n"
+                    f"Cách sửa: (1) Đổi model (veo_31_fast, omni_flash), "
+                    f"(2) Kiểm tra ảnh đầu/cuối có đúng format PNG/JPG, "
+                    f"(3) Thử mode 'Văn bản → Video' trước.\n"
+                    f"{error_id} {message}"
+                )
+            return (
+                f"❌ Tham số không hợp lệ (INVALID_ARGUMENT).{ctx}\n"
+                f"Nguyên nhân: Model, tỷ lệ, hoặc dữ liệu gửi lên bị Google từ chối.\n"
+                f"Cách sửa: Đổi model hoặc tỷ lệ khác.\n"
+                f"{error_id} {message}"
+            )
+        if status == "NOT_FOUND" or status_code == 404:
+            return (
+                f"🔍 Không tìm thấy tài nguyên (NOT_FOUND).{ctx}\n"
+                f"Nguyên nhân: Project hoặc media ID đã bị xóa/hết hạn trên Google.\n"
+                f"Cách sửa: Chạy lại — hệ thống sẽ tự tạo project mới.\n"
+                f"{error_id} {message}"
+            )
         if message:
-            return message
+            return f"⚠️ Google Flow: {message}{ctx}\n{error_id}{detail_str}"
     return raw_text[:500] or f"HTTP {status_code}"
 
 
@@ -219,7 +281,7 @@ class GoogleFlowClient:
                 response.status_code,
                 raw[:300],
             )
-            detail = _format_api_error(response.status_code, payload, raw)
+            detail = _format_api_error(response.status_code, payload, raw, endpoint=url.split("?")[0])
             raise ProviderError(detail, error_code=response.status_code)
         if not response.content:
             return {}

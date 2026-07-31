@@ -959,13 +959,36 @@ async def run_workflow(
                             ready_queue.append(child)
 
                 except Exception as exc:
+                    # Build detailed context for the error
+                    prompt_preview = ""
+                    model_info = ""
+                    if isinstance(data, dict):
+                        p = data.get("prompt") or data.get("prompts") or ""
+                        if isinstance(p, list):
+                            p = p[0] if p else ""
+                        prompt_preview = str(p)[:120]
+                        m = data.get("model") or data.get("model_image") or data.get("model_video") or ""
+                        if m:
+                            model_info = f", model={m}"
+                        ar = data.get("aspect_ratio") or ""
+                        if ar:
+                            model_info += f", ratio={ar}"
+
+                    error_detail = str(exc)
+                    context_parts = [f"Node {finished_nid} ({ntype})"]
+                    if prompt_preview:
+                        context_parts.append(f"prompt=\"{prompt_preview}...\"" if len(str(data.get("prompt", ""))) > 120 else f"prompt=\"{prompt_preview}\"")
+                    if model_info:
+                        context_parts.append(model_info.lstrip(", "))
+
                     log(f"Node {finished_nid} FAILED: {exc}")
                     run["node_results"][finished_nid] = {
                         "status": "failed",
                         "type": ntype,
-                        "error": str(exc),
+                        "error": error_detail,
+                        "prompt": prompt_preview,
                     }
-                    failed_node_error = f"Node {finished_nid} ({ntype}): {exc}"
+                    failed_node_error = f"{' | '.join(context_parts)}\n{error_detail}"
                     run["status"] = "failed"
                     run["error"] = failed_node_error
                     run["finished_at"] = time.time()
