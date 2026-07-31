@@ -48,3 +48,35 @@ async def launch_all_browsers(req: LaunchRequest | None = None) -> dict[str, Any
 async def stop_all_browsers() -> dict[str, Any]:
     result = await browser_pool_manager.stop_all()
     return {"ok": True, **result}
+
+
+@router.get("/debug")
+async def debug_browser_pages() -> dict[str, Any]:
+    """Debug: show actual pages per browser instance."""
+    instances_info = []
+    for aid, inst in browser_pool_manager._instances.items():
+        pages_info = []
+        if inst._context:
+            for i, p in enumerate(inst._context.pages):
+                try:
+                    url = p.url or "(blank)"
+                except Exception:
+                    url = "(error)"
+                is_flow = "labs.google" in url
+                is_ext = "chrome-extension://" in url
+                pages_info.append({
+                    "index": i,
+                    "url": url,
+                    "type": "flow" if is_flow else ("extension" if is_ext else "other"),
+                })
+        flow_count = sum(1 for pg in pages_info if pg["type"] == "flow")
+        instances_info.append({
+            "account_id": aid,
+            "label": inst.account_label,
+            "status": inst.status,
+            "total_pages": len(pages_info),
+            "flow_tabs": flow_count,
+            "pages": pages_info,
+            "ok": flow_count <= 1,
+        })
+    return {"instances": instances_info}
