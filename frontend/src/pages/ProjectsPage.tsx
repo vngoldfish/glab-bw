@@ -412,6 +412,16 @@ export default function ProjectsPage({ onError }: ProjectsPageProps) {
                             ? ` · ${new Date(a.mtime * 1000).toLocaleDateString("vi-VN")}`
                             : ""}
                         </div>
+                        {a.meta && (
+                          <div style={{ fontSize: "11px", color: "var(--text-muted, #94a3b8)", marginTop: "4px", lineHeight: "1.4" }}>
+                            {a.meta.provider && <span style={{ background: "rgba(99,102,241,0.15)", color: "#818cf8", padding: "1px 6px", borderRadius: "4px", marginRight: "4px", fontSize: "10px", fontWeight: 600 }}>{a.meta.provider}</span>}
+                            {a.meta.model && <span style={{ background: "rgba(16,185,129,0.15)", color: "#34d399", padding: "1px 6px", borderRadius: "4px", marginRight: "4px", fontSize: "10px", fontWeight: 600 }}>{a.meta.model}</span>}
+                            {a.meta.aspect_ratio && <span style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24", padding: "1px 6px", borderRadius: "4px", fontSize: "10px" }}>{a.meta.aspect_ratio}</span>}
+                            {a.meta.account_label && <div style={{ marginTop: "2px" }}>👤 {a.meta.account_label}</div>}
+                            {a.meta.created_at > 0 && <div>🕐 {new Date(a.meta.created_at * 1000).toLocaleString("vi-VN")}</div>}
+                            {a.meta.prompt && <div style={{ marginTop: "2px", fontStyle: "italic", opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }} title={a.meta.prompt}>💬 {a.meta.prompt.slice(0, 60)}{a.meta.prompt.length > 60 ? "..." : ""}</div>}
+                          </div>
+                        )}
                         <div className="media-tile-actions">
                           <a className="btn btn-ghost btn-sm" href={url} download target="_blank" rel="noreferrer">
                             Tải

@@ -55,6 +55,28 @@ async def _save_outputs(
         saved = upscale_service.save_bytes(data, filename, output_dir)
         urls.append(file_url_from_path(saved))
         
+        # Save metadata sidecar
+        try:
+            import json, time
+            meta = {
+                "task_id": task.task_id,
+                "task_type": task.task_type,
+                "prompt": task.prompt[:500],
+                "provider": task.payload.get("provider", ""),
+                "model": task.payload.get("model") or task.payload.get("model_image") or task.payload.get("model_video") or "",
+                "account_label": task.payload.get("_account_label", ""),
+                "account_id": task.payload.get("_account_id", ""),
+                "aspect_ratio": task.payload.get("aspect_ratio", ""),
+                "mode": task.payload.get("mode", ""),
+                "created_at": time.time(),
+                "filename": filename,
+                "media_type": "video" if ext == "mp4" else "image",
+            }
+            meta_path = saved.parent / f"{saved.stem}.meta.json"
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logger.debug("Failed to save metadata sidecar for %s", filename)
+            
         # Copy to central directory
         file_type = "video" if ext == "mp4" else "anh"
         copy_to_central_dir(saved, "workflow", file_type)
@@ -145,6 +167,8 @@ async def _run_flow_with_rotation(
             )
             account_store.mark_used(account.id)
             session_health.mark_flow_ok()
+            params["_account_label"] = account.label
+            params["_account_id"] = account.id
             return result
         except ProviderError as exc:
             last_error = exc

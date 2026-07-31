@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
@@ -72,18 +73,36 @@ def list_assets(project_id: str, *, kind: str | None = None, limit: int = 200, i
                 st = p.stat()
             except Exception:
                 continue
-            items.append(
-                {
-                    "path": rel,
-                    "name": p.name,
-                    "kind": k,
-                    "url": file_url_from_path(p),
-                    "bytes": st.st_size,
-                    "mb": round(st.st_size / (1024 * 1024), 3),
-                    "mtime": st.st_mtime,
-                    "folder": p.parent.relative_to(data_root).as_posix(),
-                }
-            )
+            asset_info = {
+                "path": rel,
+                "name": p.name,
+                "kind": k,
+                "url": file_url_from_path(p),
+                "bytes": st.st_size,
+                "mb": round(st.st_size / (1024 * 1024), 3),
+                "mtime": st.st_mtime,
+                "folder": p.parent.relative_to(data_root).as_posix(),
+            }
+            # Load metadata sidecar if exists
+            meta_path = p.parent / f"{p.stem}.meta.json"
+            if meta_path.exists():
+                try:
+                    import json
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    asset_info["meta"] = {
+                        "task_id": meta.get("task_id", ""),
+                        "provider": meta.get("provider", ""),
+                        "model": meta.get("model", ""),
+                        "account_label": meta.get("account_label", ""),
+                        "prompt": meta.get("prompt", ""),
+                        "aspect_ratio": meta.get("aspect_ratio", ""),
+                        "mode": meta.get("mode", ""),
+                        "created_at": meta.get("created_at", 0),
+                        "media_type": meta.get("media_type", k),
+                    }
+                except Exception:
+                    pass
+            items.append(asset_info)
     # Dedupe by path (same file can appear twice via rglob edge cases / links)
     seen_paths: set[str] = set()
     unique: list[dict[str, Any]] = []

@@ -1113,6 +1113,17 @@ export interface ProjectAsset {
   mb?: number;
   mtime?: number;
   folder?: string;
+  meta?: {
+    task_id: string;
+    provider: string;
+    model: string;
+    account_label: string;
+    prompt: string;
+    aspect_ratio: string;
+    mode: string;
+    created_at: number;
+    media_type: string;
+  };
 }
 
 export interface ProjectAssetStats {
