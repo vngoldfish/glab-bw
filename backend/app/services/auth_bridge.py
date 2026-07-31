@@ -71,6 +71,60 @@ class AuthBridge:
         self._google_one_wanted: bool = False
         self._google_flow_models_wanted: bool = False
         self._started_at = time.time()
+        self._cleanup_task: asyncio.Task | None = None
+
+    def start_cleanup_task(self) -> None:
+        """Start the periodic memory cleanup background task."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def _cleanup_loop(self) -> None:
+        """Periodically clean up resolved/stale pending requests to prevent memory leaks."""
+        while True:
+            await asyncio.sleep(300)  # every 5 minutes
+            self._cleanup_stale()
+
+    def _cleanup_stale(self, max_age: float = 3600.0) -> None:
+        """Remove resolved or stale (>max_age seconds) captcha/grok entries."""
+        now = time.time()
+        cleaned_captcha = 0
+        cleaned_grok = 0
+
+        # Clean captcha pending
+        stale_captcha = [
+            k for k, v in self._captcha_pending.items()
+            if v.resolved or (now - v.created_at > max_age)
+        ]
+        for k in stale_captcha:
+            self._captcha_pending.pop(k, None)
+            self._captcha_waiters.pop(k, None)
+            cleaned_captcha += 1
+
+        # Clean grok pending
+        stale_grok = [
+            k for k, v in self._grok_pending.items()
+            if v.get("resolved") or (now - v.get("created_at", now) > max_age)
+        ]
+        for k in stale_grok:
+            self._grok_pending.pop(k, None)
+            self._grok_waiters.pop(k, None)
+            cleaned_grok += 1
+
+        # Clean stale sessions (not seen in >10 min)
+        stale_sessions = [
+            k for k, v in self._sessions.items()
+            if now - v.last_seen > 600
+        ]
+        for k in stale_sessions:
+            self._sessions.pop(k, None)
+
+        if cleaned_captcha or cleaned_grok or stale_sessions:
+            logger.debug(
+                "AuthBridge cleanup: removed %d captcha, %d grok, %d stale sessions. "
+                "Remaining: %d captcha, %d grok, %d sessions",
+                cleaned_captcha, cleaned_grok, len(stale_sessions),
+                len(self._captcha_pending), len(self._grok_pending), len(self._sessions),
+            )
 
     @property
     def uptime(self) -> int:

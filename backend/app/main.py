@@ -182,9 +182,25 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Failed to auto-launch browser pool on startup")
 
+    # Start AuthBridge periodic memory cleanup
+    try:
+        from app.services.auth_bridge import auth_bridge
+        auth_bridge.start_cleanup_task()
+        logger.info("AuthBridge memory cleanup task started")
+    except Exception:
+        logger.exception("Failed to start AuthBridge cleanup task")
+
     try:
         yield
     finally:
+        # Fix 1: Stop all browser pool instances first to prevent zombie Chromium processes
+        try:
+            from app.services.browser_pool import browser_pool_manager
+            await browser_pool_manager.stop_all()
+            logger.info("Stopped all browser pool instances cleanly")
+        except Exception:
+            logger.exception("Error stopping browser pool on shutdown")
+
         if bridge_server is not None:
             bridge_server.should_exit = True
         try:
