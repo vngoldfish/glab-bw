@@ -44,8 +44,10 @@ async def verify_public_key(
         raise HTTPException(
             status_code=401,
             detail={
-                "error": "Missing API key",
-                "hint": "Pass 'Authorization: Bearer glbw_sk_...' or 'X-API-Key: ...' header",
+                "error": "Thiếu API key",
+                "hint": "Thêm header 'Authorization: Bearer glbw_sk_...' hoặc 'X-API-Key: glbw_sk_...' vào request",
+                "docs": "/v1/admin/keys để tạo key mới",
+                "example": "curl -H 'Authorization: Bearer glbw_sk_YOUR_KEY' http://localhost:8765/v1/models",
             },
         )
 
@@ -69,7 +71,11 @@ async def verify_public_key(
 
     raise HTTPException(
         status_code=401,
-        detail={"error": "Invalid API key"},
+        detail={
+            "error": "API key không hợp lệ hoặc đã hết hạn",
+            "hint": "Kiểm tra lại API key. Tạo key mới tại POST /v1/admin/keys",
+            "key_prefix": raw_key[:12] + "..." if len(raw_key) > 12 else "***",
+        },
     )
 
 
@@ -80,7 +86,13 @@ def require_permission(permission: str):
         if permission not in key_info.permissions and "admin" not in key_info.permissions:
             raise HTTPException(
                 status_code=403,
-                detail={"error": f"API key lacks '{permission}' permission"},
+                detail={
+                    "error": f"API key không có quyền '{permission}'",
+                    "key_id": key_info.key_id,
+                    "current_permissions": key_info.permissions,
+                    "required_permission": permission,
+                    "hint": f"Cập nhật key tại PUT /v1/admin/keys/{key_info.key_id} với permissions: ['{permission}']",
+                },
             )
         return key_info
 
@@ -95,9 +107,23 @@ async def check_rate_limit(key_info: ApiKeyInfo = Depends(verify_public_key)) ->
         daily_quota=key_info.daily_quota,
     )
     if not result.allowed:
+        is_daily = "Daily" in result.reason or "daily" in result.reason
         raise HTTPException(
             status_code=429,
-            detail={"error": result.reason, "retry_after": result.retry_after},
+            detail={
+                "error": result.reason,
+                "type": "daily_quota" if is_daily else "rate_limit",
+                "retry_after": result.retry_after,
+                "key_id": key_info.key_id,
+                "limits": {
+                    "rate_limit": f"{key_info.rate_limit} requests/phút",
+                    "daily_quota": f"{key_info.daily_quota} requests/ngày",
+                },
+                "hint": (
+                    f"Đợi {result.retry_after}s rồi thử lại. "
+                    f"Hoặc tăng {'daily_quota' if is_daily else 'rate_limit'} tại PUT /v1/admin/keys/{key_info.key_id}"
+                ),
+            },
             headers={
                 **result.headers(),
                 "Retry-After": str(result.retry_after),

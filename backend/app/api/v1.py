@@ -54,13 +54,20 @@ class TaskResponse(BaseModel):
     task_id: str
     status: str
     poll_url: str
+    result_url: str = ""
     estimated_wait_seconds: int = 30
     message: str = ""
+    provider: str = ""
+    model: str | None = None
+    created_at: float = 0
+    request_summary: dict[str, Any] = {}
 
 
 class TaskResultItem(BaseModel):
     url: str
     type: str = "image/png"
+    filename: str = ""
+    size_bytes: int | None = None
 
 
 class TaskResultResponse(BaseModel):
@@ -68,6 +75,8 @@ class TaskResultResponse(BaseModel):
     status: str
     results: list[TaskResultItem] = []
     error: str | None = None
+    error_code: str | None = None
+    error_hint: str | None = None
     usage: dict[str, Any] = {}
 
 
@@ -111,6 +120,8 @@ def _resolve_provider(provider: str, for_video: bool = False) -> str:
         get_openai_provider,
     )
 
+    media_type = "video" if for_video else "image"
+
     # For video, prefer flow then grok
     if for_video:
         if get_flow_provider(for_video=True):
@@ -119,7 +130,12 @@ def _resolve_provider(provider: str, for_video: bool = False) -> str:
             return "grok"
         raise HTTPException(
             status_code=503,
-            detail={"error": "No video provider available. Add a Flow or Grok account first."},
+            detail={
+                "error": f"Không có provider nào sẵn sàng để tạo {media_type}",
+                "hint": "Vào Settings → Tài khoản → thêm tài khoản Google Flow hoặc Grok (xAI)",
+                "available_providers": [],
+                "required_for": media_type,
+            },
         )
 
     # For image, prefer flow -> grok -> openai
@@ -132,7 +148,12 @@ def _resolve_provider(provider: str, for_video: bool = False) -> str:
 
     raise HTTPException(
         status_code=503,
-        detail={"error": "No image provider available. Add an account in Settings first."},
+        detail={
+            "error": f"Không có provider nào sẵn sàng để tạo {media_type}",
+            "hint": "Vào Settings → Tài khoản → thêm tài khoản Google Flow, Grok (xAI), hoặc OpenAI",
+            "available_providers": [],
+            "required_for": media_type,
+        },
     )
 
 
@@ -166,7 +187,13 @@ async def generate_image(
     Returns a task ID for polling. Use GET /v1/tasks/{task_id} to check status.
     """
     if "image" not in key_info.permissions and "admin" not in key_info.permissions:
-        raise HTTPException(status_code=403, detail={"error": "API key lacks 'image' permission"})
+        raise HTTPException(status_code=403, detail={
+            "error": "API key không có quyền tạo ảnh",
+            "key_id": key_info.key_id,
+            "permissions": key_info.permissions,
+            "required": "image",
+            "hint": "Tạo API key mới với permission 'image' hoặc cập nhật key hiện tại tại /v1/admin/keys",
+        })
 
     provider = _resolve_provider(body.provider, for_video=False)
     task_type = _map_provider_to_task_type(provider)
@@ -202,16 +229,30 @@ async def generate_image(
     )
 
     logger.info(
-        "Public API image request: key=%s provider=%s task=%s",
-        key_info.key_id, provider, task.task_id,
+        "Public API image request: key=%s provider=%s model=%s task=%s",
+        key_info.key_id, provider, body.model or "default", task.task_id,
     )
 
     return TaskResponse(
         task_id=task.task_id,
         status="pending",
         poll_url=f"/v1/tasks/{task.task_id}",
+        result_url=f"/v1/tasks/{task.task_id}/result",
         estimated_wait_seconds=30,
-        message=f"Image generation queued (provider: {provider})",
+        provider=provider,
+        model=body.model,
+        created_at=task.created_at,
+        message=f"✅ Đã nhận yêu cầu tạo {body.num_images} ảnh | provider: {provider} | model: {body.model or 'auto'} | ratio: {body.aspect_ratio or 'default'} | prompt: '{body.prompt[:80]}...'",
+        request_summary={
+            "endpoint": "/v1/images/generate",
+            "provider": provider,
+            "model": body.model,
+            "num_images": body.num_images,
+            "aspect_ratio": body.aspect_ratio,
+            "prompt_length": len(body.prompt),
+            "has_reference": body.reference_image is not None,
+            "next_step": f"Poll GET /v1/tasks/{task.task_id} để kiểm tra tiến trình. Khi status='completed', lấy ảnh từ results[].url",
+        },
     )
 
 
@@ -353,27 +394,47 @@ def _build_task(
     payload["_api_key_id"] = key_info.key_id
     task = task_queue.create_task(task_type, prompt, payload)
 
+    media_type = "video" if for_video else "image"
+    model = payload.get("model") or "auto"
+    ratio = payload.get("aspect_ratio") or "default"
+    mode = payload.get("mode") or "standard"
+
     api_key_store.record_usage(
         key_id=key_info.key_id,
         endpoint=endpoint,
         provider=provider,
-        task_type="video" if for_video else "image",
+        task_type=media_type,
         status="pending",
         prompt=prompt,
         task_id=task.task_id,
     )
 
     logger.info(
-        "Public API %s: key=%s provider=%s task=%s",
-        endpoint, key_info.key_id, provider, task.task_id,
+        "Public API %s: key=%s provider=%s model=%s task=%s",
+        endpoint, key_info.key_id, provider, model, task.task_id,
     )
 
     return TaskResponse(
         task_id=task.task_id,
         status="pending",
         poll_url=f"/v1/tasks/{task.task_id}",
-        estimated_wait_seconds=60 if for_video else 30,
-        message=f"{'Video' if for_video else 'Image'} generation queued (provider: {provider})",
+        result_url=f"/v1/tasks/{task.task_id}/result",
+        estimated_wait_seconds=90 if for_video else 30,
+        provider=provider,
+        model=payload.get("model"),
+        created_at=task.created_at,
+        message=f"✅ Đã nhận yêu cầu tạo {media_type} | provider: {provider} | model: {model} | mode: {mode} | ratio: {ratio} | prompt: '{prompt[:60]}...'",
+        request_summary={
+            "endpoint": endpoint,
+            "provider": provider,
+            "model": model,
+            "mode": mode,
+            "aspect_ratio": ratio,
+            "media_type": media_type,
+            "prompt_length": len(prompt),
+            "has_references": bool(payload.get("reference_images")),
+            "next_step": f"Poll GET /v1/tasks/{task.task_id} để kiểm tra. Khi status='completed', lấy kết quả từ results[].url",
+        },
     )
 
 
@@ -619,35 +680,68 @@ async def get_task(
     """Check the status of a generation task."""
     task = task_queue.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail={"error": f"Task {task_id} not found"})
+        raise HTTPException(status_code=404, detail={
+            "error": f"Task '{task_id}' không tồn tại",
+            "hint": "Kiểm tra lại task_id. Dùng GET /v1/tasks để xem danh sách tasks.",
+            "task_id": task_id,
+        })
 
+    elapsed = time.time() - task.created_at
     response: dict[str, Any] = {
         "task_id": task.task_id,
         "type": task.task_type,
         "status": task.status.value,
         "prompt": task.prompt,
         "created_at": task.created_at,
+        "elapsed_seconds": int(elapsed),
     }
 
     if task.status == TaskStatus.COMPLETED:
-        response["results"] = [
-            {"url": url, "type": _media_type_from_url(url)} for url in task.results
-        ]
+        results = []
+        for url in task.results:
+            filename = url.rsplit("/", 1)[-1] if "/" in url else url
+            results.append({
+                "url": url,
+                "type": _media_type_from_url(url),
+                "filename": filename,
+                "download_url": url,
+            })
+        response["results"] = results
+        response["result_count"] = len(results)
         response["completed_at"] = task.completed_at
+        duration = int(task.completed_at - task.created_at) if task.completed_at else None
+        response["duration_seconds"] = duration
+        response["message"] = f"✅ Hoàn tất! {len(results)} kết quả trong {duration}s. Tải file qua results[].url"
 
-        # Update usage status
         api_key_store.update_usage_status(task.task_id, "completed")
 
     elif task.status == TaskStatus.FAILED:
-        response["error"] = task.error or "Generation failed"
+        error_msg = task.error or "Generation failed"
+        response["error"] = error_msg
         response["error_detail"] = task.error_detail
         response["completed_at"] = task.completed_at
+        # Parse error for user-friendly hint
+        hint = "Thử lại với prompt/model/provider khác"
+        if "quota" in error_msg.lower() or "429" in error_msg:
+            hint = "Hết quota — đợi 1h hoặc đổi account"
+        elif "UNAUTHENTICATED" in error_msg or "401" in error_msg:
+            hint = "Token hết hạn — vào Settings đăng nhập lại"
+        elif "INVALID_ARGUMENT" in error_msg:
+            hint = "Tham số sai — đổi model/ratio hoặc kiểm tra ảnh reference"
+        elif "UNSAFE" in error_msg:
+            hint = "Prompt bị chặn — sửa nội dung prompt"
+        elif "PERMISSION_DENIED" in error_msg:
+            hint = "Cookie/session hết hạn — dán lại cookie trong Settings"
+        response["error_hint"] = hint
+        response["message"] = f"❌ Thất bại sau {int(elapsed)}s: {hint}"
 
         api_key_store.update_usage_status(task.task_id, "failed")
 
     elif task.status == TaskStatus.RUNNING:
-        elapsed = time.time() - task.created_at
-        response["elapsed_seconds"] = int(elapsed)
+        response["message"] = f"⏳ Đang xử lý... ({int(elapsed)}s đã trôi qua)"
+
+    elif task.status == TaskStatus.PENDING:
+        response["message"] = "🕐 Đang chờ trong hàng đợi..."
 
     return response
 
@@ -660,36 +754,64 @@ async def get_task_result(
     """Get the result of a completed task. Returns 202 if still processing."""
     task = task_queue.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail={"error": f"Task {task_id} not found"})
+        raise HTTPException(status_code=404, detail={
+            "error": f"Task '{task_id}' không tồn tại",
+            "hint": "Kiểm tra lại task_id. Dùng GET /v1/tasks để xem danh sách.",
+        })
 
     if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        elapsed = int(time.time() - task.created_at)
         return TaskResultResponse(
             task_id=task.task_id,
             status=task.status.value,
-            usage={"message": "Task is still processing. Poll again later."},
+            usage={
+                "message": f"⏳ Task đang {'chờ' if task.status == TaskStatus.PENDING else 'xử lý'}... ({elapsed}s). Poll lại sau 5 giây.",
+                "elapsed_seconds": elapsed,
+                "next_poll": "Gọi lại endpoint này sau 5 giây",
+            },
         )
 
     if task.status == TaskStatus.FAILED:
+        error_msg = task.error or "Generation failed"
+        hint = "Thử lại với prompt/model/provider khác"
+        if "quota" in error_msg.lower():
+            hint = "Hết quota — đợi reset hoặc đổi account"
+        elif "INVALID_ARGUMENT" in error_msg:
+            hint = "Tham số sai — đổi model, ratio, hoặc kiểm tra ảnh"
         return TaskResultResponse(
             task_id=task.task_id,
             status="failed",
-            error=task.error,
+            error=error_msg,
+            error_hint=hint,
+            usage={
+                "provider": task.task_type,
+                "created_at": task.created_at,
+                "failed_at": task.completed_at,
+                "duration_seconds": int(task.completed_at - task.created_at) if task.completed_at else None,
+            },
         )
+
+    duration = int(task.completed_at - task.created_at) if task.completed_at else None
+    results = []
+    for url in task.results:
+        filename = url.rsplit("/", 1)[-1] if "/" in url else url
+        results.append(TaskResultItem(
+            url=url,
+            type=_media_type_from_url(url),
+            filename=filename,
+        ))
 
     return TaskResultResponse(
         task_id=task.task_id,
         status="completed",
-        results=[
-            TaskResultItem(url=url, type=_media_type_from_url(url))
-            for url in task.results
-        ],
+        results=results,
         usage={
             "provider": task.task_type,
             "created_at": task.created_at,
             "completed_at": task.completed_at,
-            "duration_seconds": (
-                int(task.completed_at - task.created_at) if task.completed_at else None
-            ),
+            "duration_seconds": duration,
+            "result_count": len(results),
+            "message": f"✅ {len(results)} kết quả sẵn sàng tải về",
         },
     )
 
