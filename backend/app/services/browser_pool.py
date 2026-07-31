@@ -299,7 +299,23 @@ class BrowserPoolManager:
             )
             inst._context = context
 
-            page = context.pages[0] if context.pages else await context.new_page()
+            # Close extra pages — persistent context + extension may create multiple
+            # Keep only the first non-extension page for Flow navigation
+            page = None
+            for p in context.pages:
+                p_url = p.url or ""
+                if "chrome-extension://" in p_url:
+                    continue  # Skip extension pages
+                if page is None:
+                    page = p
+                else:
+                    # Close duplicate blank/extra pages
+                    try:
+                        await p.close()
+                    except Exception:
+                        pass
+            if page is None:
+                page = context.pages[0] if context.pages else await context.new_page()
 
             async with self._lock:
                 inst.status = "starting"
