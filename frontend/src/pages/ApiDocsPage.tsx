@@ -4,7 +4,7 @@ import { NAV_ROUTES } from "../routes";
 
 export default function ApiDocsPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"endpoints" | "demos" | "n8n-postman">("endpoints");
+  const [activeTab, setActiveTab] = useState<"endpoints" | "demos" | "n8n-postman" | "public-api">("endpoints");
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const apiOrigin = typeof window !== "undefined"
@@ -405,6 +405,21 @@ curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
         >
           🔗 3. Tích hợp n8n / Postman
         </button>
+        <button 
+          onClick={() => setActiveTab("public-api")} 
+          className={`docs-tab-btn ${activeTab === "public-api" ? "active" : ""}`}
+          style={{ 
+            background: "none", 
+            border: "none", 
+            color: activeTab === "public-api" ? "var(--primary, #6366f1)" : "var(--text-muted, #94a3b8)", 
+            padding: "8px 16px", 
+            cursor: "pointer", 
+            fontWeight: "bold",
+            borderBottom: activeTab === "public-api" ? "2px solid var(--primary, #6366f1)" : "none"
+          }}
+        >
+          🔑 4. Public API v1
+        </button>
       </div>
 
       <div className="docs-content" style={{ maxWidth: "100%", width: "100%" }}>
@@ -631,6 +646,644 @@ curl -X POST ${apiOrigin}/api/workflows/create-bulk \\
                 {codeN8n}
               </pre>
             </section>
+          </div>
+        )}
+
+        {/* TAB 4: PUBLIC API V1 */}
+        {activeTab === "public-api" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            
+            {/* Section A: Authentication */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #10b981" }}>
+              <h2>🔐 Xác thực (Authentication)</h2>
+              <p className="muted" style={{ marginBottom: 16 }}>
+                API Key là bắt buộc cho tất cả các endpoint <code>/v1/*</code>. Bạn có thể sử dụng một trong hai phương thức xác thực sau:
+              </p>
+              <ul className="docs-bullets" style={{ fontSize: "14px", marginBottom: 16 }}>
+                <li><code>Authorization: Bearer glbw_sk_xxx</code></li>
+                <li><code>X-API-Key: glbw_sk_xxx</code></li>
+              </ul>
+              <p className="muted" style={{ fontSize: "14px", marginBottom: 16 }}>
+                Để lấy API Key, vui lòng truy cập <strong>Settings → API Keys → Create</strong>.
+              </p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong>Ví dụ Header:</strong>
+                <button onClick={() => handleCopy('Authorization: Bearer YOUR_API_KEY', "auth_header")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "auth_header" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`Authorization: Bearer YOUR_API_KEY`}
+              </pre>
+            </section>
+
+            {/* Section B: Image Generation Endpoints */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #6366f1" }}>
+              <h2>🖼️ Tạo Ảnh (Image Generation)</h2>
+              
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Phương thức</th>
+                      <th>Đường dẫn API</th>
+                      <th>Chức năng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--success, #10b981)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/images/generate</code></td>
+                      <td>Tạo ảnh từ văn bản (Text → Image)</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--success, #10b981)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/images/with-references</code></td>
+                      <td>Tạo ảnh với ảnh tham chiếu (Reference → Image)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>1. Text to Image</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả ảnh cần tạo</td></tr>
+                    <tr><td>provider</td><td>string</td><td>Không</td><td>auto, v.v.</td></tr>
+                    <tr><td>num_images</td><td>integer</td><td>Không</td><td>Số lượng ảnh</td></tr>
+                    <tr><td>aspect_ratio</td><td>string</td><td>Không</td><td>Tỉ lệ khung hình (16:9, 1:1, v.v.)</td></tr>
+                    <tr><td>model</td><td>string</td><td>Không</td><td>Model cần sử dụng</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/images/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A cyberpunk city at sunset, neon lights reflecting on wet streets",
+  "provider": "auto",
+  "num_images": 1,
+  "aspect_ratio": "16:9",
+  "model": "imagen_3"
+}'`, "curl_image_gen")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_image_gen" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/images/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A cyberpunk city at sunset, neon lights reflecting on wet streets",
+  "provider": "auto",
+  "num_images": 1,
+  "aspect_ratio": "16:9",
+  "model": "imagen_3"
+}'`}
+              </pre>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>2. Image with References</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả ảnh cần tạo</td></tr>
+                    <tr><td>reference_images</td><td>array of strings</td><td>Có</td><td>Danh sách đường dẫn hoặc URL ảnh tham chiếu</td></tr>
+                    <tr><td>provider</td><td>string</td><td>Không</td><td>auto, v.v.</td></tr>
+                    <tr><td>num_images</td><td>integer</td><td>Không</td><td>Số lượng ảnh</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/images/with-references \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A warrior standing in rain",
+  "reference_images": ["/api/files/output/character.png", "/api/files/output/style.png"],
+  "provider": "auto",
+  "num_images": 2
+}'`, "curl_image_ref")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_image_ref" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/images/with-references \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A warrior standing in rain",
+  "reference_images": ["/api/files/output/character.png", "/api/files/output/style.png"],
+  "provider": "auto",
+  "num_images": 2
+}'`}
+              </pre>
+            </section>
+
+            {/* Section C: Video Generation Endpoints */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #f59e0b" }}>
+              <h2>🎬 Tạo Video (Video Generation)</h2>
+              
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Phương thức</th>
+                      <th>Đường dẫn API</th>
+                      <th>Chức năng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/videos/generate</code></td>
+                      <td>Tạo video từ văn bản (Text → Video)</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/videos/from-image</code></td>
+                      <td>Tạo video từ ảnh (Image → Video)</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/videos/start-end</code></td>
+                      <td>Tạo video từ ảnh đầu &amp; cuối (Start+End → Video)</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/videos/with-references</code></td>
+                      <td>Tạo video với ảnh tham chiếu (Reference → Video)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>1. Text to Video</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả nội dung video</td></tr>
+                    <tr><td>provider</td><td>string</td><td>Không</td><td>auto, flow, v.v.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/videos/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A cat walking through a magical forest with fireflies",
+  "provider": "auto"
+}'`, "curl_vid_gen")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_vid_gen" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/videos/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "A cat walking through a magical forest with fireflies",
+  "provider": "auto"
+}'`}
+              </pre>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>2. Image to Video (I2V)</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả hành động của video</td></tr>
+                    <tr><td>image</td><td>string</td><td>Có</td><td>Đường dẫn hoặc URL ảnh</td></tr>
+                    <tr><td>provider</td><td>string</td><td>Không</td><td>flow, v.v.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/videos/from-image \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "The character slowly turns their head and smiles",
+  "image": "/api/files/output/portrait.png",
+  "provider": "flow"
+}'`, "curl_vid_i2v")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_vid_i2v" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/videos/from-image \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "The character slowly turns their head and smiles",
+  "image": "/api/files/output/portrait.png",
+  "provider": "flow"
+}'`}
+              </pre>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>3. Start + End to Video</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả hành động của video</td></tr>
+                    <tr><td>start_image</td><td>string</td><td>Có</td><td>Đường dẫn hoặc URL ảnh đầu</td></tr>
+                    <tr><td>end_image</td><td>string</td><td>Có</td><td>Đường dẫn hoặc URL ảnh cuối</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/videos/start-end \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "Smooth zoom out with dramatic lighting change",
+  "start_image": "/api/files/output/frame_start.png",
+  "end_image": "/api/files/output/frame_end.png"
+}'`, "curl_vid_se")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_vid_se" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/videos/start-end \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "Smooth zoom out with dramatic lighting change",
+  "start_image": "/api/files/output/frame_start.png",
+  "end_image": "/api/files/output/frame_end.png"
+}'`}
+              </pre>
+
+              <h3 style={{ marginTop: 24, fontSize: "16px" }}>4. Video with References</h3>
+              <div className="docs-table-wrap" style={{ marginTop: 12 }}>
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Trường</th>
+                      <th>Kiểu dữ liệu</th>
+                      <th>Bắt buộc</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>prompt</td><td>string</td><td>Có</td><td>Mô tả hành động của video</td></tr>
+                    <tr><td>reference_images</td><td>array of strings</td><td>Có</td><td>Danh sách đường dẫn hoặc URL ảnh tham chiếu</td></tr>
+                    <tr><td>provider</td><td>string</td><td>Không</td><td>flow, v.v.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/videos/with-references \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "The character dances in the rain",
+  "reference_images": ["/api/files/output/character_ref.png"],
+  "provider": "flow"
+}'`, "curl_vid_ref")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_vid_ref" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/videos/with-references \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "prompt": "The character dances in the rain",
+  "reference_images": ["/api/files/output/character_ref.png"],
+  "provider": "flow"
+}'`}
+              </pre>
+            </section>
+
+            {/* Section D: Unified Endpoint */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #ec4899" }}>
+              <h2>🔄 Unified Endpoint (Tất cả trong 1 API)</h2>
+              <p className="muted" style={{ marginBottom: 16 }}>
+                Một endpoint duy nhất để thực hiện mọi tác vụ dựa trên tham số <code>mode</code>.
+              </p>
+              
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Chế độ (mode)</th>
+                      <th>Mô tả</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><code>text_to_image</code></td><td>Tạo ảnh từ văn bản</td></tr>
+                    <tr><td><code>text_to_video</code></td><td>Tạo video từ văn bản</td></tr>
+                    <tr><td><code>image_to_video</code></td><td>Tạo video từ ảnh (yêu cầu trường <code>image</code>)</td></tr>
+                    <tr><td><code>start_end_video</code></td><td>Tạo video từ 2 ảnh (yêu cầu <code>start_image</code>, <code>end_image</code>)</td></tr>
+                    <tr><td><code>reference_image</code></td><td>Tạo ảnh có tham chiếu (yêu cầu <code>reference_images</code>)</td></tr>
+                    <tr><td><code>reference_video</code></td><td>Tạo video có tham chiếu (yêu cầu <code>reference_images</code>)</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL:</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "mode": "text_to_image",
+  "prompt": "A futuristic city",
+  "provider": "auto"
+}'`, "curl_unified")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_unified" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "mode": "text_to_image",
+  "prompt": "A futuristic city",
+  "provider": "auto"
+}'`}
+              </pre>
+            </section>
+
+            {/* Section E: Polling & Results */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #06b6d4" }}>
+              <h2>📋 Kiểm tra Kết quả (Polling)</h2>
+              <p className="muted" style={{ marginBottom: 16 }}>
+                Sau khi gửi yêu cầu tạo (ảnh/video), bạn sẽ nhận được một <code>task_id</code>. Hãy dùng task_id này để kiểm tra trạng thái và lấy kết quả.
+              </p>
+              
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Phương thức</th>
+                      <th>Đường dẫn API</th>
+                      <th>Chức năng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/tasks/{"{task_id}"}</code></td>
+                      <td>Kiểm tra trạng thái của task (pending, processing, completed, failed)</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/tasks/{"{task_id}"}/result</code></td>
+                      <td>Lấy kết quả cuối cùng (URL ảnh/video) khi task ở trạng thái completed</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/tasks</code></td>
+                      <td>Danh sách tất cả các task của API key hiện tại</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL (Polling status):</strong>
+                <button onClick={() => handleCopy(`curl -X GET ${apiOrigin}/v1/tasks/TASK_ID \\
+  -H "Authorization: Bearer YOUR_API_KEY"`, "curl_poll")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_poll" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X GET ${apiOrigin}/v1/tasks/TASK_ID \\
+  -H "Authorization: Bearer YOUR_API_KEY"`}
+              </pre>
+            </section>
+
+            {/* Section F: Rate Limiting & Usage */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #8b5cf6" }}>
+              <h2>⚡ Rate Limiting & Thống kê</h2>
+              <p className="muted" style={{ marginBottom: 16 }}>
+                Mặc định, mỗi API Key có giới hạn <strong>30 request/phút</strong> và <strong>500 request/ngày</strong>. Bạn sẽ nhận được HTTP 429 nếu vượt quá giới hạn.
+              </p>
+              
+              <ul className="docs-bullets" style={{ fontSize: "14px", marginBottom: 16 }}>
+                <li><code>X-RateLimit-Limit</code>: Giới hạn request</li>
+                <li><code>X-RateLimit-Remaining</code>: Số request còn lại</li>
+                <li><code>X-RateLimit-Reset</code>: Thời gian reset giới hạn</li>
+                <li><code>Retry-After</code>: (Khi bị 429) Thời gian cần chờ trước khi thử lại</li>
+              </ul>
+
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Phương thức</th>
+                      <th>Đường dẫn API</th>
+                      <th>Chức năng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/usage</code></td>
+                      <td>Kiểm tra hạn mức sử dụng của key</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/models</code></td>
+                      <td>Danh sách các model khả dụng</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {/* Section G: Admin Key Management */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #64748b" }}>
+              <h2>🔑 Quản lý API Keys</h2>
+              <p className="muted" style={{ marginBottom: 16 }}>
+                (Cần có quyền Admin) Quản lý, tạo và giám sát các API Key.
+              </p>
+              
+              <div className="docs-table-wrap">
+                <table className="docs-table">
+                  <thead>
+                    <tr>
+                      <th>Phương thức</th>
+                      <th>Đường dẫn API</th>
+                      <th>Chức năng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--success, #10b981)", color: "white", padding: "2px 8px", borderRadius: 4 }}>POST</span></td>
+                      <td><code>/v1/admin/keys</code></td>
+                      <td>Tạo API Key mới</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/admin/keys</code></td>
+                      <td>Danh sách các API Key</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--warning, #f59e0b)", color: "white", padding: "2px 8px", borderRadius: 4 }}>PUT</span></td>
+                      <td><code>/v1/admin/keys/{"{id}"}</code></td>
+                      <td>Cập nhật giới hạn hoặc trạng thái của key</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge out" style={{ background: "var(--danger, #ef4444)", color: "white", padding: "2px 8px", borderRadius: 4 }}>DELETE</span></td>
+                      <td><code>/v1/admin/keys/{"{id}"}</code></td>
+                      <td>Xóa API Key</td>
+                    </tr>
+                    <tr>
+                      <td><span className="docs-side-badge in" style={{ padding: "2px 8px", borderRadius: 4 }}>GET</span></td>
+                      <td><code>/v1/admin/keys/{"{id}"}/usage</code></td>
+                      <td>Xem thống kê sử dụng chi tiết của một key</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ cURL (Tạo key):</strong>
+                <button onClick={() => handleCopy(`curl -X POST ${apiOrigin}/v1/admin/keys \\
+  -H "Authorization: Bearer ADMIN_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "name": "User 1 Key",
+  "rpm_limit": 30,
+  "rpd_limit": 500
+}'`, "curl_create_key")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "curl_create_key" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`curl -X POST ${apiOrigin}/v1/admin/keys \\
+  -H "Authorization: Bearer ADMIN_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+  "name": "User 1 Key",
+  "rpm_limit": 30,
+  "rpd_limit": 500
+}'`}
+              </pre>
+            </section>
+
+            {/* Section H: Python SDK Example */}
+            <section className="panel-card docs-section" style={{ borderLeft: "4px solid #22c55e" }}>
+              <h2>🐍 Python SDK Mẫu</h2>
+              
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+                <strong>Ví dụ Code Python:</strong>
+                <button onClick={() => handleCopy(`import requests
+import time
+  
+API_BASE = "http://localhost:8765"
+API_KEY = "glbw_sk_YOUR_KEY_HERE"
+HEADERS = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+  
+# 1. Tạo ảnh
+r = requests.post(f"{API_BASE}/v1/images/generate", 
+    json={"prompt": "A beautiful sunset", "provider": "auto"},
+    headers=HEADERS)
+task_id = r.json()["task_id"]
+print(f"Task created: {task_id}")
+  
+# 2. Poll kết quả
+while True:
+    r = requests.get(f"{API_BASE}/v1/tasks/{task_id}", headers=HEADERS)
+    status = r.json()["status"]
+    print(f"Status: {status}")
+    if status in ("completed", "failed"):
+        break
+    time.sleep(5)
+  
+# 3. Lấy kết quả
+r = requests.get(f"{API_BASE}/v1/tasks/{task_id}/result", headers=HEADERS)
+print(r.json())`, "python_sdk")} className="btn btn-ghost btn-sm" style={{ color: "var(--success, #4ade80)" }}>
+                  {copiedText === "python_sdk" ? "✓ Đã copy!" : "📋 Copy Code"}
+                </button>
+              </div>
+              <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflowX: "auto", border: "1px solid var(--border)", color: "#94a3b8", fontSize: "12px", fontFamily: "monospace", lineHeight: "1.6", marginTop: 8 }}>
+{`import requests
+import time
+  
+API_BASE = "http://localhost:8765"
+API_KEY = "glbw_sk_YOUR_KEY_HERE"
+HEADERS = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+  
+# 1. Tạo ảnh
+r = requests.post(f"{API_BASE}/v1/images/generate", 
+    json={"prompt": "A beautiful sunset", "provider": "auto"},
+    headers=HEADERS)
+task_id = r.json()["task_id"]
+print(f"Task created: {task_id}")
+  
+# 2. Poll kết quả
+while True:
+    r = requests.get(f"{API_BASE}/v1/tasks/{task_id}", headers=HEADERS)
+    status = r.json()["status"]
+    print(f"Status: {status}")
+    if status in ("completed", "failed"):
+        break
+    time.sleep(5)
+  
+# 3. Lấy kết quả
+r = requests.get(f"{API_BASE}/v1/tasks/{task_id}/result", headers=HEADERS)
+print(r.json())`}
+              </pre>
+            </section>
+
           </div>
         )}
 
