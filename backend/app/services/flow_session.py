@@ -70,9 +70,7 @@ class FlowSessionManager:
                 or not expires_at
                 or expires_at < time.time() + 60
             )
-            at_expires_str = creds.get("at_expires", "").strip()
-            needs_refresh = force_refresh or not access_token or self._is_at_expired(at_expires_str)
-            
+
             if needs_refresh:
                 try:
                     session = await client.st_to_at(session_token)
@@ -121,18 +119,21 @@ class FlowSessionManager:
                 if email and fresh_account.label != email:
                     account_store.update(fresh_account.id, label=email)
 
-            tool_name = "VIDEO" if for_video else "PINHOLE"
-            project_id_key = "video_project_id" if for_video else "image_project_id"
-            project_id = creds.get(project_id_key, "").strip()
-            if not project_id and not for_video:
-                project_id = creds.get("project_id", "").strip()
+            # Reuse ONE single project for both image and video to avoid creating new albums
+            project_id = (
+                creds.get("video_project_id", "").strip()
+                or creds.get("image_project_id", "").strip()
+                or creds.get("project_id", "").strip()
+            )
             
             if not project_id:
-                project_id = await client.create_project(session_token, title=f"G-Labs BW {tool_name}", tool_name=tool_name)
-                creds[project_id_key] = project_id
-                if not for_video:
-                    creds["project_id"] = project_id
-                account_store.update(fresh_account.id, credentials=creds)
+                project_id = await client.create_project(session_token, title="G-Labs BW", tool_name="PINHOLE")
+                logger.info("Created single shared Flow project: %s", project_id)
+            # Always keep all keys in sync so we never create a second project
+            creds["project_id"] = project_id
+            creds["image_project_id"] = project_id
+            creds["video_project_id"] = project_id
+            account_store.update(fresh_account.id, credentials=creds)
 
             return {
                 "session_token": session_token,

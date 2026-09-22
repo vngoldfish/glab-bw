@@ -63,6 +63,11 @@ async def sample_multi_product_isolate() -> dict:
     return {"workflow": store.sample_multi_product_isolate()}
 
 
+@router.get("/sample/motion-dance-transfer")
+async def sample_motion_dance_transfer() -> dict:
+    return {"workflow": store.sample_motion_dance_transfer()}
+
+
 @router.get("/runs/{run_id}")
 async def get_workflow_run(run_id: str) -> dict:
     run = get_run(run_id)

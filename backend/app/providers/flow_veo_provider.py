@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import logging
 from typing import Any
@@ -71,13 +72,11 @@ class FlowVeoProvider(BaseProvider):
             account = account_store.get(self.account.id)
             if account:
                 creds = dict(account.credentials)
-                cleared = False
-                for key in ("project_id", "image_project_id", "video_project_id"):
-                    if key in creds:
-                        logger.warning("Clearing stale %s (%s) for account %s", key, creds[key], self.account.label)
-                        del creds[key]
-                        cleared = True
-                if cleared:
+                old_pid = creds.get("project_id") or creds.get("video_project_id") or creds.get("image_project_id")
+                if old_pid:
+                    logger.warning("Clearing stale project %s for account %s", old_pid, self.account.label)
+                    for key in ("project_id", "image_project_id", "video_project_id"):
+                        creds.pop(key, None)
                     account_store.update(account.id, credentials=creds)
                     self.account = account_store.get(account.id) or account
 
@@ -138,13 +137,15 @@ class FlowVeoProvider(BaseProvider):
                     account = account_store.get(self.account.id)
                     if account:
                         creds = dict(account.credentials)
-                        if "project_id" in creds:
+                        old_pid = creds.get("project_id") or creds.get("video_project_id") or creds.get("image_project_id")
+                        if old_pid:
                             logger.warning(
-                                "Upload failed with stale project %s for %s. Clearing project_id and retrying...",
+                                "Upload failed with stale project %s for %s. Clearing and retrying...",
                                 project_id,
                                 self.account.label,
                             )
-                            del creds["project_id"]
+                            for key in ("project_id", "image_project_id", "video_project_id"):
+                                creds.pop(key, None)
                             account_store.update(account.id, credentials=creds)
                             self.account = account_store.get(account.id) or account
                             
@@ -398,6 +399,78 @@ class FlowVeoProvider(BaseProvider):
         except (TypeError, ValueError):
             duration_int = None
 
+        # When motion video is present → upload it to Google Flow as referenceVideo
+        motion_video = params.get("motion_video")
+        reference_video_id: str | None = None
+        if motion_video:
+            try:
+                import re as _re
+                motion_bytes: bytes | None = None
+                motion_mime = "video/mp4"
+                motion_data_url = str(motion_video)
+                if motion_data_url.startswith("data:"):
+                    m = _re.match(r"data:([^;]+);base64,(.*)", motion_data_url, _re.DOTALL)
+                    if m:
+                        motion_mime = m.group(1)
+                        motion_bytes = base64.b64decode(m.group(2))
+                elif motion_data_url.startswith("http"):
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient() as _client:
+                        resp = await _client.get(motion_data_url, timeout=60.0)
+                        resp.raise_for_status()
+                        motion_bytes = resp.content
+                elif motion_data_url:
+                    from app.services.output_storage import resolve_data_file
+                    p = resolve_data_file(motion_data_url)
+                    if p.is_file():
+                        motion_bytes = p.read_bytes()
+
+                if motion_bytes:
+                    # Strip audio track so Google SPEECH_EDIT_BLOCKED filter is never triggered
+                    try:
+                        import tempfile, subprocess
+                        from pathlib import Path
+                        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f_in:
+                            f_in.write(motion_bytes)
+                            f_in_path = f_in.name
+                        f_out_path = f_in_path + "_silent.mp4"
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-i", f_in_path, "-c:v", "copy", "-an", f_out_path],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=True,
+                        )
+                        p_silent = Path(f_out_path)
+                        if p_silent.is_file() and p_silent.stat().st_size > 100:
+                            motion_bytes = p_silent.read_bytes()
+                        try:
+                            Path(f_in_path).unlink(missing_ok=True)
+                            p_silent.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                    except Exception as e_mute:
+                        logger.debug("Audio strip skipped/failed: %s", e_mute)
+
+                    reference_video_id = await google_flow_client.upload_video(
+                        access_token=session.get("access_token"),
+                        session_token=session.get("session_token"),
+                        project_id=session["project_id"],
+                        video_bytes=motion_bytes,
+                        mime_type=motion_mime,
+                    )
+                    logger.info("Motion Transfer: uploaded reference video to Google Flow -> %s", reference_video_id)
+            except Exception as exc:
+                logger.warning("Upload reference video failed: %s", exc)
+
+        # Normalize resolution targets
+        res_raw = params.get("resolution") or params.get("upscale")
+        if isinstance(res_raw, str):
+            res_targets = [res_raw] if res_raw in {"1080p", "4K", "1080P", "4k"} else []
+        elif isinstance(res_raw, list):
+            res_targets = [r for r in res_raw if r in {"1080p", "4K", "1080P", "4k"}]
+        else:
+            res_targets = []
+
         acc_id = self.account.id if self.account else None
         acc_label = self.account.label if self.account else None
         video_kwargs = dict(
@@ -411,9 +484,11 @@ class FlowVeoProvider(BaseProvider):
             start_media_id=start_media_id,
             end_media_id=end_media_id,
             reference_media_ids=reference_media_ids,
+            reference_video_id=reference_video_id,
             user_paygate_tier=session.get("user_paygate_tier", "PAYGATE_TIER_ONE"),
-            resolution_targets=params.get("resolution", []),
+            resolution_targets=res_targets,
             duration=duration_int,
+            negative_prompt=params.get("negative_prompt") or params.get("negativePrompt"),
             account_id=acc_id,
             account_label=acc_label,
         )
@@ -423,7 +498,11 @@ class FlowVeoProvider(BaseProvider):
             msg = str(exc).lower()
             if getattr(exc, "error_code", None) == 404 or "not found" in msg or "entity was not found" in msg:
                 if not params.get("_retried_404"):
-                    logger.warning("Video failed with 404 stale project %s — clearing project_id and retrying...", session.get("project_id"))
+                    logger.warning("Video failed with 404 stale project/media %s — clearing project_id and image cache, then retrying...", session.get("project_id"))
+                    for item in reference_items:
+                        parsed = _parse_reference_image(item)
+                        if parsed:
+                            invalidate_for_bytes(parsed[0])
                     self._clear_stale_project()
                     params_retry = dict(params)
                     params_retry["_retried_404"] = True

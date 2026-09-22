@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { WNodeData, Shell, handleLabelStyle, VideoAttachBar, MediaPreview, fieldStyle } from "./shared";
+import RefNameInput from "../RefNameInput";
 
 export default function VideoReferenceNode({ id, data, selected }: NodeProps) {
   const d = data as WNodeData;
@@ -7,7 +8,7 @@ export default function VideoReferenceNode({ id, data, selected }: NodeProps) {
   return (
     <Shell
       type="video_reference"
-      title={d.title || "Video có sẵn"}
+      title={d.refName ? `📹 @${d.refName}` : (d.title || "Video có sẵn")}
       selected={selected}
       runStatus={d.runStatus}
       runError={d.runError}
@@ -17,9 +18,15 @@ export default function VideoReferenceNode({ id, data, selected }: NodeProps) {
         position={Position.Right}
         id="video"
         style={{ background: "#f59e0b" }}
-        title="Cổng xuất Video: Nối sang cổng Video gốc của node Tách frame"
+        title="Cổng xuất Video: Nối sang cổng Video mẫu của node Tạo video, hoặc cổng Video gốc của node Tách frame"
       />
       <div style={handleLabelStyle("right", "50%")}>Video ref →</div>
+      <RefNameInput
+        refName={d.refName}
+        onChange={(name: string) => {
+          d.onChange?.(id, { refName: name, title: name ? `📹 @${name}` : "Video có sẵn" });
+        }}
+      />
       <VideoAttachBar
         nodeId={id}
         field="video"

@@ -45,6 +45,12 @@ const PRESET_TEMPLATES: PresetTemplate[] = [
     name: "Mẫu: Tách nhiều sản phẩm",
     description: "Từ một bức ảnh chụp chung set nhiều đồ đạc, xử lý song song để tách sạch và cô lập từng món đồ thành các ảnh riêng biệt.",
     nodesSummary: ["Ảnh gốc nhiều đồ", "Tách Giày (1:1)", "Tách Túi (1:1)", "Tách Kính (1:1)"]
+  },
+  {
+    key: "motion-dance-transfer",
+    name: "Mẫu: Bắt chước chuyển động (Motion Transfer)",
+    description: "Nhân vật trong ảnh tham chiếu nhảy múa và chuyển động theo video mẫu kết hợp với prompt mô tả.",
+    nodesSummary: ["Video mẫu (Motion)", "Ảnh nhân vật (@char)", "Prompt mô tả", "Tạo video (Motion Transfer)"]
   }
 ];
 

@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
@@ -49,6 +50,7 @@ def _queue_response(task, message: str) -> TaskQueuedResponse:
 
 
 @router.get("/health")
+@router.post("/health")
 async def health() -> dict:
     """Liveness + operator readiness hints (extension, accounts, disk)."""
     from app.services.account_store import account_store
@@ -77,8 +79,14 @@ async def health() -> dict:
     except OSError:
         pass
 
-    ext_ok = bool(ext.get("connected"))
-    flow_tab_open = str(ext.get("flow_tab") or "") == "open"
+    from app.services.browser_pool import browser_pool_manager
+    pool_has_open_tab = any(
+        inst.status == "running" and inst.flow_tab_status == "open"
+        for inst in browser_pool_manager._instances.values()
+    )
+
+    ext_ok = bool(ext.get("connected")) or pool_has_open_tab
+    flow_tab_open = (str(ext.get("flow_tab") or "") == "open") or pool_has_open_tab
     has_account = flow_image_ready > 0 or flow_video_ready > 0 or grok_ready > 0
     disk_ok = disk_free_gb is None or disk_free_gb >= 1.0
     session_ok = bool(sh.get("flow_session_ok", True))
@@ -121,13 +129,25 @@ async def health() -> dict:
 
 
 @router.post("/image/generate", status_code=202, dependencies=[Depends(verify_api_key)])
-async def generate_image(request: Request, body: ImageGenerateRequest) -> TaskQueuedResponse:
+async def generate_image(request: Request, body: ImageGenerateRequest) -> Any:
+    if not body.prompt or body.prompt.strip().lower() in {"", "ping", "test", "check"}:
+        return {
+            "status": "ok",
+            "message": "Kiểm tra kết nối G-Labs BW thành công",
+            "server": "G-Labs BW Webhook",
+        }
     task = task_queue.create_task("image", body.prompt, body.model_dump())
     return _queue_response(task, "Image task queued for processing")
 
 
 @router.post("/video/generate", status_code=202, dependencies=[Depends(verify_api_key)])
-async def generate_video(body: VideoGenerateRequest) -> TaskQueuedResponse:
+async def generate_video(body: VideoGenerateRequest) -> Any:
+    if not body.prompt or body.prompt.strip().lower() in {"", "ping", "test", "check"}:
+        return {
+            "status": "ok",
+            "message": "Kiểm tra kết nối G-Labs BW thành công",
+            "server": "G-Labs BW Webhook",
+        }
     task = task_queue.create_task("video", body.prompt, body.model_dump())
     return _queue_response(task, "Video task queued for processing")
 

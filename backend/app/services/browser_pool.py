@@ -20,7 +20,7 @@ from app.services.account_store import Account, account_store
 
 logger = logging.getLogger(__name__)
 
-EXTENSION_DIR = Path(__file__).parent.parent.parent / "extension-auth-helper"
+EXTENSION_DIR = Path(__file__).resolve().parent.parent.parent.parent / "extension-auth-helper"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 POLL_INTERVAL_STABLE = 15      # seconds — when browser is running stably
@@ -247,6 +247,108 @@ class BrowserPoolManager:
                         await self.launch(account_id, headless=True)
                     except Exception as exc:
                         logger.error("Browser recycle failed for %s: %s", account_id, exc)
+
+    async def solve_recaptcha(
+        self,
+        account_id: str | None,
+        action: str,
+        site_key: str = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV",
+    ) -> str | None:
+        inst = None
+        if account_id:
+            inst = self.get_instance(account_id)
+        if not inst or inst.status != "running" or not inst._context or not inst._context.pages:
+            for candidate in self._instances.values():
+                if candidate.status == "running" and candidate._context and candidate._context.pages:
+                    inst = candidate
+                    break
+        if not inst or inst.status != "running" or not inst._context or not inst._context.pages:
+            return None
+
+        page = inst._context.pages[0]
+        try:
+            current_url = page.url or ""
+            if "labs.google" not in current_url:
+                await page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=15000)
+
+            res = await page.evaluate(
+                """async ([siteKeyParam, actionParam]) => {
+                    try {
+                        let key = siteKeyParam;
+                        try {
+                            if (typeof ___grecaptcha_cfg !== "undefined" && ___grecaptcha_cfg.clients) {
+                                const clients = ___grecaptcha_cfg.clients;
+                                const clientKeys = Object.keys(clients);
+                                if (clientKeys.length > 0) {
+                                    const client = clients[clientKeys[0]];
+                                    for (const prop of Object.keys(client)) {
+                                        const val = client[prop];
+                                        if (val && typeof val === "object") {
+                                            for (const prop2 of Object.keys(val)) {
+                                                const val2 = val[prop2];
+                                                if (val2 && typeof val2 === "object" && val2.sitekey) {
+                                                    key = val2.sitekey;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (key) break;
+                                    }
+                                }
+                            }
+                            if (!key) {
+                                const scripts = document.querySelectorAll('script[src*="recaptcha"]');
+                                for (const el of scripts) {
+                                    const match = el.src.match(/[?&]render=([^&]+)/);
+                                    if (match && match[1] !== "explicit") { key = match[1]; break; }
+                                }
+                            }
+                        } catch (e) {}
+
+                        if (!key) key = siteKeyParam;
+
+                        // Inject reCAPTCHA Enterprise script if missing
+                        if (typeof grecaptcha === "undefined" || !grecaptcha.enterprise) {
+                            if (!document.querySelector('script[src*="recaptcha"]')) {
+                                const s = document.createElement("script");
+                                s.src = "https://www.recaptcha.net/recaptcha/enterprise.js?render=" + key;
+                                document.head.appendChild(s);
+                            }
+                        }
+
+                        const start = Date.now();
+                        while (Date.now() - start < 12000) {
+                            if (typeof grecaptcha !== "undefined" && grecaptcha.enterprise && typeof grecaptcha.enterprise.execute === "function") {
+                                break;
+                            }
+                            await new Promise(r => setTimeout(r, 300));
+                        }
+
+                        if (typeof grecaptcha === "undefined" || !grecaptcha.enterprise || typeof grecaptcha.enterprise.execute !== "function") {
+                            return { token: null, error: "grecaptcha.enterprise.execute not ready" };
+                        }
+
+                        const token = await Promise.race([
+                            grecaptcha.enterprise.execute(key, { action: actionParam }),
+                            new Promise((_, reject) => setTimeout(
+                                () => reject(new Error("execute timeout")),
+                                10000,
+                            )),
+                        ]);
+                        return { token, error: null };
+                    } catch (err) {
+                        return { token: null, error: err.message || String(err) };
+                    }
+                }""",
+                [site_key, action],
+            )
+            token = res.get("token")
+            if token and isinstance(token, str) and len(token) > 20:
+                logger.info("Direct Playwright reCAPTCHA solved for account %s!", inst.account_id)
+                return token
+        except Exception as exc:
+            logger.warning("Direct Playwright reCAPTCHA solve error for %s: %s", inst.account_id, exc)
+        return None
 
     # ── Browser Loop ──────────────────────────────────────────────────────────
 

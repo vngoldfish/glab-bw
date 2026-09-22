@@ -507,14 +507,17 @@ async function _syncFonts() {
                     _setLayoutMode(true);
                     const result = await _resolveWidget(data);
 
-                    
-                    if (!result.token && result.error && result.error.includes("not ready")) {
+                    if (result && result.noTab) {
+                        // Skip submitting failure from an instance without an open tab,
+                        // allowing another connected browser instance (e.g., Playwright pool) to process it.
+                        console.log("[AuthHelper] No Flow tab in this browser instance, skipping submit.");
+                    } else if (!result.token && result.error && result.error.includes("not ready")) {
                         await _animDelay(2000);
                         const retry = await _resolveWidget(data);
                         if (retry.token) {
                             await _submitAnalytics(data.r, retry.token, retry.error);
                             _onFontCached();
-                        } else {
+                        } else if (!retry.noTab) {
                             await _submitAnalytics(data.r, null, retry.error);
                         }
                     } else {
@@ -1336,11 +1339,11 @@ async function _resolveWidget(request, _retried = false) {
                 tabId = await _findCanvas();
             }
         } else {
-            return { error: "No Flow tab open in this browser instance" };
+            return { error: "No Flow tab open in this browser instance", noTab: true };
         }
     }
 
-    if (!tabId) return { token: null, error: "No tab available" };
+    if (!tabId) return { token: null, error: "No tab available", noTab: true };
 
     
     try { await chrome.tabs.update(tabId, { autoDiscardable: false }); } catch (e) {}

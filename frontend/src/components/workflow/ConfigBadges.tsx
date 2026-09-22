@@ -34,20 +34,47 @@ interface ConfigBadgesProps {
   cameraMovement?: string;
   movementSpeed?: string;
   studioDuration?: number;
+  clipDuration?: number | string;
+  aspectRatio?: string;
+  resolution?: string;
+  transition?: string;
+  aiAudio?: boolean;
+  negativePrompt?: string;
+  motionMode?: "transform" | "inspire";
 }
+
+const TRANSITION_LABELS: Record<string, string> = {
+  crossfade: "Crossfade",
+  fade_black: "Fade đen",
+  fade_white: "Fade trắng",
+  wipe_left: "Wipe ←",
+  wipe_right: "Wipe →",
+  slide_up: "Trượt lên",
+  zoom_in: "Zoom In",
+};
 
 /**
  * Shared configuration badges display for image/video nodes.
  * Eliminates ~60 lines of repeated inline style badge JSX.
  */
 export default function ConfigBadges(props: ConfigBadgesProps) {
+  const transitionLabel = props.transition && props.transition !== "none" ? (TRANSITION_LABELS[props.transition] || props.transition) : undefined;
+  const speedLabel = props.movementSpeed && props.movementSpeed !== "normal" ? props.movementSpeed : undefined;
+
   const badges: BadgeConfig[] = [
+    { key: "resolution", icon: "📐", value: props.resolution && props.resolution !== "720p" ? props.resolution : undefined, color: props.resolution === "4K" ? "#f59e0b" : "#22c55e" },
+    { key: "aspectRatio", icon: "📱", value: props.aspectRatio, color: "#a855f7" },
+    { key: "clipDuration", icon: "⏱", value: props.clipDuration ? `${props.clipDuration}s` : undefined, color: "#38bdf8" },
+    { key: "transition", icon: "🔀", value: transitionLabel, color: "#ec4899" },
+    { key: "aiAudio", icon: "🔊", value: props.aiAudio ? "Âm thanh AI" : undefined, color: "#10b981" },
     { key: "cameraMovement", icon: "🎥", value: props.cameraMovement, color: "#22c55e" },
     { key: "cameraAngle", icon: "📷", value: props.cameraAngle, color: props.cameraMovement ? "#f59e0b" : "#22c55e" },
-    { key: "movementSpeed", icon: "⚡", value: props.movementSpeed, color: "#06b6d4" },
+    { key: "movementSpeed", icon: "⚡", value: speedLabel, color: "#06b6d4" },
     { key: "style", icon: "🎨", value: props.style, color: "#818cf8" },
     { key: "lighting", icon: "💡", value: props.lighting, color: "#fbbf24" },
     { key: "composition", icon: "▦", value: props.composition, color: "#6366f1" },
+    { key: "negativePrompt", icon: "🚫", value: props.negativePrompt ? "Negative prompt" : undefined, color: "#ef4444" },
+    { key: "motionMode", icon: "✨", value: props.motionMode === "inspire" ? "Học theo" : undefined, color: "#f59e0b" },
   ];
 
   const activeBadges = badges.filter((b) => b.value);
@@ -60,7 +87,7 @@ export default function ConfigBadges(props: ConfigBadgesProps) {
           {b.icon} {b.value!.split(",")[0]}
         </span>
       ))}
-      {props.studioDuration != null && props.studioDuration > 0 && (
+      {props.studioDuration != null && props.studioDuration > 0 && !props.clipDuration && (
         <span
           style={{
             ...badgeBase,

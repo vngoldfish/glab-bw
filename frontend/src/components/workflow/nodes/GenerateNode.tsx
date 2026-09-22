@@ -70,28 +70,53 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
       />
       <div style={handleLabelStyle("right", "50%")}>Ảnh kết quả →</div>
 
-      {plus && (
-        <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            className="wf-btn wf-btn-secondary nodrag"
-            style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
-            onClick={() => setShowModal(true)}
-          >
-            ⚙️ Cấu hình chụp & style +
-          </button>
-        </div>
-      )}
+      <div style={{ marginBottom: 8, display: "flex", gap: 6 }}>
+        <button
+          type="button"
+          className="wf-btn wf-btn-secondary nodrag"
+          style={{ width: "100%", padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)" }}
+          onClick={() => setShowModal(true)}
+        >
+          ⚙️ Cấu hình chụp & style +
+        </button>
+      </div>
 
-      {plus && <ConfigBadges cameraAngle={d.cameraAngle} style={d.style} lighting={d.lighting} composition={d.composition} />}
+      <ConfigBadges
+        cameraAngle={d.cameraAngle}
+        style={d.style}
+        lighting={d.lighting}
+        composition={d.composition}
+        aspectRatio={d.aspect_ratio || d.aspectRatio}
+        negativePrompt={d.negativePrompt}
+      />
 
       <EngineModelSelector
         type="image"
         engine={d.engine}
         model={d.model}
-        aspect_ratio={d.aspect_ratio}
+        aspect_ratio={d.aspect_ratio || d.aspectRatio}
         onChange={(patch: Partial<WNodeData>) => d.onChange?.(id, patch)}
       />
+
+      {/* Quick Controls: Negative Prompt */}
+      <div className="nodrag" style={{ marginBottom: 6 }}>
+        <input
+          className="nodrag"
+          placeholder="🚫 Negative prompt (blur, watermark, low quality...)"
+          value={d.negativePrompt || ""}
+          onChange={(e) => d.onChange?.(id, { negativePrompt: e.target.value })}
+          style={{
+            width: "100%",
+            padding: "4px 6px",
+            fontSize: 10,
+            borderRadius: 6,
+            background: "rgba(0,0,0,0.25)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "rgba(255,255,255,0.85)",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
 
       {!hasPromptEdge && (
         <InlinePromptEditor
@@ -135,13 +160,15 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
         </div>
       )}
 
-      {plus && showModal && (
+      {showModal && (
         <ImageStudioModal
           initial={{
             cameraAngle: d.cameraAngle || "",
             style: d.style || "",
             lighting: d.lighting || "",
             composition: d.composition || "",
+            aspect_ratio: d.aspect_ratio || d.aspectRatio || "1:1",
+            aspectRatio: d.aspect_ratio || d.aspectRatio || "1:1",
           }}
           onConfirm={(s: ImageStudioSettings) => {
             d.onChange?.(id, {
@@ -149,6 +176,8 @@ export default function GenerateNode({ id, data, selected, plus = false }: NodeP
               style: s.style,
               lighting: s.lighting,
               composition: s.composition,
+              aspect_ratio: s.aspect_ratio || s.aspectRatio,
+              aspectRatio: s.aspect_ratio || s.aspectRatio,
             });
             setShowModal(false);
           }}

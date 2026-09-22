@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ImageGenerateRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
     model: str = "nano_banana_2"
     aspect_ratio: str = "1:1"
     reference_images: list[Any] = Field(default_factory=list)
@@ -12,7 +12,7 @@ class ImageGenerateRequest(BaseModel):
 
 
 class VideoGenerateRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
     model: str = "veo_31_fast"
     aspect_ratio: str = "16:9"
     mode: str = "text_to_video"
@@ -23,7 +23,7 @@ class VideoGenerateRequest(BaseModel):
 
 
 class GrokGenerateRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
     mode: str = "t2v"  # t2i | i2i | t2v | i2v
     model: str = ""
     aspect_ratio: str = "9:16"
@@ -35,7 +35,7 @@ class GrokGenerateRequest(BaseModel):
 
 
 class MetaGenerateRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
     mode: str = "t2i"
     aspect_ratio: str = "9:16"
     resolution: str = "720p"

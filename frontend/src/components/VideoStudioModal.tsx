@@ -24,11 +24,11 @@ const CAMERA_MOVEMENTS = [
 
 /* ───── DATA: Speed / Tempo ───── */
 const SPEED_PRESETS = [
-  { id: "slowmo", label: "Slow Motion", en: "Extreme slow motion, 0.25x speed, dramatic time dilation", icon: "🐌", accent: "#3b82f6" },
-  { id: "slow", label: "Chậm", en: "Slow deliberate pace, 0.5x speed, contemplative mood", icon: "🐢", accent: "#06b6d4" },
-  { id: "normal", label: "Bình thường", en: "Normal real-time speed, 1x natural pace", icon: "🚶", accent: "#22c55e" },
-  { id: "fast", label: "Nhanh", en: "Fast energetic pace, 2x speed, dynamic movement", icon: "🏃", accent: "#f59e0b" },
-  { id: "timelapse", label: "Time-lapse", en: "Time-lapse accelerated speed, compressing hours into seconds, clouds racing", icon: "⏩", accent: "#ef4444" },
+  { id: "slowmo", label: "Slow Motion", en: "slowmo", icon: "🐌", accent: "#3b82f6", desc: "Cực chậm 0.25x, dramatic" },
+  { id: "slow", label: "Chậm", en: "slow", icon: "🐢", accent: "#06b6d4", desc: "Chậm 0.5x, nhẹ nhàng" },
+  { id: "normal", label: "Bình thường", en: "normal", icon: "🚶", accent: "#22c55e", desc: "Tốc độ thường 1x" },
+  { id: "fast", label: "Nhanh", en: "fast", icon: "🏃", accent: "#f59e0b", desc: "Nhanh 2x, năng động" },
+  { id: "timelapse", label: "Time-lapse", en: "timelapse", icon: "⏩", accent: "#ef4444", desc: "Tua nhanh 4x" },
 ];
 
 /* ───── DATA: Video Styles ───── */
@@ -52,6 +52,33 @@ const VIDEO_ANGLES = [
   { id: "low", label: "Dưới lên", en: "Low angle looking up, dramatic", icon: "⬆️", accent: "#ef4444" },
   { id: "eye", label: "Ngang mắt", en: "Eye-level natural perspective", icon: "👁", accent: "#8b5cf6" },
   { id: "pov", label: "POV", en: "First person POV through character eyes", icon: "🎮", accent: "#ec4899" },
+];
+
+/* ───── DATA: Transitions ───── */
+const TRANSITIONS = [
+  { id: "none", label: "Không", en: "none", icon: "✖️", desc: "Không hiệu ứng chuyển cảnh" },
+  { id: "crossfade", label: "Crossfade", en: "crossfade", icon: "🔀", desc: "Mờ chuyển mượt giữa các cảnh" },
+  { id: "fade_black", label: "Fade to Black", en: "fade_black", icon: "⬛", desc: "Mờ đen giữa các cảnh" },
+  { id: "fade_white", label: "Fade to White", en: "fade_white", icon: "⬜", desc: "Mờ trắng giữa các cảnh" },
+  { id: "wipe_left", label: "Wipe ←", en: "wipe_left", icon: "◀️", desc: "Quét ngang từ phải sang trái" },
+  { id: "wipe_right", label: "Wipe →", en: "wipe_right", icon: "▶️", desc: "Quét ngang từ trái sang phải" },
+  { id: "slide_up", label: "Trượt lên", en: "slide_up", icon: "⬆️", desc: "Cảnh mới trượt lên từ dưới" },
+  { id: "zoom_in", label: "Zoom In", en: "zoom_in", icon: "🔎", desc: "Hiệu ứng zoom vào giữa các cảnh" },
+];
+
+/* ───── DATA: Clip Duration (Omni Flash) ───── */
+const CLIP_DURATIONS = [
+  { id: "4s", label: "4s", en: "4", icon: "⚡", desc: "4 giây - Rất nhanh" },
+  { id: "6s", label: "6s", en: "6", icon: "🎬", desc: "6 giây" },
+  { id: "8s", label: "8s", en: "8", icon: "🎬", desc: "8 giây - Mặc định" },
+  { id: "10s", label: "10s", en: "10", icon: "🎥", desc: "10 giây - Dài nhất" },
+];
+
+/* ───── DATA: Output Resolution ───── */
+const RESOLUTIONS = [
+  { id: "720p", label: "720p", en: "720p", icon: "📺", accent: "#94a3b8", desc: "HD - Nhanh" },
+  { id: "1080p", label: "1080p", en: "1080p", icon: "📺", accent: "#22c55e", desc: "Full HD - Cân bằng" },
+  { id: "4K", label: "4K", en: "4K", icon: "🎬", accent: "#f59e0b", desc: "Ultra HD - Chất lượng cao (chậm hơn)" },
 ];
 
 /* Helper to convert file to base64 Data URL */
@@ -268,6 +295,16 @@ export interface VideoSegment {
   audio: string;
 }
 
+/* ───── DATA: Video Aspect Ratios ───── */
+const VIDEO_ASPECT_PRESETS = [
+  { id: "16:9", label: "16:9 Ngang", icon: "🖥️", desc: "YouTube, Laptop, Tivi" },
+  { id: "9:16", label: "9:16 Dọc", icon: "📱", desc: "TikTok, Reels, Shorts" },
+  { id: "1:1", label: "1:1 Vuông", icon: "⏹️", desc: "Instagram Post" },
+  { id: "4:3", label: "4:3 Chuẩn", icon: "📺", desc: "Tiêu chuẩn 4:3" },
+  { id: "3:4", label: "3:4 Dọc", icon: "📱", desc: "Dọc 3:4" },
+  { id: "auto", label: "Tự động", icon: "🔄", desc: "Theo video/ảnh mẫu" },
+];
+
 export interface CharacterAsset {
   id: string;
   name: string;
@@ -280,11 +317,18 @@ export interface VideoStudioSettings {
   cameraMovement: string;
   movementSpeed: string;
   duration: number;
+  aspect_ratio?: string;
+  aspectRatio?: string;
   timelineSegments?: VideoSegment[];
   mode?: string;          // "text_to_video" | "start_image" | "start_end_image"
   start_image?: string;
   end_image?: string;
   characterAssets?: CharacterAsset[];
+  transition?: string;
+  negativePrompt?: string;
+  clipDuration?: number;
+  resolution?: string;
+  aiAudio?: boolean;
   // Edge checks & canvas presets
   hasStartImageEdge?: boolean;
   hasEndImageEdge?: boolean;
@@ -329,9 +373,15 @@ interface Props {
 
 export default function VideoStudioModal({ initial, onConfirm, onClose }: Props) {
   const [duration, setDuration] = useState(initial.duration || 8);
+  const [aspectRatio, setAspectRatio] = useState(() => initial.aspect_ratio || initial.aspectRatio || "16:9");
   const [styleId, setStyleId] = useState(() => initial.style || "");
   const [speedId, setSpeedId] = useState(() => initial.movementSpeed || "");
   const [mode, setMode] = useState(() => initial.mode || "text_to_video");
+  const [transition, setTransition] = useState(initial.transition || "none");
+  const [negativePrompt, setNegativePrompt] = useState(initial.negativePrompt || "");
+  const [clipDuration, setClipDuration] = useState(String(initial.clipDuration || initial.duration || 8));
+  const [resolution, setResolution] = useState(initial.resolution || "720p");
+  const [aiAudio, setAiAudio] = useState(initial.aiAudio ?? false);
 
   // Mode Images references
   const [startImg, setStartImg] = useState(() => initial.start_image || "");
@@ -555,11 +605,18 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
       cameraMovement: compiledPrompt, // timeline prompt string
       movementSpeed: speedId,
       duration: duration,
+      aspect_ratio: aspectRatio,
+      aspectRatio: aspectRatio,
       timelineSegments: sorted,
       mode: mode,
       start_image: mode !== "text_to_video" ? startImg : "",
       end_image: mode === "start_end_image" ? endImg : "",
       characterAssets: charAssets,
+      transition: transition,
+      negativePrompt: negativePrompt,
+      clipDuration: parseInt(clipDuration) || 8,
+      resolution: resolution,
+      aiAudio: aiAudio,
     }, triggerRun);
   }
 
@@ -861,6 +918,45 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
           {/* Right Panel: Segment Controls & Prompt Pacing */}
           <div style={STYLES.rightPanel}>
             
+            {/* Visual Aspect Ratio Selector */}
+            <div style={{ marginBottom: 12, padding: 8, background: "rgba(0,0,0,0.15)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 8, color: "#f59e0b", fontWeight: 700, textTransform: "uppercase" }}>📐 TỶ LỆ KHUNG HÌNH (KÍCH THƯỚC)</span>
+                <span style={{ fontSize: 9, color: "rgba(255,255,255,0.4)" }}>Chọn định dạng video đầu ra</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                {VIDEO_ASPECT_PRESETS.map((ap) => {
+                  const active = aspectRatio === ap.id;
+                  return (
+                    <button
+                      key={ap.id}
+                      type="button"
+                      onClick={() => setAspectRatio(ap.id)}
+                      style={{
+                        padding: "6px 8px",
+                        background: active ? "rgba(245, 158, 11, 0.15)" : "rgba(255,255,255,0.02)",
+                        border: active ? "1px solid #f59e0b" : "1px solid rgba(255,255,255,0.06)",
+                        borderRadius: 6,
+                        color: active ? "#f59e0b" : "#cbd5e1",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 2,
+                        textAlign: "left",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: active ? 700 : 500 }}>
+                        <span>{ap.icon}</span>
+                        <span>{ap.label}</span>
+                      </div>
+                      <span style={{ fontSize: 8, color: active ? "rgba(245, 158, 11, 0.8)" : "rgba(255,255,255,0.3)" }}>{ap.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Visual Timeline Bar */}
             <div style={{ marginBottom: 12, padding: 8, background: "rgba(0,0,0,0.15)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -1063,6 +1159,56 @@ export default function VideoStudioModal({ initial, onConfirm, onClose }: Props)
                     {VIDEO_STYLES.map(s => <option key={s.id} value={s.en}>{s.icon} {s.label}</option>)}
                   </select>
                 </div>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <Section icon="🔀" title="Hiệu ứng chuyển cảnh">
+                  <CardGrid items={TRANSITIONS} selected={transition} onSelect={t => setTransition(t || "none")} cols={4} />
+                </Section>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <Section icon="⏱" title="Thời lượng clip (Omni Flash)">
+                  <CardGrid items={CLIP_DURATIONS} selected={clipDuration} onSelect={d => setClipDuration(d || "8")} cols={4} />
+                </Section>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <Section icon="📐" title="Độ phân giải output">
+                  <CardGrid items={RESOLUTIONS} selected={resolution} onSelect={r => setResolution(r || "720p")} cols={3} />
+                </Section>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <Section icon="🔊" title="Âm thanh AI">
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+                    <input
+                      type="checkbox"
+                      checked={aiAudio}
+                      onChange={e => setAiAudio(e.target.checked)}
+                      style={{ accentColor: "#22c55e" }}
+                    />
+                    Bật âm thanh AI tự sinh (Veo 3.1 tạo tiếng gió, bước chân, nhạc nền tự động)
+                  </label>
+                </Section>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <Section icon="🚫" title="Negative Prompt">
+                  <textarea
+                    className="nodrag"
+                    value={negativePrompt}
+                    onChange={e => setNegativePrompt(e.target.value)}
+                    placeholder="Nhập các yếu tố KHÔNG muốn xuất hiện: blur, watermark, bad quality, distorted..."
+                    rows={2}
+                    style={{
+                      width: "100%", padding: "6px 8px", fontSize: 10, borderRadius: 6,
+                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                      color: "rgba(255,255,255,0.8)", resize: "vertical", outline: "none",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                </Section>
               </div>
             </div>
 

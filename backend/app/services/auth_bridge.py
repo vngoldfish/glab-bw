@@ -1,9 +1,12 @@
 import asyncio
 import json
+import logging
 import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _THEME_XOR = 0x5A
 
@@ -156,30 +159,28 @@ class AuthBridge:
         return max(self._sessions.values(), key=lambda s: s.last_seen)
 
     def is_connected(self, max_age_seconds: int = 30) -> bool:
-        session = self.get_primary_session()
-        if not session:
-            return False
-        return (time.time() - session.last_seen) < max_age_seconds
+        now = time.time()
+        return any((now - s.last_seen) < max_age_seconds for s in self._sessions.values())
 
     def is_flow_tab_open(self) -> bool:
-        session = self.get_primary_session()
-        if session and (time.time() - session.last_seen < 10.0):
-            return session.flow_tab_status == "open"
-        return False
+        now = time.time()
+        return any(
+            (now - s.last_seen < 30.0) and s.flow_tab_status == "open"
+            for s in self._sessions.values()
+        )
 
     def status_payload(self) -> dict[str, Any]:
         session = self.get_primary_session()
+        flow_open = "open" if self.is_flow_tab_open() else "closed"
         return {
             "connected": self.is_connected(),
             "uptime": self.uptime,
             "extensions": len(self._sessions),
-            "flow_tab": session.flow_tab_status if session else "closed",
+            "flow_tab": flow_open,
             "grok_tab": session.grok_tab_status if session else "closed",
             "token_count": session.token_count if session else 0,
             "pending_captcha": sum(1 for r in self._captcha_pending.values() if not r.resolved),
-            "pending_grok": sum(
-                1 for t in self._grok_pending.values() if not t.get("resolved")
-            ),
+            "pending_grok": sum(1 for r in self._grok_pending.values() if not r.get("resolved")),
             "statsig_wanted": self._statsig_wanted,
             "has_statsig": bool(self._statsig_id),
         }
@@ -415,13 +416,17 @@ class AuthBridge:
 
     def get_pending_captcha(self, ext_id: str | None = None) -> CaptchaRequest | None:
         target_account_id = None
-        if ext_id and ext_id in self._sessions:
-            target_account_id = self._sessions[ext_id].account_id
+        session = self._sessions.get(ext_id) if ext_id else None
+        if session:
+            target_account_id = session.account_id
 
         for request in self._captcha_pending.values():
             if not request.resolved:
-                if target_account_id and request.account_id:
-                    if request.account_id == target_account_id:
+                if request.account_id:
+                    if target_account_id and target_account_id == request.account_id:
+                        return request
+                    # If this extension instance has an open Flow tab, it is eligible to solve it
+                    if session and session.flow_tab_status == "open":
                         return request
                 else:
                     return request
@@ -477,6 +482,10 @@ class AuthBridge:
 
         request = self._captcha_pending.get(request_id)
         if request is None:
+            return
+
+        if not token and error and ("no flow tab" in str(error).lower() or "no tab" in str(error).lower()):
+            logger.info("Ignoring 'no tab' error from extension session for request %s so Playwright pool can solve it.", request_id)
             return
 
         request.resolved = True

@@ -59,7 +59,7 @@ def is_retryable_error(exc: BaseException) -> bool:
 
 def is_session_stale_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    if "chưa mở tab" in msg or "chua mo tab" in msg:
+    if any(k in msg for k in ("chưa mở tab", "chua mo tab", "chưa sẵn sàng", "chua san sang", "cài đặt → tài khoản", "tab flow")):
         return False
     code = int(getattr(exc, "error_code", 0) or 0)
     if code in {401, 403}:

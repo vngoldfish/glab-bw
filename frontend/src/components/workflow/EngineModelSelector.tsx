@@ -89,20 +89,37 @@ export default function EngineModelSelector({
           ))}
         </select>
       </label>
-      {type === "image" && (
-        <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
-          Tỷ lệ
-          <select
-            value={aspect_ratio || "16:9"}
-            onChange={(e) => onChange({ aspect_ratio: e.target.value })}
-            style={selectStyle}
-          >
-            <option value="1:1">1:1</option>
-            <option value="16:9">16:9</option>
-            <option value="9:16">9:16</option>
-          </select>
-        </label>
-      )}
+      <label className="nodrag" style={{ display: "block", marginBottom: 6 }}>
+        Kích thước / Tỷ lệ
+        <select
+          value={aspect_ratio || (type === "video" ? "16:9" : "1:1")}
+          onChange={(e) => {
+            const val = e.target.value;
+            onChange({ aspect_ratio: val, aspectRatio: val });
+          }}
+          style={selectStyle}
+        >
+          {type === "video" ? (
+            <>
+              <option value="16:9">🖥️ 16:9 Ngang (YouTube, Màn hình)</option>
+              <option value="9:16">📱 9:16 Dọc (TikTok, Reels, Shorts)</option>
+              <option value="1:1">⏹️ 1:1 Vuông (Instagram / Post)</option>
+              <option value="4:3">📺 4:3 Tiêu chuẩn</option>
+              <option value="3:4">📱 3:4 Dọc</option>
+              <option value="auto">🔄 Tự động (Theo video/ảnh mẫu)</option>
+            </>
+          ) : (
+            <>
+              <option value="1:1">⏹️ 1:1 Vuông (Avatar, Post)</option>
+              <option value="16:9">🖥️ 16:9 Ngang (Banner, YouTube)</option>
+              <option value="9:16">📱 9:16 Dọc (Story, TikTok)</option>
+              <option value="4:3">📺 4:3 Cổ điển</option>
+              <option value="3:4">📱 3:4 Chân dung</option>
+              <option value="auto">🔄 Tự động (Theo ảnh mẫu)</option>
+            </>
+          )}
+        </select>
+      </label>
     </>
   );
 }

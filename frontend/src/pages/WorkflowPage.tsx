@@ -48,6 +48,7 @@ import {
   fetchProject,
   fetchProjectAssets,
   fetchReferenceLibrary,
+  fetchSampleMotionDanceTransfer,
   fetchSampleMultiProductIsolate,
   fetchSampleProductIsolate,
   fetchSampleProductPlacement,
@@ -80,6 +81,7 @@ import GenerateNode from "../components/workflow/nodes/GenerateNode";
 import VideoNode from "../components/workflow/nodes/VideoNode";
 import VideoReferenceNode from "../components/workflow/nodes/VideoReferenceNode";
 import FrameNode from "../components/workflow/nodes/FrameNode";
+import AudioNode from "../components/workflow/nodes/AudioNode";
 import {
   WNodeData,
   RunStatus,
@@ -99,6 +101,7 @@ const WORKFLOW_NODE_TYPES: Record<string, any> = {
   prompt: memo(PromptNode),
   reference: memo(ReferenceNode),
   video_reference: memo(VideoReferenceNode),
+  audio_source: memo(AudioNode),
   generate: memo(GenerateNode),
   generate_plus: memo((props: NodeProps) => <GenerateNode {...props} plus />),
   video_generate: memo(VideoNode),
@@ -121,6 +124,7 @@ const NODE_TYPE_LIST = [
   ["reference", "Ảnh có sẵn", "🖼"],
   ["generate_plus", "Tạo ảnh +", "🎨✨"],
   ["video_reference", "Video có sẵn", "📹"],
+  ["audio_source", "Nhạc nền", "🎵"],
   ["video_generate_plus", "Tạo video +", "🎬✨"],
   ["generate", "Tạo ảnh", "🎨"],
   ["video_generate", "Tạo video", "🎬"],
@@ -627,6 +631,13 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   const [running, setRunning] = useState(false);
   const runResultRef = useRef<WorkflowRunResult | null>(null);
   const [progressLabel, setProgressLabel] = useState("");
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string, type: "success" | "error" | "info" = "info", durationMs = 6000) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, type });
+    toastTimer.current = setTimeout(() => setToast(null), durationMs);
+  };
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [saveHint, setSaveHint] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -1145,6 +1156,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
           else if (tKey === "product-isolate") s = await fetchSampleProductIsolate();
           else if (tKey === "product-placement") s = await fetchSampleProductPlacement();
           else if (tKey === "multi-product-isolate") s = await fetchSampleMultiProductIsolate();
+          else if (tKey === "motion-dance-transfer") s = await fetchSampleMotionDanceTransfer();
 
           if (s) {
             setProjectId(null);
@@ -1317,12 +1329,15 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
+      const isVid = ["video", "video_motion"].includes(params.sourceHandle || "") || ["video", "video_motion"].includes(params.targetHandle || "");
+      const isPrompt = params.sourceHandle === "prompt" || params.targetHandle === "prompt";
+      const stroke = isVid ? "#f59e0b" : isPrompt ? "#6366f1" : "#22c55e";
       setEdges((eds) =>
         addEdge(
           {
             ...params,
             animated: true,
-            style: { stroke: "#64748b", strokeWidth: 2 },
+            style: { stroke, strokeWidth: 2 },
           },
           eds,
         ),
@@ -1341,9 +1356,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
     if (sourceHandle === "prompt" && targetHandle !== "prompt") return false;
     if (targetHandle === "prompt" && sourceHandle !== "prompt") return false;
 
-    // video only connects to video
-    if (sourceHandle === "video" && targetHandle !== "video") return false;
-    if (targetHandle === "video" && sourceHandle !== "video") return false;
+    // video connects to video / video_motion
+    const isVideoSource = ["video", "video_motion"].includes(sourceHandle);
+    const isVideoTarget = ["video", "video_motion"].includes(targetHandle);
+    if (isVideoSource && !isVideoTarget) return false;
+    if (isVideoTarget && !isVideoSource) return false;
 
     // image / start_image / end_image only connects to image / start_image / end_image / reference
     const isImageSource = ["image", "start_image", "end_image"].includes(sourceHandle);
@@ -1360,6 +1377,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       reference: "Ảnh có sẵn",
       generate_plus: "Tạo ảnh +",
       video_reference: "Video có sẵn",
+      audio_source: "Nhạc nền",
       video_generate_plus: "Tạo video +",
       generate: "Tạo ảnh",
       video_generate: "Tạo video",
@@ -1380,28 +1398,23 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       baseData.prompt = "";
       baseData.promptKind = "image";
     }
-    if (type === "generate") {
+    if (type === "generate" || type === "generate_plus") {
       baseData.model = "nano_banana_2_lite";
       baseData.aspect_ratio = "16:9";
     }
-    if (type === "video_generate") {
-      baseData.model = "veo_31_lite_relaxed";
-      baseData.mode = "start_image";
-      baseData.aspect_ratio = "16:9";
-    }
-    if (type === "frame_extract") baseData.positions = "end";
-    if (type === "reference") baseData.image = "";
-    if (type === "video_reference") baseData.video = "";
-    if (type === "generate_plus") {
-      baseData.model = "nano_banana_2_lite";
-      baseData.aspect_ratio = "16:9";
-    }
-    if (type === "video_generate_plus") {
+    if (type === "video_generate" || type === "video_generate_plus") {
       baseData.model = "veo_31_lite_relaxed";
       baseData.mode = "start_image";
       baseData.aspect_ratio = "16:9";
       baseData.studioDuration = 8;
+      baseData.clipDuration = 8;
+      baseData.resolution = "720p";
+      baseData.transition = "none";
     }
+    if (type === "audio_source") baseData.audio = "";
+    if (type === "frame_extract") baseData.positions = "end";
+    if (type === "reference") baseData.image = "";
+    if (type === "video_reference") baseData.video = "";
 
 
     let screenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -1974,8 +1987,12 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
             try {
               const final = await pollUntilDone(activeRun.run_id, id);
               if (final.status === "completed") {
+                const done = final.progress?.done ?? "";
+                const total = final.progress?.total ?? "";
+                showToast(`✅ Hoàn thành! Đã tạo xong ${done}/${total} node thành công.`, "success", 8000);
                 setProgressLabel("Hoàn thành");
               } else if (final.status === "failed") {
+                showToast(`❌ Lỗi: ${final.error || "Không rõ"}`, "error", 10000);
                 setProgressLabel("Lỗi: " + (final.error || "Không rõ"));
               }
               try {
@@ -2109,7 +2126,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }) {
     try {
       setRunning(true);
-      setProgressLabel("Đang xếp hàng…");
+      setProgressLabel(opts.onlyNodeIds?.length ? "⏳ Đang chạy node…" : "🚀 Đang khởi động…");
       if (opts.markPendingAll !== false && !opts.onlyNodeIds?.length) {
         setNodes((nds) =>
           nds.map((n) => {
@@ -2152,7 +2169,7 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
                   ...n,
                   data: {
                     ...n.data,
-                    runStatus: "pending" as RunStatus,
+                    runStatus: "running" as RunStatus,
                     runError: undefined,
                     reused: false,
                     onChange: patchNode,
@@ -2179,6 +2196,11 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
       }
 
       const prior = buildPriorResults(nodesRef.current);
+      if (opts.onlyNodeIds?.length) {
+        for (const nid of opts.onlyNodeIds) {
+          delete prior[nid];
+        }
+      }
       const started = await runWorkflowGraph(graphPayload(), {
         async_mode: true,
         skip_completed: Boolean(opts.skipCompleted),
@@ -2245,17 +2267,26 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
         })();
       }
       if (projectIdRef.current === pid) {
-        if (final.status !== "completed") {
-          onError(final.error || "Workflow failed");
+        if (final.status === "completed") {
+          const done = final.progress?.done ?? "";
+          const total = final.progress?.total ?? "";
+          showToast(`✅ Hoàn thành! Đã tạo xong ${done}/${total} node thành công.`, "success", 8000);
+          setProgressLabel(`Xong ${done}/${total}`);
+          // Browser notification if tab not focused
+          if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+            new Notification("G-Labs BW", { body: `✅ Workflow hoàn thành ${done}/${total} node!`, icon: "/favicon.ico" });
+          }
+        } else {
+          const errMsg = final.error || "Workflow failed";
+          showToast(`❌ Lỗi: ${errMsg}`, "error", 10000);
+          onError(errMsg);
+          setProgressLabel(`Lỗi · ${errMsg}`);
         }
-        setProgressLabel(
-          final.status === "completed"
-            ? `Xong ${final.progress?.done ?? ""}/${final.progress?.total ?? ""}`
-            : `Lỗi · ${final.error || final.status}`,
-        );
       }
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast(`❌ Lỗi: ${errMsg}`, "error", 10000);
+      onError(errMsg);
       setProgressLabel("Lỗi");
     } finally {
       setRunning(false);
@@ -2279,6 +2310,26 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   async function handleRerunNode(nodeId: string) {
+    setNodes((nds) => {
+      const next = attachHandlers(
+        nds.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...(n.data as WNodeData),
+                  runStatus: "running" as RunStatus,
+                  runError: undefined,
+                  reused: false,
+                },
+              }
+            : n,
+        ),
+      );
+      nodesRef.current = next;
+      return next;
+    });
+
     await startRun({
       skipCompleted: true,
       onlyNodeIds: [nodeId],
@@ -2287,7 +2338,6 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
   }
 
   rerunRef.current = (id: string) => {
-    if (running) return;
     void handleRerunNode(id);
   };
 
@@ -2328,6 +2378,41 @@ export default function WorkflowPage({ onError }: WorkflowPageProps) {
 
   return (
     <div className="workflow-page" style={{ position: "relative" }}>
+      {/* Toast notification overlay */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 99999,
+            padding: "12px 24px",
+            borderRadius: 12,
+            fontSize: 14,
+            fontWeight: 600,
+            color: "#fff",
+            background: toast.type === "success"
+              ? "linear-gradient(135deg, #059669, #10b981)"
+              : toast.type === "error"
+              ? "linear-gradient(135deg, #dc2626, #ef4444)"
+              : "linear-gradient(135deg, #2563eb, #3b82f6)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1)",
+            backdropFilter: "blur(12px)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            maxWidth: 600,
+            animation: "slideDown 0.3s ease-out",
+            cursor: "pointer",
+          }}
+          onClick={() => setToast(null)}
+        >
+          <span>{toast.msg}</span>
+          <span style={{ opacity: 0.6, fontSize: 11, marginLeft: 8 }}>✕</span>
+        </div>
+      )}
+      <style>{`@keyframes slideDown { from { opacity: 0; transform: translateX(-50%) translateY(-20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
       <header className={`wf-header-bar ${headerCollapsed ? "collapsed" : ""}`}>
         <div className="wf-header-left">
           <div className="wf-title-section">

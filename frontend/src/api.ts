@@ -967,6 +967,14 @@ export async function fetchSampleMultiProductIsolate(): Promise<WorkflowDoc> {
   return data.workflow;
 }
 
+/** Bắt chước chuyển động từ video mẫu */
+export async function fetchSampleMotionDanceTransfer(): Promise<WorkflowDoc> {
+  const res = await apiFetch("/api/workflows/sample/motion-dance-transfer");
+  await ensureOk(res, "Không tải mẫu bắt chước chuyển động");
+  const data = await readJson<{ workflow: WorkflowDoc }>(res);
+  return data.workflow;
+}
+
 export async function saveWorkflow(
   doc: WorkflowDoc,
   id?: string | null,

@@ -299,6 +299,13 @@ class GoogleFlowClient:
                 pool_active = True
 
         if not pool_active:
+            from app.services.browser_pool import browser_pool_manager
+            for inst in browser_pool_manager._instances.values():
+                if inst.status == "running" and inst.flow_tab_status == "open":
+                    pool_active = True
+                    break
+
+        if not pool_active:
             if auth_bridge_access.is_connected():
                 bridge_session = auth_bridge_access.get_primary_session()
                 if bridge_session and bridge_session.flow_tab_status == "open":
@@ -311,8 +318,29 @@ class GoogleFlowClient:
             )
 
         last_err: str | None = None
-        # Fresh token each try — reused/stale tokens → "reCAPTCHA evaluation failed"
+        # Try direct Playwright page evaluation first (fast)
+        from app.services.browser_pool import browser_pool_manager
+        for _ in range(3):
+            direct_token = await browser_pool_manager.solve_recaptcha(
+                account_id=account_id,
+                action=action,
+                site_key=RECAPTCHA_SITE_KEY,
+            )
+            if direct_token and len(direct_token) > 20:
+                await asyncio.sleep(0.35)
+                return direct_token
+            await asyncio.sleep(0.5)
+
         for attempt in range(3):
+            direct_token = await browser_pool_manager.solve_recaptcha(
+                account_id=account_id,
+                action=action,
+                site_key=RECAPTCHA_SITE_KEY,
+            )
+            if direct_token and len(direct_token) > 20:
+                await asyncio.sleep(0.35)
+                return direct_token
+
             request = await auth_bridge_access.queue_captcha(
                 site_key=RECAPTCHA_SITE_KEY,
                 action=action,
@@ -321,11 +349,11 @@ class GoogleFlowClient:
             try:
                 solved = await auth_bridge_access.wait_for_captcha(
                     request.request_id,
-                    timeout=90.0,
+                    timeout=15.0,
                 )
             except TimeoutError:
-                last_err = "Hết thời gian chờ reCAPTCHA — reload tab Flow + kiểm tra extension"
-                await asyncio.sleep(1.0 + attempt)
+                last_err = "Hết thời gian chờ reCAPTCHA — vui lòng bật/mở tab https://labs.google/fx/tools/flow trên Chrome"
+                await asyncio.sleep(0.5)
                 continue
             if solved.error:
                 last_err = str(solved.error)
@@ -613,9 +641,11 @@ class GoogleFlowClient:
         start_media_id: str | None = None,
         end_media_id: str | None = None,
         reference_media_ids: list[str] | None = None,
+        reference_video_id: str | None = None,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         resolution_targets: list[str] | None = None,
         duration: int | None = None,
+        negative_prompt: str | None = None,
         session_token: str | None = None,
         account_id: str | None = None,
         account_label: str | None = None,
@@ -630,7 +660,9 @@ class GoogleFlowClient:
         - Veo R2V must NOT send imageUsageType ASSET (causes INTERNAL). Omni does need it.
         """
         active_mode = mode
-        if active_mode in {"start_image", "start_end_image", "components"}:
+        if reference_video_id:
+            endpoint = "video:batchAsyncGenerateVideoEditVideo"
+        elif active_mode in {"start_image", "start_end_image", "components"}:
             endpoint = "video:batchAsyncGenerateVideoStartImage"
             if active_mode == "start_end_image":
                 endpoint = "video:batchAsyncGenerateVideoStartAndEndImage"
@@ -726,6 +758,7 @@ class GoogleFlowClient:
             start_id: str | None,
             end_id: str | None,
             ref_ids: list[str] | None,
+            ref_vid_id: str | None = None,
             browser_like: bool,
             use_v2_config: bool = True,
         ) -> dict[str, Any]:
@@ -746,10 +779,14 @@ class GoogleFlowClient:
                 text_input: dict[str, Any] = {
                     "structuredPrompt": {"parts": [{"text": prompt}]},
                 }
+                if negative_prompt:
+                    text_input["negativePrompt"] = negative_prompt
                 metadata: dict[str, Any] = {}
             else:
                 # Veo FL/I2V: plain prompt + sceneId
                 text_input = {"prompt": prompt}
+                if negative_prompt:
+                    text_input["negativePrompt"] = negative_prompt
                 metadata = {"sceneId": str(uuid.uuid4())}
 
             request_data: dict[str, Any] = {
@@ -764,7 +801,7 @@ class GoogleFlowClient:
             if mode_name == "start_end_image" and start_id and end_id:
                 request_data["startImage"] = {"mediaId": start_id}
                 request_data["endImage"] = {"mediaId": end_id}
-            if mode_name == "components" and ref_ids:
+            if ref_ids:
                 if use_omni_payload:
                     request_data["referenceImages"] = [
                         {
@@ -778,10 +815,15 @@ class GoogleFlowClient:
                     request_data["referenceImages"] = [
                         {"mediaId": media_id} for media_id in ref_ids
                     ]
+            if ref_vid_id:
+                request_data["videoInput"] = {
+                    "mediaId": ref_vid_id,
+                    "startFrameIndex": 0,
+                    "endFrameIndex": 192,
+                }
 
-            # First-last: match production Flow payload (clientContext + requests only).
-            # Extra mediaGenerationContext / useV2 can make Google treat it like a weaker I2V.
-            if mode_name == "start_end_image":
+            # First-last / EditVideo / Omni Flash: match production Flow payload (clientContext + requests only).
+            if mode_name == "start_end_image" or ref_vid_id or use_omni_payload:
                 payload = {
                     "clientContext": client_context,
                     "requests": [request_data],
@@ -848,6 +890,7 @@ class GoogleFlowClient:
             start_id: str | None,
             end_id: str | None,
             ref_ids: list[str] | None,
+            ref_vid_id: str | None = None,
             browser_like: bool,
             use_v2_config: bool = True,
         ) -> tuple[str, str]:
@@ -859,6 +902,7 @@ class GoogleFlowClient:
                 start_id=start_id,
                 end_id=end_id,
                 ref_ids=ref_ids,
+                ref_vid_id=ref_vid_id,
                 browser_like=browser_like,
                 use_v2_config=use_v2_config,
             )
@@ -901,6 +945,7 @@ class GoogleFlowClient:
                         start_id=start_media_id,
                         end_id=end_media_id,
                         ref_ids=list(reference_media_ids or []),
+                        ref_vid_id=reference_video_id,
                         browser_like=browser_like,
                         use_v2_config=use_v2,
                     )
@@ -996,43 +1041,7 @@ class GoogleFlowClient:
                     logger.warning("I2V fallback failed model_key=%s: %s", model_key, exc)
                     await asyncio.sleep(2)
 
-        # --- Last resort for Ingredients only: pure T2V (never for true FL) ---
-        # Note: we use active_mode == "components" here
-        if media_name is None and active_mode == "components":
-            logger.warning("I2V fallback failed — last resort pure T2V without references")
-            t2v_keys = resolve_video_model_candidates(
-                model,
-                aspect_ratio,
-                mode="text_to_video",
-                user_paygate_tier=tier,
-                duration=duration,
-            )
-            for key in resolve_video_model_candidates(
-                "omni_flash",
-                aspect_ratio,
-                mode="text_to_video",
-                user_paygate_tier=tier,
-                duration=duration,
-            ):
-                if key not in t2v_keys:
-                    t2v_keys.append(key)
-            for model_key in t2v_keys[:4]:
-                try:
-                    media_name, refreshed_token = await _submit_and_poll(
-                        model_key=model_key,
-                        mode_name="text_to_video",
-                        ep="video:batchAsyncGenerateVideoText",
-                        start_id=None,
-                        end_id=None,
-                        ref_ids=None,
-                        browser_like=True,
-                    )
-                    used_key = model_key
-                    active_mode = "text_to_video"
-                    break
-                except ProviderError as exc:
-                    last_error = exc
-                    await asyncio.sleep(2)
+
 
         if media_name is None:
             err = last_error or ProviderError("Tạo video thất bại", error_code=0)
@@ -1062,6 +1071,7 @@ class GoogleFlowClient:
             refreshed_token,
             media_name,
             session_token=session_token,
+            project_id=project_id,
         )
 
         try:
@@ -1215,8 +1225,39 @@ class GoogleFlowClient:
                         error_code=500,
                     )
                 if "SUCCESS" in status or "COMPLETE" in status or "DONE" in status:
+                    logger.info("Video poll SUCCESS item keys: %s", list(item.keys()) if isinstance(item, dict) else type(item))
+                    # Debug: log the video sub-structure
+                    video_sub = item.get("video") if isinstance(item, dict) else None
+                    if isinstance(video_sub, dict):
+                        logger.info("Video poll SUCCESS item['video'] keys: %s", list(video_sub.keys()))
+                        gen_video = video_sub.get("generatedVideo")
+                        if isinstance(gen_video, dict):
+                            logger.info("Video poll SUCCESS generatedVideo keys: %s", list(gen_video.keys()))
+                        op = video_sub.get("operation")
+                        if op:
+                            logger.info("Video poll SUCCESS video.operation = %s", str(op)[:500])
+                        dims = video_sub.get("dimensions")
+                        if dims:
+                            logger.info("Video poll SUCCESS video.dimensions = %s", str(dims)[:300])
+                    # Also log mediaMetadata
+                    mm = item.get("mediaMetadata") if isinstance(item, dict) else None
+                    if isinstance(mm, dict):
+                        logger.info("Video poll SUCCESS mediaMetadata keys: %s", list(mm.keys()))
+                        for k, v in mm.items():
+                            logger.info("  mediaMetadata[%s] = %s", k, str(v)[:300])
+
+                    encoded = self._find_encoded_video(item) or self._find_encoded_video(result)
+                    if encoded:
+                        logger.info("Found encodedVideo in video response")
+                        return base64.b64decode(encoded), current_access_token
+                    v_url = self._find_video_url(item) or self._find_video_url(result)
+                    if v_url:
+                        logger.info("Found video URL in video response: %s", v_url[:120])
+                        vid_bytes = await self._async_download(v_url)
+                        return vid_bytes, current_access_token
                     media_name = self._extract_media_name(item)
                     if media_name:
+                        logger.warning("No video data in poll response, falling back to media download: %s", media_name)
                         return media_name, current_access_token
             await asyncio.sleep(5)
         raise ProviderError("Timeout: video generation chưa hoàn thành", error_code=0)
@@ -1266,38 +1307,134 @@ class GoogleFlowClient:
             project_id=project_id,
             session_token=session_token,
         )
-        return await self._download_video(ref_at, media_name, session_token=session_token)
+        return await self._download_video(ref_at, media_name, session_token=session_token, project_id=project_id)
 
     async def _download_video(
         self,
         access_token: str,
-        media_name: str,
+        media_name: str | bytes,
         *,
         session_token: str | None = None,
+        project_id: str | None = None,
     ) -> bytes:
-        result = await self._request(
-            "GET",
-            self._api_url(f"media/{media_name}"),
-            headers=self._headers(
-                access_token=access_token,
-                session_token=session_token,
-                browser_like=True,
-            ),
-            timeout=180.0,
+        if isinstance(media_name, bytes):
+            return media_name
+
+        if self._client is None:
+            self._client = self._make_client()
+
+        headers = self._headers(
+            access_token=access_token,
+            session_token=session_token,
+            project_id=project_id,
             browser_like=True,
         )
-        video = result.get("video", {})
-        generated = video.get("generatedVideo", video)
-        encoded = generated.get("encodedVideo") or video.get("encodedVideo")
-        if encoded:
-            return base64.b64decode(encoded)
-        url = generated.get("fifeUrl") or generated.get("videoUrl") or video.get("fifeUrl")
-        if url:
-            if self._client is None:
-                self._client = self._make_client()
-            response = await self._client.get(url, timeout=180.0)
-            response.raise_for_status()
-            return response.content
+
+        # 1) Direct Flow Media query (standard Google Flow way to get video metadata and fifeUrl)
+        base = FLOW_API_BASE
+        api_key = FLOW_API_KEY
+        flow_media_url = f"{base}/flowMedia/{media_name}?key={api_key}"
+        try:
+            resp = await self._client.get(
+                flow_media_url,
+                headers=headers,
+                timeout=60.0,
+            )
+            if resp.status_code < 400:
+                data = resp.json()
+                logger.info("flowMedia/%s response keys: %s", media_name, list(data.keys()) if isinstance(data, dict) else type(data))
+                v_url = self._find_video_url(data)
+                if v_url:
+                    logger.info("Found video URL via flowMedia: %s", v_url[:120])
+                    return await self._async_download(v_url)
+                encoded = self._find_encoded_video(data)
+                if encoded:
+                    logger.info("Found encoded video via flowMedia")
+                    return base64.b64decode(encoded)
+            else:
+                logger.warning("flowMedia/%s -> %d: %s", media_name, resp.status_code, resp.text[:200])
+        except Exception as exc:
+            logger.warning("Failed to query flowMedia/%s: %s", media_name, exc)
+
+        # 2) Try tRPC getProjectMediaItems to get the actual video download URL
+        if project_id and session_token:
+            try:
+                import json as _json
+                trpc_url = f"{FLOW_LABS_BASE}/trpc/media.getProjectMediaItems"
+                trpc_payload = {
+                    "json": {
+                        "projectId": project_id,
+                        "mediaIds": [media_name],
+                    }
+                }
+                trpc_headers = self._headers(session_token=session_token)
+                resp = await self._client.post(
+                    trpc_url,
+                    headers=trpc_headers,
+                    content=_json.dumps(trpc_payload, separators=(",", ":")),
+                    timeout=30.0,
+                )
+                if resp.status_code < 400:
+                    trpc_data = resp.json()
+                    logger.info("tRPC getProjectMediaItems response keys: %s", list(trpc_data.keys()) if isinstance(trpc_data, dict) else type(trpc_data))
+                    v_url = self._find_video_url(trpc_data)
+                    if v_url:
+                        logger.info("Found video URL via tRPC: %s", v_url[:120])
+                        return await self._async_download(v_url)
+                    encoded = self._find_encoded_video(trpc_data)
+                    if encoded:
+                        logger.info("Found encoded video via tRPC")
+                        return base64.b64decode(encoded)
+            except Exception as exc:
+                logger.warning("tRPC getProjectMediaItems failed: %s", exc)
+
+        # 3) Try candidate URLs for direct binary download
+        candidate_urls = [
+            f"{base}/flowMedia/{media_name}?key={api_key}",
+        ]
+        if project_id:
+            candidate_urls.append(f"{base}/projects/{project_id}/flowMedia/{media_name}?key={api_key}&alt=media")
+            candidate_urls.append(f"{base}/projects/{project_id}/flowMedia/{media_name}?key={api_key}")
+            candidate_urls.append(f"{base}/projects/{project_id}/media/{media_name}?key={api_key}&alt=media")
+        candidate_urls.append(f"{base}/media/{media_name}?key={api_key}&alt=media")
+        candidate_urls.append(f"{base}/media/{media_name}?key={api_key}")
+
+        last_err: Exception | None = None
+        for url in candidate_urls:
+            try:
+                response = await self._client.get(
+                    url,
+                    headers=headers,
+                    timeout=180.0,
+                )
+                if response.status_code >= 400:
+                    logger.warning("Video download %s -> %s", url.split("?")[0], response.status_code)
+                    continue
+
+                content_type = response.headers.get("content-type", "")
+                if "video" in content_type or "octet-stream" in content_type:
+                    logger.info("Downloaded video binary from %s (%d bytes)", url.split("?")[0], len(response.content))
+                    return response.content
+
+                try:
+                    data = response.json()
+                    encoded = self._find_encoded_video(data)
+                    if encoded:
+                        return base64.b64decode(encoded)
+                    v_url = self._find_video_url(data)
+                    if v_url:
+                        return await self._async_download(v_url)
+                except Exception:
+                    if len(response.content) > 10000:
+                        logger.info("Downloaded raw content from %s (%d bytes, type=%s)", url.split("?")[0], len(response.content), content_type)
+                        return response.content
+            except Exception as exc:
+                last_err = exc
+                logger.warning("Video download attempt failed for %s: %s", url.split("?")[0], exc)
+                continue
+
+        if last_err:
+            raise last_err
         raise ProviderError("Không tải được video từ Google Flow", error_code=0)
 
     def _extract_uploaded_media_id(self, result: dict[str, Any]) -> str | None:
@@ -1362,6 +1499,82 @@ class GoogleFlowClient:
             raise ProviderError("Upload ảnh tham chiếu thất bại", error_code=0)
         return str(media_id)
 
+    async def upload_video(
+        self,
+        *,
+        access_token: str | None = None,
+        session_token: str | None = None,
+        project_id: str,
+        video_bytes: bytes,
+        mime_type: str = "video/mp4",
+        hidden: bool = False,
+    ) -> str:
+        """Upload a video to Google Flow and return its mediaServerId."""
+        extension = "webm" if "webm" in mime_type else "mp4"
+        digest = hashlib.sha256(video_bytes).hexdigest()[:12]
+        filename = f"glabs_motion_{digest}.{extension}"
+
+        headers = {
+            "Origin": "https://labs.google",
+            "Referer": f"https://labs.google/fx/tools/flow/project/{project_id}",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "X-Upload-Project-Id": project_id,
+            "X-Upload-Content-Length": str(len(video_bytes)),
+            "X-Upload-Content-Type": mime_type,
+            "X-Upload-File-Name": filename,
+        }
+        if session_token:
+            headers["Cookie"] = f"__Secure-next-auth.session-token={session_token}"
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+
+        if self._client is None:
+            self._client = self._make_client()
+
+        # 1. Start upload session
+        r_start = await self._client.post(
+            f"{FLOW_LABS_BASE}/upload-video?action=start",
+            headers=headers,
+            timeout=30.0,
+        )
+        if r_start.status_code >= 400:
+            logger.warning("Upload video start failed (%s): %s", r_start.status_code, r_start.text[:200])
+            raise ProviderError(f"Khởi tạo upload video thất bại ({r_start.status_code})", error_code=r_start.status_code)
+
+        start_data = r_start.json()
+        session_url = start_data.get("sessionUrl")
+        if not session_url:
+            raise ProviderError("Google Flow không trả về upload session URL", error_code=0)
+
+        # 2. Upload binary via PUT
+        up_headers = dict(headers)
+        up_headers.update({
+            "X-Upload-Session-Url": session_url,
+            "X-Upload-Offset": "0",
+            "X-Upload-Command": "upload, finalize",
+            "X-Upload-Project-Id": project_id,
+            "X-Upload-File-Name": filename,
+            "Content-Type": "application/octet-stream",
+        })
+
+        r_up = await self._client.put(
+            f"{FLOW_LABS_BASE}/upload-video?action=upload",
+            headers=up_headers,
+            content=video_bytes,
+            timeout=180.0,
+        )
+        if r_up.status_code >= 400:
+            logger.warning("Upload video binary failed (%s): %s", r_up.status_code, r_up.text[:200])
+            raise ProviderError(f"Upload video thất bại ({r_up.status_code})", error_code=r_up.status_code)
+
+        up_data = r_up.json()
+        media_id = up_data.get("mediaServerId") or up_data.get("mediaId")
+        if not media_id:
+            raise ProviderError("Không lấy được mediaId từ upload video response", error_code=0)
+
+        logger.info("Uploaded motion video to Flow: mediaServerId=%s", media_id)
+        return str(media_id)
+
     async def _extract_images(self, result: dict[str, Any]) -> list[bytes]:
         images: list[bytes] = []
         download_tasks: list[tuple[int, str]] = []
@@ -1421,6 +1634,48 @@ class GoogleFlowClient:
             value = generated.get(key) or image.get(key)
             if isinstance(value, str) and value.startswith("http"):
                 return value
+        return None
+
+    def _find_encoded_video(self, data: Any) -> str | None:
+        if not data:
+            return None
+        if isinstance(data, dict):
+            for key in ("encodedVideo", "videoBytes", "bytesBase64Encoded"):
+                val = data.get(key)
+                if isinstance(val, str) and len(val) > 200 and not val.startswith("http"):
+                    return val
+            for val in data.values():
+                res = self._find_encoded_video(val)
+                if res:
+                    return res
+        elif isinstance(data, list):
+            for elem in data:
+                res = self._find_encoded_video(elem)
+                if res:
+                    return res
+        return None
+
+    def _find_video_url(self, data: Any) -> str | None:
+        if not data:
+            return None
+        if isinstance(data, str):
+            if data.startswith("http") and any(ext in data.lower() for ext in [".mp4", "googlevideo", "googleusercontent", "aisandbox", "media", "fife", "video"]):
+                return data
+            return None
+        if isinstance(data, dict):
+            for key in ("fifeUrl", "videoUrl", "downloadUrl", "mediaUrl", "uri", "url"):
+                val = data.get(key)
+                if isinstance(val, str) and val.startswith("http"):
+                    return val
+            for val in data.values():
+                res = self._find_video_url(val)
+                if res:
+                    return res
+        elif isinstance(data, list):
+            for elem in data:
+                res = self._find_video_url(elem)
+                if res:
+                    return res
         return None
 
     async def _async_download(self, url: str) -> bytes:

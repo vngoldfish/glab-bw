@@ -554,3 +554,74 @@ def sample_multi_product_isolate() -> dict[str, Any]:
     }
 
 
+def sample_motion_dance_transfer() -> dict[str, Any]:
+    """Tạo video bắt chước chuyển động: 1 Video mẫu + 1 Ảnh nhân vật tham chiếu + 1 Prompt -> 1 Video nhân vật nhảy/chuyển động theo video mẫu."""
+    return {
+        "name": "Mẫu: Bắt chước chuyển động (Video mẫu + Nhân vật)",
+        "nodes": [
+            {
+                "id": "n_video_motion",
+                "type": "video_reference",
+                "position": {"x": 40, "y": 60},
+                "data": {
+                    "title": "Video mẫu (Điệu nhảy / Motion)",
+                    "video": "",
+                },
+            },
+            {
+                "id": "n_char_ref",
+                "type": "reference",
+                "position": {"x": 40, "y": 280},
+                "data": {
+                    "title": "Ảnh nhân vật @char",
+                    "image": "",
+                    "refName": "char",
+                },
+            },
+            {
+                "id": "n_prompt_motion",
+                "type": "prompt",
+                "position": {"x": 40, "y": 500},
+                "data": {
+                    "title": "Prompt mô tả",
+                    "prompt": "Nhân vật @char đang thực hiện các động tác nhảy múa và chuyển động theo đúng điệu nhảy của video mẫu, ánh sáng sân khấu điện ảnh cinematic 8k, chuyển động mượt mà",
+                },
+            },
+            {
+                "id": "n_video_gen",
+                "type": "video_generate",
+                "position": {"x": 460, "y": 200},
+                "data": {
+                    "title": "Tạo video (Motion Transfer)",
+                    "model": "veo_31_fast",
+                    "aspect_ratio": "16:9",
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "e_motion_vid",
+                "source": "n_video_motion",
+                "target": "n_video_gen",
+                "sourceHandle": "video",
+                "targetHandle": "video_motion",
+            },
+            {
+                "id": "e_motion_char",
+                "source": "n_char_ref",
+                "target": "n_video_gen",
+                "sourceHandle": "image",
+                "targetHandle": "start_image",
+            },
+            {
+                "id": "e_motion_prompt",
+                "source": "n_prompt_motion",
+                "target": "n_video_gen",
+                "sourceHandle": "prompt",
+                "targetHandle": "prompt",
+            },
+        ],
+        "viewport": {"x": 0, "y": 0, "zoom": 0.8},
+    }
+
+

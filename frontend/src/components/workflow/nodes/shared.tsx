@@ -3,7 +3,7 @@ import { normalizeFileUrl, mediaUrl, WorkflowAiNodeContext } from "../../../api"
 export { mediaUrl };
 
 export type RunStatus = "idle" | "pending" | "running" | "completed" | "failed" | "skipped";
-export type ImageField = "image" | "start_image" | "end_image" | "video";
+export type ImageField = "image" | "start_image" | "end_image" | "video" | "video_motion";
 
 export type WNodeData = {
   title: string;
@@ -11,9 +11,11 @@ export type WNodeData = {
   engine?: string;
   model?: string;
   aspect_ratio?: string;
+  aspectRatio?: string;
   mode?: string;
   image?: string;
   video?: string;
+  video_motion?: string;
   start_image?: string;
   end_image?: string;
   cameraAngle?: string;
@@ -47,6 +49,13 @@ export type WNodeData = {
   hasPromptInput?: boolean;
   promptKind?: "image" | "video";
   prompt_hint?: string;
+  audio?: string;
+  transition?: string;
+  negativePrompt?: string;
+  clipDuration?: number;
+  resolution?: string;
+  aiAudio?: boolean;
+  motionMode?: "transform" | "inspire";
 };
 
 export const NODE_COLORS: Record<string, string> = {
@@ -56,6 +65,7 @@ export const NODE_COLORS: Record<string, string> = {
   video_generate: "#f59e0b",
   frame_extract: "#ec4899",
   video_reference: "#e879f9",
+  audio_source: "#ec4899",
 };
 
 export const STATUS_META: Record<RunStatus, { label: string; color: string; bg: string }> = {
@@ -435,7 +445,7 @@ export function ImageAttachBar({
 
 export function VideoAttachBar({
   nodeId,
-  field,
+  field = "video",
   value,
   onChange,
   onPick,
@@ -443,10 +453,10 @@ export function VideoAttachBar({
   label = "Video có sẵn",
 }: {
   nodeId: string;
-  field: "video";
+  field?: "video" | "video_motion";
   value?: string;
   onChange?: (id: string, patch: Partial<WNodeData>) => void;
-  onPick?: (id: string, field: "video") => void;
+  onPick?: (id: string, field: "video" | "video_motion") => void;
   onPreview?: (url: string) => void;
   label?: string;
 }) {
@@ -462,7 +472,7 @@ export function VideoAttachBar({
             onClick={() =>
               onChange?.(nodeId, {
                 [field]: undefined,
-                resultUrls: undefined,
+                ...(field === "video" ? { resultUrls: undefined } : {}),
               } as Partial<WNodeData>)
             }
           >

@@ -254,12 +254,24 @@ function Section({ icon, title, children }: { icon: string; title: string; child
   );
 }
 
+/* ───── DATA: Aspect Ratios ───── */
+const ASPECT_PRESETS = [
+  { id: "1:1", label: "1:1 Vuông", icon: "⏹️", desc: "Avatar, Instagram, Facebook Post" },
+  { id: "16:9", label: "16:9 Ngang", icon: "🖥️", desc: "YouTube, Banner, Màn hình máy tính" },
+  { id: "9:16", label: "9:16 Dọc", icon: "📱", desc: "TikTok, Reels, Story, Shorts" },
+  { id: "4:3", label: "4:3 Cổ điển", icon: "📺", desc: "Tiêu chuẩn cổ điển" },
+  { id: "3:4", label: "3:4 Chân dung", icon: "🖼️", desc: "Chân dung nghệ thuật" },
+  { id: "auto", label: "Tự động", icon: "🔄", desc: "Theo ảnh mẫu tham chiếu" },
+];
+
 /* ───── MAIN MODAL ───── */
 export interface ImageStudioSettings {
   cameraAngle: string;
   style: string;
   lighting: string;
   composition: string;
+  aspect_ratio?: string;
+  aspectRatio?: string;
 }
 
 interface Props {
@@ -309,6 +321,7 @@ export default function ImageStudioModal({
   const [subject, setSubject] = useState(() => cleanSubjectPrompt(initialSubject));
   const [refImage, setRefImage] = useState(initialReferenceImage);
   const studioFileRef = useRef<HTMLInputElement>(null);
+  const [aspectRatio, setAspectRatio] = useState(() => initial.aspect_ratio || initial.aspectRatio || "1:1");
   const [angleId, setAngleId] = useState(() => findIdByPrompt(CAMERA_ANGLES, initial.cameraAngle));
   const [lensId, setLensId] = useState("");
   const [filmId, setFilmId] = useState("");
@@ -365,6 +378,8 @@ export default function ImageStudioModal({
       style: "",
       lighting: "",
       composition: "",
+      aspect_ratio: aspectRatio,
+      aspectRatio: aspectRatio,
       referenceImage: refImage,
     });
   }
@@ -506,6 +521,40 @@ export default function ImageStudioModal({
                 💡 <em>Hệ thống sẽ tự động ghép Chủ thể của bạn đứng ở đầu câu, theo sau bởi các thông số Studio bạn chọn bên dưới!</em>
               </div>
             </div>
+
+            <Section icon="📐" title="Kích Thước & Tỷ Lệ Khung Hình / Aspect Ratio">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                {ASPECT_PRESETS.map((ap) => {
+                  const active = aspectRatio === ap.id;
+                  return (
+                    <button
+                      key={ap.id}
+                      type="button"
+                      onClick={() => setAspectRatio(ap.id)}
+                      style={{
+                        padding: "8px 10px",
+                        background: active ? "rgba(74, 222, 128, 0.15)" : "rgba(255,255,255,0.03)",
+                        border: active ? "1px solid #4ade80" : "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 8,
+                        color: active ? "#4ade80" : "#cbd5e1",
+                        cursor: "pointer",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 2,
+                        textAlign: "left",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: active ? 700 : 500 }}>
+                        <span>{ap.icon}</span>
+                        <span>{ap.label}</span>
+                      </div>
+                      <span style={{ fontSize: 9, color: active ? "rgba(74, 222, 128, 0.8)" : "rgba(255,255,255,0.35)" }}>{ap.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Section>
 
             <Section icon="📷" title="Góc Chụp / Camera Angle">
               <CardGrid items={CAMERA_ANGLES} selected={angleId} onSelect={setAngleId} cols={4} />

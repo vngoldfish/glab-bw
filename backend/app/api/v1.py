@@ -31,7 +31,7 @@ router = APIRouter(prefix="/v1", tags=["Public API v1"])
 
 
 class ImageGenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=2000, description="Text prompt for image generation")
+    prompt: str = Field(default="", min_length=0, max_length=2000, description="Text prompt for image generation")
     provider: str = Field(default="auto", description="Provider: auto, flow, grok, openai, meta")
     model: str | None = Field(default=None, description="Model name (provider-specific)")
     aspect_ratio: str | None = Field(default=None, description="Aspect ratio, e.g. '16:9', '1:1'")
@@ -42,7 +42,7 @@ class ImageGenerateRequest(BaseModel):
 
 
 class VideoGenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=2000, description="Text prompt for video generation")
+    prompt: str = Field(default="", min_length=0, max_length=2000, description="Text prompt for video generation")
     provider: str = Field(default="auto", description="Provider: auto, flow, grok")
     model: str | None = Field(default=None, description="Model name (provider-specific)")
     aspect_ratio: str | None = Field(default=None, description="Aspect ratio")
@@ -173,7 +173,17 @@ def _media_type_from_url(url: str) -> str:
     return "image/png"
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+@router.get("/health")
+@router.post("/health")
+async def v1_health() -> dict:
+    return {
+        "status": "ok",
+        "message": "Kiểm tra kết nối G-Labs BW Public API v1 thành công",
+        "server": "G-Labs BW",
+    }
+
+
+# ── Public Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @router.post("/images/generate", status_code=202, response_model=TaskResponse)
