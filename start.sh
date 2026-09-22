@@ -102,7 +102,7 @@ start_backend_once() {
     cd "$ROOT"
     export PYTHONPATH="$ROOT/backend"
     nohup "$VENV_PY" -m uvicorn app.main:app --host "$HOST" --port "$API_PORT" \
-      >>"$BACKEND_LOG" 2>&1 &
+      </dev/null >>"$BACKEND_LOG" 2>&1 &
     echo $! >"$BACKEND_PID_FILE"
   )
 }
@@ -173,8 +173,8 @@ else
   echo "[3/4] Frontend Vite :5173..."
   (
     cd "$ROOT/frontend"
-    nohup npm run dev -- --host "$HOST" --port 5173 \
-      >>"$FRONTEND_LOG" 2>&1 &
+    nohup npx vite --host "$HOST" --port 5173 \
+      </dev/null >>"$FRONTEND_LOG" 2>&1 &
     echo $! >"$FRONTEND_PID_FILE"
   )
   wait_http "http://127.0.0.1:5173/" "Frontend" 30
