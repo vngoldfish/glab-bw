@@ -392,13 +392,23 @@ class BrowserPoolManager:
             pw = await async_playwright().start()
             inst._playwright = pw
 
-            context = await pw.chromium.launch_persistent_context(
+            launch_kwargs = dict(
                 user_data_dir=str(profile_dir),
                 headless=headless,
                 args=args,
                 extra_http_headers={"X-Account-Id": account.id},
                 viewport={"width": 1280, "height": 900},
             )
+
+            try:
+                context = await pw.chromium.launch_persistent_context(**launch_kwargs)
+            except Exception as e_launch:
+                if "Executable doesn't exist" in str(e_launch) or "playwright install" in str(e_launch):
+                    logger.warning("Chromium executable missing, falling back to installed Google Chrome (channel='chrome'): %s", e_launch)
+                    context = await pw.chromium.launch_persistent_context(**launch_kwargs, channel="chrome")
+                else:
+                    raise
+
             inst._context = context
 
             # Persistent context restores old tabs from profile.
